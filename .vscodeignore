@@ -1,0 +1,8 @@
+src/
+node_modules/
+.vscode/
+esbuild.js
+tsconfig.json
+**/*.ts
+**/*.tsx
+**/*.map
