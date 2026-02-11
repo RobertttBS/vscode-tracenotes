@@ -185,19 +185,11 @@ style.textContent = `
     border-color: var(--vscode-focusBorder, #007fd4);
 }
 
-/* ---- Reverse-sync flash ---- */
-.highlight-flash .trace-card {
-    animation: flash-border 1s ease;
-}
-@keyframes flash-border {
-    0%, 100% {
-        border-color: var(--vscode-panel-border, #333);
-        box-shadow: none;
-    }
-    30% {
-        border-color: #ffcc00;
-        box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
-    }
+/* ---- Reverse-sync active highlight ---- */
+.highlight-active .trace-card {
+    border-color: #ffcc00;
+    box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 `;
 document.head.appendChild(style);

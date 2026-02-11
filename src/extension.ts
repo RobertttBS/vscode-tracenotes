@@ -144,8 +144,12 @@ export function activate(context: vscode.ExtensionContext) {
                         type: 'focusCard',
                         id: matchedId,
                     });
-                } else if (!matchedId) {
+                } else if (!matchedId && lastFocusedTraceId !== undefined) {
                     lastFocusedTraceId = undefined;
+                    provider._view?.webview.postMessage({
+                        type: 'focusCard',
+                        id: null,
+                    });
                 }
             }, 150); // 150ms debounce
         }),

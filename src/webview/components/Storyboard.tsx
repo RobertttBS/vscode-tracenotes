@@ -136,17 +136,16 @@ const Storyboard: React.FC = () => {
                     );
                     break;
                 case 'focusCard': {
-                    const cardId = (message as { type: string; id: string }).id;
-                    // Force the lazy card to mount, then scroll & flash after render
-                    setFocusedId(cardId);
-                    setTimeout(() => {
-                        const el = document.getElementById(`trace-card-${cardId}`);
-                        if (el) {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            el.classList.add('highlight-flash');
-                            setTimeout(() => el.classList.remove('highlight-flash'), 1000);
-                        }
-                    }, 50); // small delay to allow React to mount the card
+                    const cardId = (message as { type: string; id: string | null }).id;
+                    setFocusedId(cardId ?? undefined);
+                    if (cardId) {
+                        setTimeout(() => {
+                            const el = document.getElementById(`trace-card-${cardId}`);
+                            if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 50);
+                    }
                     break;
                 }
             }
@@ -207,7 +206,11 @@ const Storyboard: React.FC = () => {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={traces.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     {traces.map((trace, index) => (
-                        <div key={trace.id} id={`trace-card-${trace.id}`}>
+                        <div
+                            key={trace.id}
+                            id={`trace-card-${trace.id}`}
+                            className={focusedId === trace.id ? 'highlight-active' : ''}
+                        >
                             <SortableTraceCard
                                 trace={trace}
                                 index={index}
