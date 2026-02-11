@@ -6,6 +6,7 @@ export interface TracePoint {
     lang: string;                // language id for syntax highlighting
     note: string;
     timestamp: number;
+    children?: TracePoint[];     // sub-traces (max 3 levels deep)
 }
 
 /** Messages sent from Extension → Webview */
@@ -13,7 +14,8 @@ export type ExtensionToWebviewMessage =
     | { type: 'addTrace'; payload: TracePoint }
     | { type: 'syncAll'; payload: TracePoint[] }
     | { type: 'traceRemoved'; payload: { id: string } }
-    | { type: 'focusCard'; id: string };
+    | { type: 'focusCard'; id: string }
+    | { type: 'setActiveGroup'; id: string | null; depth: number };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =
@@ -21,4 +23,6 @@ export type WebviewToExtensionMessage =
     | { command: 'removeTrace'; id: string }
     | { command: 'reorderTraces'; orderedIds: string[] }
     | { command: 'updateNote'; id: string; note: string }
-    | { command: 'ready' };
+    | { command: 'ready' }
+    | { command: 'enterGroup'; id: string }
+    | { command: 'exitGroup' };

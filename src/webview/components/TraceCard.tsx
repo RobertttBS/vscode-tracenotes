@@ -30,6 +30,7 @@ interface TracePoint {
     lang: string;
     note: string;
     timestamp: number;
+    children?: TracePoint[];
 }
 
 interface TraceCardProps {
@@ -37,6 +38,8 @@ interface TraceCardProps {
     index: number;
     onUpdateNote: (id: string, note: string) => void;
     onRemove: (id: string) => void;
+    onEnterGroup: (id: string) => void;
+    showEnterGroup: boolean;
 }
 
 /** Map common VS Code languageIds to Prism language names */
@@ -50,7 +53,7 @@ function mapLanguage(lang: string): string {
     return map[lang] || lang;
 }
 
-const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRemove }) => {
+const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRemove, onEnterGroup, showEnterGroup }) => {
     const [editing, setEditing] = useState(false);
     const [noteValue, setNoteValue] = useState(trace.note);
 
@@ -142,6 +145,17 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                     </div>
                 )}
             </div>
+            {/* Enter group */}
+            {showEnterGroup && (
+                <div className="card-group">
+                    <button
+                        className="enter-group-btn"
+                        onClick={(e) => { e.stopPropagation(); onEnterGroup(trace.id); }}
+                    >
+                        {trace.children?.length ? 'View Childs ›' : 'Add Childs +'}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

@@ -12,11 +12,11 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialise gutter-icon decoration type
     initDecorations(context);
 
-    // Helper: refresh decorations on the active editor
+    // Helper: refresh decorations on the active editor (scoped to active group)
     const refreshDecorations = () => {
         const editor = vscode.window.activeTextEditor;
         if (editor) {
-            updateDecorations(editor, traceManager.getAll());
+            updateDecorations(editor, traceManager.getActiveChildren());
         }
     };
 
@@ -41,6 +41,19 @@ export function activate(context: vscode.ExtensionContext) {
                     traceManager.updateNote(msg.id, msg.note);
                     refreshDecorations(); // hover message may have changed
                     break;
+                case 'enterGroup':
+                    traceManager.enterGroup(msg.id);
+                    provider.postMessage({ type: 'setActiveGroup', id: msg.id, depth: traceManager.getActiveDepth() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    refreshDecorations();
+                    break;
+                case 'exitGroup': {
+                    const newGroupId = traceManager.exitGroup();
+                    provider.postMessage({ type: 'setActiveGroup', id: newGroupId, depth: traceManager.getActiveDepth() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    refreshDecorations();
+                    break;
+                }
             }
         },
     );
@@ -60,7 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
             const trace = collectTrace(editor);
             if (trace) {
                 traceManager.add(trace);
-                provider.postMessage({ type: 'addTrace', payload: trace });
+                provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
                 provider.postMessage({ type: 'focusCard', id: trace.id });
                 refreshDecorations();
                 vscode.window.showInformationMessage('MindStack: Trace collected!');
@@ -89,6 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('mindstack.clearAll', () => {
             traceManager.clear();
+            provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0 });
             provider.postMessage({ type: 'syncAll', payload: [] });
             refreshDecorations();
             vscode.window.showInformationMessage('MindStack: All traces cleared.');
@@ -99,7 +113,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editor) {
-                updateDecorations(editor, traceManager.getAll());
+                updateDecorations(editor, traceManager.getActiveChildren());
             }
         }),
     );
@@ -113,7 +127,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor && editor.document === event.document) {
                 if (decorationDebounce) { clearTimeout(decorationDebounce); }
                 decorationDebounce = setTimeout(() => {
-                    updateDecorations(editor, traceManager.getAll());
+                    updateDecorations(editor, traceManager.getActiveChildren());
                 }, 100);
             }
         }),
@@ -131,7 +145,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const position = editor.selection.active;
                 const currentFilePath = editor.document.uri.fsPath;
 
-                const allTraces = traceManager.getAll();
+                const allTraces = traceManager.getActiveChildren();
                 const matched = allTraces.find(t =>
                     t.filePath === currentFilePath &&
                     position.line >= t.lineRange[0] &&

@@ -185,6 +185,47 @@ style.textContent = `
     border-color: var(--vscode-focusBorder, #007fd4);
 }
 
+/* ---- Back button ---- */
+.back-button {
+    background: none;
+    border: 1px solid var(--vscode-panel-border, #555);
+    color: var(--vscode-foreground, #ccc);
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.back-button:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+/* ---- Enter group button ---- */
+.card-group {
+    padding: 4px 8px 6px;
+    border-top: 1px solid var(--vscode-panel-border, #333);
+}
+
+.enter-group-btn {
+    width: 100%;
+    background: none;
+    border: 1px dashed var(--vscode-panel-border, #555);
+    color: var(--vscode-textLink-foreground, #3794ff);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.enter-group-btn:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
 /* ---- Reverse-sync active highlight ---- */
 .highlight-active .trace-card {
     border-color: #ffcc00;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     DndContext,
     closestCenter,
@@ -25,6 +25,7 @@ interface TracePoint {
     lang: string;
     note: string;
     timestamp: number;
+    children?: TracePoint[];
 }
 
 /**
@@ -86,7 +87,9 @@ const SortableTraceCard: React.FC<{
     focusedId?: string;
     onUpdateNote: (id: string, note: string) => void;
     onRemove: (id: string) => void;
-}> = ({ trace, index, focusedId, onUpdateNote, onRemove }) => {
+    onEnterGroup: (id: string) => void;
+    showEnterGroup: boolean;
+}> = ({ trace, index, focusedId, onUpdateNote, onRemove, onEnterGroup, showEnterGroup }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: trace.id,
     });
@@ -106,6 +109,8 @@ const SortableTraceCard: React.FC<{
                     index={index}
                     onUpdateNote={onUpdateNote}
                     onRemove={onRemove}
+                    onEnterGroup={onEnterGroup}
+                    showEnterGroup={showEnterGroup}
                 />
             </LazyRender>
         </div>
@@ -115,10 +120,31 @@ const SortableTraceCard: React.FC<{
 const Storyboard: React.FC = () => {
     const [traces, setTraces] = useState<TracePoint[]>([]);
     const [focusedId, setFocusedId] = useState<string | undefined>();
+    const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+    const [currentDepth, setCurrentDepth] = useState(0);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     );
+
+    // Recursively find a trace by id in the tree
+    const findTraceById = useCallback((id: string, list: TracePoint[]): TracePoint | undefined => {
+        for (const t of list) {
+            if (t.id === id) { return t; }
+            if (t.children?.length) {
+                const found = findTraceById(id, t.children);
+                if (found) { return found; }
+            }
+        }
+        return undefined;
+    }, []);
+
+    // Derive visible traces from the full tree based on currentGroupId
+    const visibleTraces = useMemo(() => {
+        if (currentGroupId === null) { return traces; }
+        const group = findTraceById(currentGroupId, traces);
+        return group?.children ?? [];
+    }, [traces, currentGroupId, findTraceById]);
 
     // Listen for messages from the extension
     useEffect(() => {
@@ -148,6 +174,12 @@ const Storyboard: React.FC = () => {
                     }
                     break;
                 }
+                case 'setActiveGroup': {
+                    const msg = message as { type: string; id: string | null; depth: number };
+                    setCurrentGroupId(msg.id);
+                    setCurrentDepth(msg.depth);
+                    break;
+                }
             }
         });
         return unsubscribe;
@@ -163,17 +195,20 @@ const Storyboard: React.FC = () => {
         if (!over || active.id === over.id) { return; }
 
         setTraces(prev => {
-            const oldIndex = prev.findIndex(t => t.id === active.id);
-            const newIndex = prev.findIndex(t => t.id === over.id);
-            const newOrder = arrayMove(prev, oldIndex, newIndex);
+            // We need to reorder within the visible (current group) scope
+            // But traces state holds the full tree, so we work with visibleTraces IDs
+            const oldIndex = visibleTraces.findIndex(t => t.id === active.id);
+            const newIndex = visibleTraces.findIndex(t => t.id === over.id);
+            if (oldIndex < 0 || newIndex < 0) { return prev; }
+            const newOrder = arrayMove(visibleTraces, oldIndex, newIndex);
             // Notify extension
             postMessage({
                 command: 'reorderTraces',
                 orderedIds: newOrder.map(t => t.id),
             });
-            return newOrder;
+            return prev; // Extension will sync back the full tree
         });
-    }, []);
+    }, [visibleTraces]);
 
     const handleUpdateNote = useCallback((id: string, note: string) => {
         setTraces(prev => prev.map(t => (t.id === id ? { ...t, note } : t)));
@@ -181,15 +216,25 @@ const Storyboard: React.FC = () => {
     }, []);
 
     const handleRemove = useCallback((id: string) => {
-        setTraces(prev => prev.filter(t => t.id !== id));
         postMessage({ command: 'removeTrace', id });
     }, []);
 
-    if (traces.length === 0) {
+    const handleEnterGroup = useCallback((id: string) => {
+        postMessage({ command: 'enterGroup', id });
+    }, []);
+
+    const handleExitGroup = useCallback(() => {
+        postMessage({ command: 'exitGroup' });
+    }, []);
+
+    if (visibleTraces.length === 0) {
         return (
             <div className="empty-state">
+                {currentGroupId && (
+                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                )}
                 <div className="empty-icon">📌</div>
-                <p>No traces yet.</p>
+                <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
                 <p className="empty-hint">
                     Select some code and run<br />
                     <strong>MindStack: Collect Trace</strong>
@@ -201,11 +246,16 @@ const Storyboard: React.FC = () => {
     return (
         <div className="storyboard">
             <div className="storyboard-header">
-                <span className="trace-count">{traces.length} trace{traces.length > 1 ? 's' : ''}</span>
+                {currentGroupId && (
+                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                )}
+                <span className="trace-count">
+                    {visibleTraces.length} trace{visibleTraces.length > 1 ? 's' : ''}
+                </span>
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={traces.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                    {traces.map((trace, index) => (
+                <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                    {visibleTraces.map((trace, index) => (
                         <div
                             key={trace.id}
                             id={`trace-card-${trace.id}`}
@@ -217,6 +267,8 @@ const Storyboard: React.FC = () => {
                                 focusedId={focusedId}
                                 onUpdateNote={handleUpdateNote}
                                 onRemove={handleRemove}
+                                onEnterGroup={handleEnterGroup}
+                                showEnterGroup={currentDepth < 2}
                             />
                         </div>
                     ))}
