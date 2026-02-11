@@ -61,6 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (trace) {
                 traceManager.add(trace);
                 provider.postMessage({ type: 'addTrace', payload: trace });
+                provider.postMessage({ type: 'focusCard', id: trace.id });
                 refreshDecorations();
                 vscode.window.showInformationMessage('MindStack: Trace collected!');
             }
