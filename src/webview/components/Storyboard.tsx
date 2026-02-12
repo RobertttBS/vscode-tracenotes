@@ -231,38 +231,39 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'exitGroup' });
     }, []);
 
+    const header = (currentGroupId || visibleTraces.length > 0) && (
+        <div className="storyboard-header">
+            {currentGroupId && (
+                <>
+                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                    {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
+                </>
+            )}
+            <span className="trace-count">
+                {visibleTraces.length} trace{visibleTraces.length !== 1 ? 's' : ''}
+            </span>
+        </div>
+    );
+
     if (visibleTraces.length === 0) {
         return (
-            <div className="empty-state">
-                {currentGroupId && (
-                    <>
-                        <button className="back-button" onClick={handleExitGroup}>← Back</button>
-                        {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
-                    </>
-                )}
-                <div className="empty-icon">📌</div>
-                <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
-                <p className="empty-hint">
-                    Select some code and run<br />
-                    <strong>MindStack: Collect Trace</strong>
-                </p>
+            <div className="storyboard">
+                {header}
+                <div className="empty-state">
+                    <div className="empty-icon">📌</div>
+                    <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
+                    <p className="empty-hint">
+                        Select some code and run<br />
+                        <strong>MindStack: Collect Trace</strong>
+                    </p>
+                </div>
             </div>
         );
     }
 
     return (
         <div className="storyboard">
-            <div className="storyboard-header">
-                {currentGroupId && (
-                    <>
-                        <button className="back-button" onClick={handleExitGroup}>← Back</button>
-                        {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
-                    </>
-                )}
-                <span className="trace-count">
-                    {visibleTraces.length} trace{visibleTraces.length > 1 ? 's' : ''}
-                </span>
-            </div>
+            {header}
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     {visibleTraces.map((trace, index) => (

@@ -14,7 +14,13 @@ style.textContent = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 8px 12px;
+    padding: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--vscode-editor-background, #1e1e1e);
+    border-bottom: 1px solid var(--vscode-panel-border, #333);
+    margin: -8px -8px 12px;
 }
 
 .trace-count {
