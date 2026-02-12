@@ -12,6 +12,7 @@ import json from 'refractor/lang/json';
 import bash from 'refractor/lang/bash';
 import css from 'refractor/lang/css';
 import markdown from 'refractor/lang/markdown';
+import type { TracePoint } from '../../types';
 
 SyntaxHighlighter.registerLanguage('tsx', tsx);
 SyntaxHighlighter.registerLanguage('typescript', typescript);
@@ -21,17 +22,6 @@ SyntaxHighlighter.registerLanguage('json', json);
 SyntaxHighlighter.registerLanguage('bash', bash);
 SyntaxHighlighter.registerLanguage('css', css);
 SyntaxHighlighter.registerLanguage('markdown', markdown);
-
-interface TracePoint {
-    id: string;
-    filePath: string;
-    lineRange: [number, number];
-    content: string;
-    lang: string;
-    note: string;
-    timestamp: number;
-    children?: TracePoint[];
-}
 
 interface TraceCardProps {
     trace: TracePoint;

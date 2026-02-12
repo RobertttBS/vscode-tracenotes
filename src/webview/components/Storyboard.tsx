@@ -16,17 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
-
-interface TracePoint {
-    id: string;
-    filePath: string;
-    lineRange: [number, number];
-    content: string;
-    lang: string;
-    note: string;
-    timestamp: number;
-    children?: TracePoint[];
-}
+import type { TracePoint } from '../../types';
 
 /**
  * Defers rendering of children until the element scrolls into the viewport.
@@ -150,16 +140,8 @@ const Storyboard: React.FC = () => {
     useEffect(() => {
         const unsubscribe = onMessage((message) => {
             switch (message.type) {
-                case 'addTrace':
-                    setTraces(prev => [...prev, message.payload as TracePoint]);
-                    break;
                 case 'syncAll':
                     setTraces(message.payload as TracePoint[]);
-                    break;
-                case 'traceRemoved':
-                    setTraces(prev =>
-                        prev.filter(t => t.id !== (message.payload as { id: string }).id),
-                    );
                     break;
                 case 'focusCard': {
                     const cardId = (message as { type: string; id: string | null }).id;

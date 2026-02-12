@@ -11,9 +11,7 @@ export interface TracePoint {
 
 /** Messages sent from Extension → Webview */
 export type ExtensionToWebviewMessage =
-    | { type: 'addTrace'; payload: TracePoint }
     | { type: 'syncAll'; payload: TracePoint[] }
-    | { type: 'traceRemoved'; payload: { id: string } }
     | { type: 'focusCard'; id: string }
     | { type: 'setActiveGroup'; id: string | null; depth: number };
 
