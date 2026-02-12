@@ -65,9 +65,6 @@ export function activate(context: vscode.ExtensionContext) {
                             focusCardTimer = undefined;
                         }, 100);
                     }
-                    if (exitedGroup) {
-                        handleJump({ filePath: exitedGroup.filePath, range: exitedGroup.lineRange });
-                    }
                     refreshDecorations();
                     break;
                 }
