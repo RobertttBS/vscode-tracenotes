@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
-import { TracePoint } from './types';
-
-const MAX_DEPTH = 3;
+import { TracePoint, MAX_DEPTH } from './types';
 
 /**
  * Manages the collection of TracePoints as a tree (up to 3 levels deep).

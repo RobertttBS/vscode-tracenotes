@@ -1,3 +1,5 @@
+export const MAX_DEPTH = 10;
+
 export interface TracePoint {
     id: string;
     filePath: string;

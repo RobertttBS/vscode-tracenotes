@@ -16,7 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
-import type { TracePoint } from '../../types';
+import { TracePoint, MAX_DEPTH } from '../../types';
 
 /**
  * Defers rendering of children until the element scrolls into the viewport.
@@ -278,7 +278,7 @@ const Storyboard: React.FC = () => {
                                 onUpdateNote={handleUpdateNote}
                                 onRemove={handleRemove}
                                 onEnterGroup={handleEnterGroup}
-                                showEnterGroup={currentDepth < 2}
+                                showEnterGroup={currentDepth < MAX_DEPTH - 1}
                             />
                         </div>
                     ))}
