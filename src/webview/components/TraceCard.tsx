@@ -92,7 +92,7 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                         title={trace.children?.length ? 'View child traces' : 'Add child traces'}
                         onClick={(e) => { e.stopPropagation(); onEnterGroup(trace.id); }}
                     >
-                        {trace.children?.length ? `${trace.children.length} Childs ›` : 'Add Childs +'}
+                        {trace.children?.length ? `> ${trace.children.length} Childs` : '+ Childs'}
                     </button>
                 )}
                 <button

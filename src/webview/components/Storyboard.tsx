@@ -107,6 +107,12 @@ const SortableTraceCard: React.FC<{
     );
 };
 
+const TrashIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M11 1.5v1h3.5v1h-1v10.5l-1 1H3.5l-1-1V3.5h-1v-1H5v-1h6zM4.5 3.5v10h7v-10h-7zM6 5v7h1V5H6zm3 0v7h1V5H9z" />
+    </svg>
+);
+
 const Storyboard: React.FC = () => {
     const [traces, setTraces] = useState<TracePoint[]>([]);
     const [focusedId, setFocusedId] = useState<string | undefined>();
@@ -231,6 +237,10 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'exitGroup' });
     }, []);
 
+    const handleClearAll = useCallback(() => {
+        postMessage({ command: 'clearCurrentLevel' });
+    }, []);
+
     const header = (currentGroupId || visibleTraces.length > 0) && (
         <div className="storyboard-header">
             {currentGroupId && (
@@ -239,9 +249,18 @@ const Storyboard: React.FC = () => {
                     {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
                 </>
             )}
-            <span className="trace-count">
-                {visibleTraces.length} trace{visibleTraces.length !== 1 ? 's' : ''}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                <span className="trace-count">
+                    {visibleTraces.length} trace{visibleTraces.length !== 1 ? 's' : ''}
+                </span>
+                <button
+                    className="clear-all-btn"
+                    onClick={handleClearAll}
+                    title="Clear All Traces"
+                >
+                    <TrashIcon />
+                </button>
+            </div>
         </div>
     );
 

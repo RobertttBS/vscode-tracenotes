@@ -243,7 +243,27 @@ style.textContent = `
     box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-`;
+
+/* ---- Clear All Button ---- */
+.clear-all-btn {
+    background: none;
+    border: none;
+    color: #ff4d4d;
+    padding: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.8;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.clear-all-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+    opacity: 1;
+}
+`
 document.head.appendChild(style);
 
 const container = document.getElementById('root')!;

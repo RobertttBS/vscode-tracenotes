@@ -25,4 +25,5 @@ export type WebviewToExtensionMessage =
     | { command: 'updateNote'; id: string; note: string }
     | { command: 'ready' }
     | { command: 'enterGroup'; id: string }
-    | { command: 'exitGroup' };
+    | { command: 'exitGroup' }
+    | { command: 'clearCurrentLevel' };

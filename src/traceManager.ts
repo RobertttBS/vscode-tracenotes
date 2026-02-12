@@ -164,6 +164,13 @@ export class TraceManager {
         this.persistActiveGroup();
     }
 
+    /** Clear traces in the current active group (or root) */
+    clearActiveChildren(): void {
+        const children = this.getActiveChildren();
+        children.length = 0; // Clear in-place
+        this.persist();
+    }
+
     // ── Public: Navigation ───────────────────────────────────────
 
     /** Drill into a trace's children. Returns false if id not found or depth exceeded. */

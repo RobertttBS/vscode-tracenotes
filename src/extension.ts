@@ -68,6 +68,11 @@ export function activate(context: vscode.ExtensionContext) {
                     refreshDecorations();
                     break;
                 }
+                case 'clearCurrentLevel':
+                    traceManager.clearActiveChildren();
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    refreshDecorations();
+                    break;
             }
         },
     );
