@@ -146,6 +146,18 @@ export class TraceManager {
         return [...this.traces];
     }
 
+    /** Recursively collect every TracePoint across all levels into a flat list */
+    getAllFlat(list: TracePoint[] = this.traces): TracePoint[] {
+        const result: TracePoint[] = [];
+        for (const t of list) {
+            result.push(t);
+            if (t.children?.length) {
+                result.push(...this.getAllFlat(t.children));
+            }
+        }
+        return result;
+    }
+
     /** Clear all traces and reset active group */
     clear(): void {
         this.traces = [];

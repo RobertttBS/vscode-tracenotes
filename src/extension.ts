@@ -16,7 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
     const refreshDecorations = () => {
         const editor = vscode.window.activeTextEditor;
         if (editor) {
-            updateDecorations(editor, traceManager.getActiveChildren());
+            updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
         }
     };
 
@@ -124,7 +124,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editor) {
-                updateDecorations(editor, traceManager.getActiveChildren());
+                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
             }
         }),
     );
@@ -138,7 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor && editor.document === event.document) {
                 if (decorationDebounce) { clearTimeout(decorationDebounce); }
                 decorationDebounce = setTimeout(() => {
-                    updateDecorations(editor, traceManager.getActiveChildren());
+                    updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
                 }, 100);
             }
         }),
