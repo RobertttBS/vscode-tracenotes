@@ -20,6 +20,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
     };
 
+    // Timer handle for the deferred focusCard after exitGroup
+    let focusCardTimer: ReturnType<typeof setTimeout> | undefined;
+
     // Create the webview provider
     const provider = new StoryboardProvider(
         context.extensionUri,
@@ -56,8 +59,10 @@ export function activate(context: vscode.ExtensionContext) {
                     provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
                     if (exitedGroupId) {
                         // Defer so the webview re-renders with the parent view first
-                        setTimeout(() => {
+                        if (focusCardTimer) { clearTimeout(focusCardTimer); }
+                        focusCardTimer = setTimeout(() => {
                             provider.postMessage({ type: 'focusCard', id: exitedGroupId });
+                            focusCardTimer = undefined;
                         }, 100);
                     }
                     if (exitedGroup) {
@@ -181,6 +186,15 @@ export function activate(context: vscode.ExtensionContext) {
             }, 150); // 150ms debounce
         }),
     );
+
+    // Dispose all pending timers on deactivation
+    context.subscriptions.push({
+        dispose: () => {
+            if (focusCardTimer) { clearTimeout(focusCardTimer); }
+            if (decorationDebounce) { clearTimeout(decorationDebounce); }
+            if (debounceTimer) { clearTimeout(debounceTimer); }
+        },
+    });
 
     // Paint decorations for the already-open editor on activation
     refreshDecorations();
