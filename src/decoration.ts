@@ -14,7 +14,9 @@ export async function handleJump(message: { filePath: string; range: [number, nu
             preview: false,
         });
 
-        const range = new vscode.Range(message.range[0], 0, message.range[1], 0);
+        const endLine = message.range[1];
+        const lineContent = doc.lineAt(endLine);
+        const range = new vscode.Range(message.range[0], 0, endLine, lineContent.text.length);
 
         // Scroll to center
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
