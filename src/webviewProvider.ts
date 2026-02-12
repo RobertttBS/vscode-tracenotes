@@ -43,6 +43,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
                         type: 'setActiveGroup',
                         id: activeId,
                         depth: this.traceManager.getActiveDepth(),
+                        breadcrumb: this.traceManager.getActiveBreadcrumb(),
                     });
                 }
                 this.postMessage({ type: 'syncAll', payload: this.traceManager.getAll() });

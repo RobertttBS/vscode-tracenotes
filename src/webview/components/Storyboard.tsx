@@ -112,6 +112,7 @@ const Storyboard: React.FC = () => {
     const [focusedId, setFocusedId] = useState<string | undefined>();
     const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
     const [currentDepth, setCurrentDepth] = useState(0);
+    const [breadcrumb, setBreadcrumb] = useState('');
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -157,9 +158,10 @@ const Storyboard: React.FC = () => {
                     break;
                 }
                 case 'setActiveGroup': {
-                    const msg = message as { type: string; id: string | null; depth: number };
+                    const msg = message as { type: string; id: string | null; depth: number; breadcrumb: string };
                     setCurrentGroupId(msg.id);
                     setCurrentDepth(msg.depth);
+                    setBreadcrumb(msg.breadcrumb ?? '');
                     break;
                 }
             }
@@ -233,7 +235,10 @@ const Storyboard: React.FC = () => {
         return (
             <div className="empty-state">
                 {currentGroupId && (
-                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                    <>
+                        <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                        {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
+                    </>
                 )}
                 <div className="empty-icon">📌</div>
                 <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
@@ -249,7 +254,10 @@ const Storyboard: React.FC = () => {
         <div className="storyboard">
             <div className="storyboard-header">
                 {currentGroupId && (
-                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                    <>
+                        <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                        {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
+                    </>
                 )}
                 <span className="trace-count">
                     {visibleTraces.length} trace{visibleTraces.length > 1 ? 's' : ''}

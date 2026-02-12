@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'enterGroup':
                     traceManager.enterGroup(msg.id);
-                    provider.postMessage({ type: 'setActiveGroup', id: msg.id, depth: traceManager.getActiveDepth() });
+                    provider.postMessage({ type: 'setActiveGroup', id: msg.id, depth: traceManager.getActiveDepth(), breadcrumb: traceManager.getActiveBreadcrumb() });
                     provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
                     refreshDecorations();
                     break;
@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
                     const exitedGroupId = traceManager.getActiveGroupId();
                     const exitedGroup = exitedGroupId ? traceManager.findTraceById(exitedGroupId) : undefined;
                     const newGroupId = traceManager.exitGroup();
-                    provider.postMessage({ type: 'setActiveGroup', id: newGroupId, depth: traceManager.getActiveDepth() });
+                    provider.postMessage({ type: 'setActiveGroup', id: newGroupId, depth: traceManager.getActiveDepth(), breadcrumb: traceManager.getActiveBreadcrumb() });
                     provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
                     if (exitedGroupId) {
                         // Defer so the webview re-renders with the parent view first
@@ -116,7 +116,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('mindstack.clearAll', () => {
             traceManager.clear();
-            provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0 });
+            provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0, breadcrumb: '' });
             provider.postMessage({ type: 'syncAll', payload: [] });
             refreshDecorations();
             vscode.window.showInformationMessage('MindStack: All traces cleared.');

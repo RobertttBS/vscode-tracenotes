@@ -221,6 +221,25 @@ export class TraceManager {
     }
 
     /**
+     * Build a breadcrumb string for the active group, e.g. "1 / 2".
+     * Each segment is the 1-based index of the ancestor trace within its parent list.
+     */
+    getActiveBreadcrumb(): string {
+        if (this.activeGroupId === null) { return ''; }
+        const segments: number[] = [];
+        let currentId: string | null = this.activeGroupId;
+        while (currentId !== null) {
+            const parentList = this.findParentList(currentId);
+            if (parentList) {
+                const idx = parentList.findIndex(t => t.id === currentId);
+                segments.unshift(idx + 1); // 1-based
+            }
+            currentId = this.findParentTraceId(currentId);
+        }
+        return segments.join(' / ');
+    }
+
+    /**
      * Return the children of the active group (or the root array).
      * Returns the *actual* backing array — mutations will be persisted.
      */

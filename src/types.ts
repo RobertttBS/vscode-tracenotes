@@ -13,7 +13,7 @@ export interface TracePoint {
 export type ExtensionToWebviewMessage =
     | { type: 'syncAll'; payload: TracePoint[] }
     | { type: 'focusCard'; id: string }
-    | { type: 'setActiveGroup'; id: string | null; depth: number };
+    | { type: 'setActiveGroup'; id: string | null; depth: number; breadcrumb: string };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =

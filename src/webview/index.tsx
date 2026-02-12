@@ -203,6 +203,15 @@ style.textContent = `
     border-color: var(--vscode-focusBorder, #007fd4);
 }
 
+/* ---- Breadcrumb depth label ---- */
+.breadcrumb-label {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #999);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* ---- Enter group button (in header) ---- */
 .enter-group-btn {
     background: none;
