@@ -43,7 +43,15 @@
           "name": "Storyboard"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "mindstack.collectTrace",
+        "key": "alt+c",
+        "mac": "alt+c",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.js",
