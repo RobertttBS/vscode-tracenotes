@@ -26,6 +26,10 @@ export function initDecorations(context: vscode.ExtensionContext): void {
         backgroundColor: 'rgba(255, 200, 50, 0.25)',
         isWholeLine: true,
     });
+
+    context.subscriptions.push(traceDecorationType);
+    context.subscriptions.push(fadedDecorationType);
+    context.subscriptions.push(flashDecorationType);
 }
 
 /**
