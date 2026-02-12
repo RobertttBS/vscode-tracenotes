@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import { flashDecorationType } from './decorationManager';
+
+let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Jump to a file/line range, select it, and briefly flash highlight.
@@ -19,13 +22,13 @@ export async function handleJump(message: { filePath: string; range: [number, nu
         // Set selection
         editor.selection = new vscode.Selection(range.start, range.end);
 
-        // Flash effect (500ms)
-        const flashDecoration = vscode.window.createTextEditorDecorationType({
-            backgroundColor: 'rgba(255, 200, 50, 0.25)',
-            isWholeLine: true,
-        });
-        editor.setDecorations(flashDecoration, [range]);
-        setTimeout(() => flashDecoration.dispose(), 500);
+        // Flash effect (500ms) — reuse singleton decoration type
+        if (flashTimer) { clearTimeout(flashTimer); }
+        editor.setDecorations(flashDecorationType, [range]);
+        flashTimer = setTimeout(() => {
+            editor.setDecorations(flashDecorationType, []);
+            flashTimer = undefined;
+        }, 500);
     } catch {
         vscode.window.showErrorMessage(
             `MindStack: Could not open file "${message.filePath}". It may have been moved or deleted.`

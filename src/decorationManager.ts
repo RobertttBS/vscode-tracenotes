@@ -4,6 +4,7 @@ import { TracePoint } from './types';
 
 let traceDecorationType: vscode.TextEditorDecorationType;
 let fadedDecorationType: vscode.TextEditorDecorationType;
+export let flashDecorationType: vscode.TextEditorDecorationType;
 
 /** Create the shared decoration types (call once at activation) */
 export function initDecorations(context: vscode.ExtensionContext): void {
@@ -19,6 +20,11 @@ export function initDecorations(context: vscode.ExtensionContext): void {
         gutterIconSize: 'contain',
         isWholeLine: true,
         backgroundColor: 'rgba(255, 215, 0, 0.01)', // very subtle gold tint
+    });
+
+    flashDecorationType = vscode.window.createTextEditorDecorationType({
+        backgroundColor: 'rgba(255, 200, 50, 0.25)',
+        isWholeLine: true,
     });
 }
 
