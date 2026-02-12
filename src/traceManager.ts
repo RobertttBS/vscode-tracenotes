@@ -234,7 +234,7 @@ export class TraceManager {
             }
             currentId = this.findParentTraceId(currentId);
         }
-        return segments.join(' / ');
+        return segments.join('/') + '/';
     }
 
     /**
