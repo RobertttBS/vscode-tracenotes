@@ -11,14 +11,14 @@ export function initDecorations(context: vscode.ExtensionContext): void {
         gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark.svg')),
         gutterIconSize: 'contain',
         isWholeLine: true,
-        backgroundColor: 'rgba(255, 215, 0, 0.1)', // soft gold tint
+        backgroundColor: 'rgba(255, 215, 0, 0.03)', // soft gold tint
     });
 
     fadedDecorationType = vscode.window.createTextEditorDecorationType({
         gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark-faded.svg')),
         gutterIconSize: 'contain',
         isWholeLine: true,
-        backgroundColor: 'rgba(255, 215, 0, 0.03)', // very subtle gold tint
+        backgroundColor: 'rgba(255, 215, 0, 0.01)', // very subtle gold tint
     });
 }
 
