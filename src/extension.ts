@@ -92,9 +92,23 @@ export function activate(context: vscode.ExtensionContext) {
             const trace = collectTrace(editor);
             if (trace) {
                 traceManager.add(trace);
+
+                // Show the sidebar view (preserve focus if already open)
+                if (provider._view) {
+                    provider._view.show(true);
+                } else {
+                    vscode.commands.executeCommand('mindstack.storyboard.focus');
+                }
+
                 provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
-                provider.postMessage({ type: 'focusCard', id: trace.id });
+                
                 refreshDecorations();
+
+                // Delay focus to allow view to render/settle
+                setTimeout(() => {
+                    provider.postMessage({ type: 'focusCard', id: trace.id });
+                }, 300);
+
                 vscode.window.showInformationMessage('MindStack: Trace collected!');
             }
         }),

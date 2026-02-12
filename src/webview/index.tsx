@@ -161,10 +161,14 @@ style.textContent = `
 
 .note-display {
     font-size: 12px;
+    color: #9ebeffff;
     cursor: pointer;
-    padding: 2px 0;
+    padding: 6px;
     min-height: 16px;
     line-height: 1.4;
+    border: 1px solid var(--vscode-widget-border, #4e4e4eff);
+    border-radius: 3px;
+    margin-top: 2px;
 }
 
 .note-placeholder {
