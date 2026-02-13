@@ -45,6 +45,11 @@ export function activate(context: vscode.ExtensionContext) {
                     traceManager.updateNote(msg.id, msg.note);
                     refreshDecorations(); // hover message may have changed
                     break;
+                case 'updateHighlight':
+                    traceManager.updateHighlight(msg.id, msg.highlight);
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() }); // Sync to webview so it knows the new state
+                    refreshDecorations();
+                    break;
                 case 'enterGroup':
                     traceManager.enterGroup(msg.id);
                     provider.postMessage({ type: 'setActiveGroup', id: msg.id, depth: traceManager.getActiveDepth(), breadcrumb: traceManager.getActiveBreadcrumb() });

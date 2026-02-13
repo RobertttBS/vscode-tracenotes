@@ -263,9 +263,79 @@ style.textContent = `
     transition: background 0.15s ease, opacity 0.15s ease;
 }
 
+
 .clear-all-btn:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
     opacity: 1;
+}
+
+/* ---- Trace Card Highlights ---- */
+.trace-card.red {
+    border-color: #F14C4C;
+    box-shadow: 0 0 4px rgba(241, 76, 76, 0.2);
+}
+.trace-card.blue {
+    border-color: #3794FF;
+    box-shadow: 0 0 4px rgba(55, 148, 255, 0.2);
+}
+.trace-card.green {
+    border-color: #3AD900;
+    box-shadow: 0 0 4px rgba(58, 217, 0, 0.2);
+}
+
+/* ---- Context Menu ---- */
+.context-menu {
+    position: fixed;
+    z-index: 1000;
+    background: var(--vscode-menu-background, #252526);
+    border: 1px solid var(--vscode-menu-border, #454545);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    padding: 6px;
+    border-radius: 4px;
+    display: flex;
+    gap: 6px;
+}
+
+.color-option {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s;
+    box-sizing: border-box;
+    position: relative;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.color-option.red { background: #F14C4C; }
+.color-option.blue { background: #3794FF; }
+.color-option.green { background: #3AD900; }
+
+.color-option.none {
+    background: transparent;
+    border: 1px solid var(--vscode-descriptionForeground, #777);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.color-option.none::after {
+    content: '✕';
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground, #777);
+    font-weight: bold;
+}
+
+.color-option.none:hover {
+    border-color: #ff4d4d;
+}
+.color-option.none:hover::after {
+    color: #ff4d4d;
 }
 `
 document.head.appendChild(style);
