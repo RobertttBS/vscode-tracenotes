@@ -34,12 +34,16 @@ export class TraceManager {
 
     /** Persist current traces to workspaceState */
     private persist(): void {
-        this.context.workspaceState.update(this.storageKey, this.traces);
+        // Use undefined if array is empty to strictly remove the key from storage
+        const data = this.traces.length > 0 ? this.traces : undefined;
+        this.context.workspaceState.update(this.storageKey, data);
     }
 
     /** Persist activeGroupId to workspaceState */
     private persistActiveGroup(): void {
-        this.context.workspaceState.update(this.activeGroupKey, this.activeGroupId);
+        // Use undefined if null to strictly remove the key from storage
+        const data = this.activeGroupId !== null ? this.activeGroupId : undefined;
+        this.context.workspaceState.update(this.activeGroupKey, data);
     }
 
     // ── Tree helpers ─────────────────────────────────────────────
