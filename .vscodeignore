@@ -1,8 +1,13 @@
 src/
 node_modules/
 .vscode/
+.git/
+.gitignore
+.DS_Store
 esbuild.js
 tsconfig.json
+package-lock.json
+**/*.vsix
 **/*.ts
 **/*.tsx
 **/*.map
