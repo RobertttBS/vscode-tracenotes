@@ -1,4 +1,4 @@
-# MindStack
+# TraceNotes
 
 A VS Code extension for collecting code trace points and visualizing them in an interactive sidebar storyboard.
 
@@ -14,11 +14,11 @@ A VS Code extension for collecting code trace points and visualizing them in an 
 
 ## Commands
 
-| Command                         | Keybinding (macOS) | Keybinding (Win/Linux) | Description                                    |
-| ------------------------------- | ------------------ | ---------------------- | ---------------------------------------------- |
-| `MindStack: Collect Trace`      | `Option + C`       | `Alt + C`              | Capture the current selection as a trace point |
-| `MindStack: Export to Markdown` | -                  | -                      | Export all traces to a new Markdown document   |
-| `MindStack: Clear All Traces`   | -                  | -                      | Remove all collected traces                    |
+| Command                          | Keybinding (macOS) | Keybinding (Win/Linux) | Description                                    |
+| -------------------------------- | ------------------ | ---------------------- | ---------------------------------------------- |
+| `TraceNotes: Collect Trace`      | `Option + C`       | `Alt + C`              | Capture the current selection as a trace point |
+| `TraceNotes: Export to Markdown` | -                  | -                      | Export all traces to a new Markdown document   |
+| `TraceNotes: Clear All Traces`   | -                  | -                      | Remove all collected traces                    |
 
 ## Development
 

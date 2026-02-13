@@ -8,8 +8,8 @@ import { TracePoint, MAX_DEPTH } from './types';
 export class TraceManager {
     private traces: TracePoint[] = [];
     private activeGroupId: string | null = null;
-    private readonly storageKey = 'mindstack.traces';
-    private readonly activeGroupKey = 'mindstack.activeGroupId';
+    private readonly storageKey = 'tracenotes.traces';
+    private readonly activeGroupKey = 'tracenotes.activeGroupId';
 
     constructor(private context: vscode.ExtensionContext) {
         this.restore();

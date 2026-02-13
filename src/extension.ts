@@ -79,7 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
                     refreshDecorations();
                     break;
                 case 'exportToMarkdown':
-                    vscode.commands.executeCommand('mindstack.exportMarkdown');
+                    vscode.commands.executeCommand('tracenotes.exportMarkdown');
                     break;
             }
         },
@@ -91,10 +91,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Collect Trace
     context.subscriptions.push(
-        vscode.commands.registerCommand('mindstack.collectTrace', () => {
+        vscode.commands.registerCommand('tracenotes.collectTrace', () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('MindStack: No active editor.');
+                vscode.window.showWarningMessage('TraceNotes: No active editor.');
                 return;
             }
             const trace = collectTrace(editor);
@@ -105,7 +105,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (provider._view) {
                     provider._view.show(true);
                 } else {
-                    vscode.commands.executeCommand('mindstack.storyboard.focus');
+                    vscode.commands.executeCommand('tracenotes.storyboard.focus');
                 }
 
                 provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
@@ -117,17 +117,17 @@ export function activate(context: vscode.ExtensionContext) {
                     provider.postMessage({ type: 'focusCard', id: trace.id });
                 }, 300);
 
-                vscode.window.showInformationMessage('MindStack: Trace collected!');
+                vscode.window.showInformationMessage('TraceNotes: Trace collected!');
             }
         }),
     );
 
     // Command: Export to Markdown
     context.subscriptions.push(
-        vscode.commands.registerCommand('mindstack.exportMarkdown', async () => {
+        vscode.commands.registerCommand('tracenotes.exportMarkdown', async () => {
             const traces = traceManager.getAll();
             if (traces.length === 0) {
-                vscode.window.showWarningMessage('MindStack: No traces to export.');
+                vscode.window.showWarningMessage('TraceNotes: No traces to export.');
                 return;
             }
             const md = generateMarkdown(traces);
@@ -141,12 +141,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Clear All
     context.subscriptions.push(
-        vscode.commands.registerCommand('mindstack.clearAll', () => {
+        vscode.commands.registerCommand('tracenotes.clearAll', () => {
             traceManager.clear();
             provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0, breadcrumb: '' });
             provider.postMessage({ type: 'syncAll', payload: [] });
             refreshDecorations();
-            vscode.window.showInformationMessage('MindStack: All traces cleared.');
+            vscode.window.showInformationMessage('TraceNotes: All traces cleared.');
         }),
     );
 

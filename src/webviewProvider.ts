@@ -3,10 +3,10 @@ import { TraceManager } from './traceManager';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from './types';
 
 /**
- * Provides the React-based webview for the MindStack sidebar.
+ * Provides the React-based webview for the TraceNotes sidebar.
  */
 export class StoryboardProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'mindstack.storyboard';
+    public static readonly viewType = 'tracenotes.storyboard';
     public _view?: vscode.WebviewView;
 
     constructor(
@@ -74,7 +74,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
           content="default-src 'none';
                    style-src ${webview.cspSource} 'unsafe-inline';
                    script-src 'nonce-${nonce}';">
-    <title>MindStack</title>
+    <title>TraceNotes</title>
     <style>
         body {
             margin: 0;

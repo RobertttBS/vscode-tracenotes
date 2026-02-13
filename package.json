@@ -1,6 +1,6 @@
 {
-  "name": "mindstack",
-  "displayName": "MindStack",
+  "name": "tracenotes",
+  "displayName": "TraceNotes",
   "description": "Collect code trace points and visualize them in a sidebar storyboard",
   "version": "0.0.1",
   "engines": {
@@ -14,39 +14,39 @@
   "contributes": {
     "commands": [
       {
-        "command": "mindstack.collectTrace",
-        "title": "MindStack: Collect Trace"
+        "command": "tracenotes.collectTrace",
+        "title": "TraceNotes: Collect Trace"
       },
       {
-        "command": "mindstack.exportMarkdown",
-        "title": "MindStack: Export to Markdown"
+        "command": "tracenotes.exportMarkdown",
+        "title": "TraceNotes: Export to Markdown"
       },
       {
-        "command": "mindstack.clearAll",
-        "title": "MindStack: Clear All Traces"
+        "command": "tracenotes.clearAll",
+        "title": "TraceNotes: Clear All Traces"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "mindstack-sidebar",
-          "title": "MindStack",
+          "id": "tracenotes-sidebar",
+          "title": "TraceNotes",
           "icon": "$(bookmark)"
         }
       ]
     },
     "views": {
-      "mindstack-sidebar": [
+      "tracenotes-sidebar": [
         {
           "type": "webview",
-          "id": "mindstack.storyboard",
+          "id": "tracenotes.storyboard",
           "name": "Storyboard"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "mindstack.collectTrace",
+        "command": "tracenotes.collectTrace",
         "key": "alt+c",
         "mac": "alt+c",
         "when": "editorTextFocus"

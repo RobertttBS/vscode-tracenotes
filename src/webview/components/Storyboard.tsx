@@ -280,7 +280,7 @@ const Storyboard: React.FC = () => {
                     <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
                     <p className="empty-hint">
                         Select some code and run<br />
-                        <strong>MindStack: Collect Trace</strong>
+                        <strong>TraceNotes: Collect Trace</strong>
                     </p>
                 </div>
             </div>

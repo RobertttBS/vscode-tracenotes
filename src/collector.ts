@@ -17,7 +17,7 @@ function generateUUID(): string {
 export function collectTrace(editor: vscode.TextEditor): TracePoint | null {
     const selection = editor.selection;
     if (selection.isEmpty) {
-        vscode.window.showWarningMessage('MindStack: Please select some code first.');
+        vscode.window.showWarningMessage('TraceNotes: Please select some code first.');
         return null;
     }
 

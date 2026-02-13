@@ -33,7 +33,7 @@ export async function handleJump(message: { filePath: string; range: [number, nu
         }, 500);
     } catch {
         vscode.window.showErrorMessage(
-            `MindStack: Could not open file "${message.filePath}". It may have been moved or deleted.`
+            `TraceNotes: Could not open file "${message.filePath}". It may have been moved or deleted.`
         );
     }
 }
