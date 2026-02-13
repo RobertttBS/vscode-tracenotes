@@ -19,8 +19,6 @@
 - **Markdown Export** – Export all traces (including nested groups) as a formatted Markdown document.
 - **Crash Recovery** – Traces persist in workspace state across reloads.
 
-![illustration](./images/illustration.png)
-
 ## Usage
 
 ### Collecting Traces
@@ -28,6 +26,8 @@
 1. Select any block of code in your editor.
 2. Press `Option + C` (macOS) or `Alt + C` (Windows/Linux), or use the command `TraceNotes: Collect Trace`.
 3. The code snippet will appear as a new card in the TraceNotes sidebar.
+
+![illustration](./images/illustration.png)
 
 ### Hierarchical Organization
 
