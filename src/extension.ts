@@ -78,6 +78,9 @@ export function activate(context: vscode.ExtensionContext) {
                     provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
                     refreshDecorations();
                     break;
+                case 'exportToMarkdown':
+                    vscode.commands.executeCommand('mindstack.exportMarkdown');
+                    break;
             }
         },
     );

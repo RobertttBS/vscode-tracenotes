@@ -248,11 +248,10 @@ style.textContent = `
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* ---- Clear All Button ---- */
-.clear-all-btn {
+/* ---- Toolbar Button Base ---- */
+.toolbar-btn {
     background: none;
     border: none;
-    color: #ff4d4d;
     padding: 4px;
     border-radius: 4px;
     cursor: pointer;
@@ -263,10 +262,19 @@ style.textContent = `
     transition: background 0.15s ease, opacity 0.15s ease;
 }
 
-
-.clear-all-btn:hover {
+.toolbar-btn:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
     opacity: 1;
+}
+
+/* ---- Clear All Button ---- */
+.clear-all-btn {
+    color: #ff4d4d;
+}
+
+/* ---- Export Button ---- */
+.export-btn {
+    color: var(--vscode-textLink-foreground, #3794ff);
 }
 
 /* ---- Trace Card Highlights ---- */

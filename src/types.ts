@@ -28,4 +28,5 @@ export type WebviewToExtensionMessage =
     | { command: 'enterGroup'; id: string }
     | { command: 'exitGroup' }
     | { command: 'clearCurrentLevel' }
-    | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | null };
+    | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | null }
+    | { command: 'exportToMarkdown' };
