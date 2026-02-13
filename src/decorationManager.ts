@@ -19,17 +19,17 @@ function getGutterIconUri(color: string): vscode.Uri {
 /** Create the shared decoration types (call once at activation) */
 export function initDecorations(context: vscode.ExtensionContext): void {
     traceDecorationType = vscode.window.createTextEditorDecorationType({
-        gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark.svg')),
+        gutterIconPath: getGutterIconUri('#AAAAAA'), // light grey
         gutterIconSize: 'contain',
         isWholeLine: true,
-        backgroundColor: 'rgba(255, 215, 0, 0.015)', // soft gold tint
+        backgroundColor: 'rgba(200, 200, 200, 0.05)', // subtle grey tint
     });
 
     fadedDecorationType = vscode.window.createTextEditorDecorationType({
-        gutterIconPath: context.asAbsolutePath(path.join('resources', 'bookmark-faded.svg')),
+        gutterIconPath: getGutterIconUri('#666666'), // dark grey
         gutterIconSize: 'contain',
         isWholeLine: true,
-        backgroundColor: 'rgba(255, 215, 0, 0.01)', // very subtle gold tint
+        backgroundColor: 'rgba(100, 100, 100, 0.02)', // very subtle grey tint
     });
 
     flashDecorationType = vscode.window.createTextEditorDecorationType({
