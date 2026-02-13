@@ -56,7 +56,7 @@ style.textContent = `
 .trace-card {
     position: relative;
     margin-bottom: 12px;
-    border: 1px solid var(--vscode-panel-border, #333);
+    border: 1px solid var(--vscode-panel-border, #555);
     border-radius: 6px;
     overflow: hidden;
     background: var(--vscode-editor-background, #1e1e1e);
@@ -242,11 +242,7 @@ style.textContent = `
 }
 
 /* ---- Reverse-sync active highlight ---- */
-.highlight-active .trace-card {
-    border-color: #ffcc00;
-    box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
+
 
 /* ---- Toolbar Button Base ---- */
 .toolbar-btn {
@@ -354,6 +350,36 @@ style.textContent = `
 }
 .color-option.none:hover::after {
     color: #ff4d4d;
+}
+
+/* ---- Reverse-sync active highlight ---- */
+/* Default (no color) -> Yellow */
+.highlight-active .trace-card {
+    border: 2px solid #c1c1c1ff !important;
+    box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Colored overrides */
+.highlight-active .trace-card.red {
+    border-color: #F14C4C !important;
+    box-shadow: 0 0 8px rgba(241, 76, 76, 0.5);
+}
+.highlight-active .trace-card.blue {
+    border-color: #3794FF !important;
+    box-shadow: 0 0 8px rgba(55, 148, 255, 0.5);
+}
+.highlight-active .trace-card.green {
+    border-color: #3AD900 !important;
+    box-shadow: 0 0 8px rgba(58, 217, 0, 0.5);
+}
+.highlight-active .trace-card.orange {
+    border-color: #FF8800 !important;
+    box-shadow: 0 0 8px rgba(255, 136, 0, 0.5);
+}
+.highlight-active .trace-card.purple {
+    border-color: #9D00FF !important;
+    box-shadow: 0 0 8px rgba(157, 0, 255, 0.5);
 }
 `
 document.head.appendChild(style);
