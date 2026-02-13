@@ -2,7 +2,7 @@
 
 > The best VS Code extension for code tracing and note-taking.
 
-### Simply press `Opt+C` or `Alt+C` to collect traces; the rest is intuitive.
+### Select the code and press **`Opt+C`** or **`Alt+C`** to collect traces; the rest is intuitive.
 
 ![demo](./images/demo.png)
 
