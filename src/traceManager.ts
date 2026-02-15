@@ -352,7 +352,15 @@ export class TraceManager {
 
                 const startPos = document.positionAt(startOffset);
                 const endPos = document.positionAt(endOffset);
-                trace.lineRange = [startPos.line, endPos.line];
+                
+                // Update lineRange and check for changes
+                const newStartLine = startPos.line;
+                const newEndLine = endPos.line;
+                
+                if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
+                    trace.lineRange = [newStartLine, newEndLine];
+                    stateChanged = true;
+                }
 
                 const currentContent = document.getText(new vscode.Range(startPos, endPos));
                 

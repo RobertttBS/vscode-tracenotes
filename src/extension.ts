@@ -227,7 +227,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor) {
                 updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
             }
-            // If we had a tree view, we'd refresh it here too
+            // Sync with webview
+            provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
         })
     );
 
