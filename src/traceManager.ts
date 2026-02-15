@@ -127,6 +127,75 @@ export class TraceManager {
         }
     }
 
+    public getTreeList(): { id: string; name: string; active: boolean }[] {
+        return this.trees.map(t => ({
+            id: t.id,
+            name: t.name,
+            active: t.id === this.activeTreeId
+        }));
+    }
+
+    public createTree(name: string): void {
+        const newTree: TraceTree = {
+            id: crypto.randomUUID(),
+            name: name || 'Untitled Trace',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            traces: []
+        };
+        this.trees.push(newTree);
+        this.activeTreeId = newTree.id;
+        this.persist();
+        this.persistActiveTree();
+        this._onDidChangeTraces.fire();
+    }
+
+    public switchTree(id: string): void {
+        if (this.trees.some(t => t.id === id)) {
+            this.activeTreeId = id;
+            this.activeGroupId = null; // Reset group nav when switching trees
+            this.persistActiveTree();
+            this.persistActiveGroup();
+            this._onDidChangeTraces.fire();
+        }
+    }
+
+    public deleteTree(id: string): void {
+        const idx = this.trees.findIndex(t => t.id === id);
+        if (idx === -1) { return; }
+
+        // Prevent deleting the last tree? 
+        // Or just let it happen and create a new default one?
+        // Let's enforce keeping at least one.
+        if (this.trees.length <= 1) {
+            // If deleting the last one, just clear it and rename to Default
+            this.trees[0].name = 'Default Trace';
+            this.trees[0].traces = [];
+            this.activeTreeId = this.trees[0].id;
+            this.activeGroupId = null;
+            this.persist();
+            this.persistActiveTree();
+            this.persistActiveGroup();
+            this._onDidChangeTraces.fire();
+            return;
+        }
+
+        this.trees.splice(idx, 1);
+
+        // If we deleted the active tree, switch to another one
+        if (this.activeTreeId === id) {
+            // Try previous, or first
+            const newActive = this.trees[Math.max(0, idx - 1)];
+            this.activeTreeId = newActive.id;
+            this.activeGroupId = null;
+            this.persistActiveTree();
+            this.persistActiveGroup();
+        }
+
+        this.persist();
+        this._onDidChangeTraces.fire();
+    }
+
     /** Recursively find a trace by id */
     findTraceById(id: string, list: TracePoint[] = this.getActiveRootTraces()): TracePoint | undefined {
         for (const t of list) {

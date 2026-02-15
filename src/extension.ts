@@ -84,6 +84,31 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'renameTree':
                     traceManager.renameActiveTree(msg.name);
                     provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
+                    provider.postMessage({ type: 'syncTreeList', payload: traceManager.getTreeList() });
+                    break;
+                case 'getTreeList':
+                    provider.postMessage({ type: 'syncTreeList', payload: traceManager.getTreeList() });
+                    break;
+                case 'createTree':
+                    traceManager.createTree(msg.name);
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
+                    provider.postMessage({ type: 'syncTreeList', payload: traceManager.getTreeList() });
+                    break;
+                case 'switchTree':
+                    traceManager.switchTree(msg.id);
+                    // Also reset group view in webview
+                    provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0, breadcrumb: '' });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
+                    provider.postMessage({ type: 'syncTreeList', payload: traceManager.getTreeList() });
+                    refreshDecorations();
+                    break;
+                case 'deleteTree':
+                    traceManager.deleteTree(msg.id);
+                    // If we deleted the active tree, the manager switched us. Sync everything.
+                    provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0, breadcrumb: '' });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
+                    provider.postMessage({ type: 'syncTreeList', payload: traceManager.getTreeList() });
+                    refreshDecorations();
                     break;
             }
         },

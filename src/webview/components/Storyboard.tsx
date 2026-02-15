@@ -107,7 +107,8 @@ const SortableTraceCard: React.FC<{
     );
 };
 
-import { ExportIcon, TrashIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon } from './icons';
+import { TreeList } from './TreeList';
 
 const Storyboard: React.FC = () => {
     const [traces, setTraces] = useState<TracePoint[]>([]);
@@ -118,6 +119,10 @@ const Storyboard: React.FC = () => {
     const [breadcrumb, setBreadcrumb] = useState('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleInputValue, setTitleInputValue] = useState('');
+    
+    // Tree Management
+    const [viewMode, setViewMode] = useState<'trace' | 'list'>('trace');
+    const [treeList, setTreeList] = useState<{ id: string; name: string; active: boolean }[]>([]);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -151,6 +156,9 @@ const Storyboard: React.FC = () => {
                     setTraces(payload.traces);
                     setTreeName(payload.treeName || 'Trace');
                     break;
+                case 'syncTreeList':
+                    setTreeList(message.payload as { id: string; name: string; active: boolean }[]);
+                    break;
                 case 'focusCard': {
                     const cardId = (message as { type: string; id: string | null }).id;
                     setFocusedId(cardId ?? undefined);
@@ -176,9 +184,10 @@ const Storyboard: React.FC = () => {
         return unsubscribe;
     }, []);
 
-    // Tell the extension we're ready to receive data
+    // Tell the extension we're ready to receive data and get the initial tree list
     useEffect(() => {
         postMessage({ command: 'ready' });
+        postMessage({ command: 'getTreeList' });
     }, []);
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
@@ -269,12 +278,47 @@ const Storyboard: React.FC = () => {
         }
     }, [saveTitle]);
 
+    // Tree Management Handlers
+    const handleSwitchTree = useCallback((id: string) => {
+        postMessage({ command: 'switchTree', id });
+        setViewMode('trace');
+    }, []);
+
+    const handleDeleteTree = useCallback((id: string) => {
+        postMessage({ command: 'deleteTree', id });
+    }, []);
+
+    const handleCreateTree = useCallback((name: string) => {
+        postMessage({ command: 'createTree', name });
+        setViewMode('trace');
+    }, []);
+
+    if (viewMode === 'list') {
+        return (
+            <TreeList
+                trees={treeList}
+                onSelect={handleSwitchTree}
+                onCreate={handleCreateTree}
+                onDelete={handleDeleteTree}
+                onClose={() => setViewMode('trace')}
+            />
+        );
+    }
 
     const header = (
         <div className="storyboard-header">
+            <button 
+                className="toolbar-btn list-btn" 
+                onClick={() => setViewMode('list')}
+                title="Manage Traces"
+                style={{ marginRight: 8 }}
+            >
+                <ListIcon />
+            </button>
+
             {currentGroupId ? (
                 // Group Navigation Header
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
                     <button className="back-button" onClick={handleExitGroup}>← Back</button>
                     {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
                 </div>

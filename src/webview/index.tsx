@@ -419,6 +419,152 @@ style.textContent = `
     outline: none;
     box-sizing: border-box;
 }
+
+/* ---- Tree List View ---- */
+.tree-list-view {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.tree-list-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px;
+}
+
+.tree-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    border: 1px solid var(--vscode-panel-border, #333);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tree-item:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.tree-item.active {
+    background: var(--vscode-list-activeSelectionBackground, #094771);
+    color: var(--vscode-list-activeSelectionForeground, #fff);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.tree-item-name {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.active-indicator {
+    color: var(--vscode-charts-blue, #3794ff);
+    font-size: 8px;
+}
+
+.tree-item.active .active-indicator {
+    color: #fff;
+}
+
+.tree-delete-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    opacity: 0.4;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-delete-btn:hover {
+    opacity: 1;
+    background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+    color: #fff;
+}
+
+.create-tree-btn {
+    margin: 12px 8px;
+    padding: 8px;
+    background: var(--vscode-button-background, #007fd4);
+    color: var(--vscode-button-foreground, #fff);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.create-tree-btn:hover {
+    background: var(--vscode-button-hoverBackground, #026ec1);
+}
+
+.create-tree-form {
+    padding: 12px 8px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    border-top: 1px solid var(--vscode-panel-border, #333);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.create-tree-input {
+    padding: 6px;
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ccc);
+    border: 1px solid var(--vscode-input-border, #555);
+    border-radius: 3px;
+    font-size: 13px;
+    outline: none;
+}
+
+.create-tree-input:focus {
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.create-tree-confirm {
+    padding: 6px;
+    background: var(--vscode-button-background, #007fd4);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.create-tree-cancel {
+    padding: 6px;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #fff);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    font-size: 16px;
+    cursor: pointer;
+    opacity: 0.6;
+    margin-left: auto;
+}
+
+.close-btn:hover {
+    opacity: 1;
+}
 `
 document.head.appendChild(style);
 

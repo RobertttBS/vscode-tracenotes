@@ -29,7 +29,8 @@ export interface TraceTree {
 export type ExtensionToWebviewMessage =
     | { type: 'syncAll'; payload: { treeId: string; treeName: string; traces: TracePoint[] } }
     | { type: 'focusCard'; id: string }
-    | { type: 'setActiveGroup'; id: string | null; depth: number; breadcrumb: string };
+    | { type: 'setActiveGroup'; id: string | null; depth: number; breadcrumb: string }
+    | { type: 'syncTreeList'; payload: { id: string; name: string; active: boolean }[] };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =
@@ -43,4 +44,8 @@ export type WebviewToExtensionMessage =
     | { command: 'clearCurrentLevel' }
     | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | null }
     | { command: 'exportToMarkdown' }
-    | { command: 'renameTree'; name: string };
+    | { command: 'renameTree'; name: string }
+    | { command: 'getTreeList' }
+    | { command: 'createTree'; name: string }
+    | { command: 'switchTree'; id: string }
+    | { command: 'deleteTree'; id: string };
