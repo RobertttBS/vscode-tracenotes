@@ -34,12 +34,12 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'removeTrace':
                     traceManager.remove(msg.id);
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     refreshDecorations();
                     break;
                 case 'reorderTraces':
                     traceManager.reorder(msg.orderedIds);
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     break;
                 case 'updateNote':
                     traceManager.updateNote(msg.id, msg.note);
@@ -47,21 +47,21 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'updateHighlight':
                     traceManager.updateHighlight(msg.id, msg.highlight);
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() }); // Sync to webview so it knows the new state
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() }); // Sync to webview so it knows the new state
                     refreshDecorations();
                     break;
                 case 'enterGroup':
                     traceManager.enterGroup(msg.id);
                     provider.postMessage({ type: 'setActiveGroup', id: msg.id, depth: traceManager.getActiveDepth(), breadcrumb: traceManager.getActiveBreadcrumb() });
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     refreshDecorations();
                     break;
                 case 'exitGroup': {
                     const exitedGroupId = traceManager.getActiveGroupId();
-                    const exitedGroup = exitedGroupId ? traceManager.findTraceById(exitedGroupId) : undefined;
+                    // const exitedGroup = exitedGroupId ? traceManager.findTraceById(exitedGroupId) : undefined;
                     const newGroupId = traceManager.exitGroup();
                     provider.postMessage({ type: 'setActiveGroup', id: newGroupId, depth: traceManager.getActiveDepth(), breadcrumb: traceManager.getActiveBreadcrumb() });
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     if (exitedGroupId) {
                         // Defer so the webview re-renders with the parent view first
                         if (focusCardTimer) { clearTimeout(focusCardTimer); }
@@ -75,11 +75,15 @@ export function activate(context: vscode.ExtensionContext) {
                 }
                 case 'clearCurrentLevel':
                     traceManager.clearActiveChildren();
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     refreshDecorations();
                     break;
                 case 'exportToMarkdown':
                     vscode.commands.executeCommand('tracenotes.exportMarkdown');
+                    break;
+                case 'renameTree':
+                    traceManager.renameActiveTree(msg.name);
+                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                     break;
             }
         },
@@ -108,7 +112,7 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.commands.executeCommand('tracenotes.storyboard.focus');
                 }
 
-                provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+                provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
                 
                 refreshDecorations();
 
@@ -131,11 +135,41 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
             const md = generateMarkdown(traces);
-            const doc = await vscode.workspace.openTextDocument({
-                content: md,
-                language: 'markdown',
+            
+            const treeData = traceManager.getActiveTreeData();
+            const fileName = treeData ? `${treeData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md` : 'tracenotes.md';
+
+            // Just open a new untitled document with the content? 
+            // Or let user save?
+            // "The user wants to name the markdown file name"
+            // vscode.workspace.openTextDocument({ content: md, language: 'markdown' }) 
+            // creates an untitled document. It doesn't set the filename until save.
+            // But we can suggest a name if we use showSaveDialog, OR we can just open it.
+            // Opening an untitled document with a specific name is tricky.
+            // Actually, we can just open it. The user said "When exporting the markdown, it will use the name as markdown file name."
+            // This implies when saving? Or we can simulate it by standard "Save As" flow?
+            // Let's stick to the current behavior (openTextDocument) but maybe we can't easily force the name 
+            // unless we save it.
+            // For now, let's keep the existing flow but if we wanted to enforce name we'd need save dialog.
+            // Code snippet below uses openTextDocument.
+            
+            // To suggest a name, we might want to use showSaveDialog instead.
+            // But for now, I'll stick to opening the document, but I can't easily set the title of untitled doc.
+            // Actually, I can try to set the language and maybe content.
+            
+            // Wait, the user requirement is "When exporting the markdown, it will use the name as markdown file name."
+            // If I just show it, it's "Untitled-1".
+            // Implementation idea: Use showSaveDialog to let user pick location, using tree name as default.
+            
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(fileName),
+                filters: { 'Markdown': ['md'] }
             });
-            await vscode.window.showTextDocument(doc, { preview: false });
+
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(md, 'utf8'));
+                await vscode.window.showTextDocument(uri);
+            }
         }),
     );
 
@@ -144,7 +178,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('tracenotes.clearAll', () => {
             traceManager.clear();
             provider.postMessage({ type: 'setActiveGroup', id: null, depth: 0, breadcrumb: '' });
-            provider.postMessage({ type: 'syncAll', payload: [] });
+            provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
             refreshDecorations();
             vscode.window.showInformationMessage('TraceNotes: All traces cleared.');
         }),
@@ -228,7 +262,7 @@ export function activate(context: vscode.ExtensionContext) {
                 updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
             }
             // Sync with webview
-            provider.postMessage({ type: 'syncAll', payload: traceManager.getAll() });
+            provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
         })
     );
 

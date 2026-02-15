@@ -111,10 +111,13 @@ import { ExportIcon, TrashIcon } from './icons';
 
 const Storyboard: React.FC = () => {
     const [traces, setTraces] = useState<TracePoint[]>([]);
+    const [treeName, setTreeName] = useState<string>('Trace');
     const [focusedId, setFocusedId] = useState<string | undefined>();
     const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
     const [currentDepth, setCurrentDepth] = useState(0);
     const [breadcrumb, setBreadcrumb] = useState('');
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [titleInputValue, setTitleInputValue] = useState('');
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -144,7 +147,9 @@ const Storyboard: React.FC = () => {
         const unsubscribe = onMessage((message) => {
             switch (message.type) {
                 case 'syncAll':
-                    setTraces(message.payload as TracePoint[]);
+                    const payload = message.payload as { treeId: string; treeName: string; traces: TracePoint[] };
+                    setTraces(payload.traces);
+                    setTreeName(payload.treeName || 'Trace');
                     break;
                 case 'focusCard': {
                     const cardId = (message as { type: string; id: string | null }).id;
@@ -240,18 +245,66 @@ const Storyboard: React.FC = () => {
     const handleExport = useCallback(() => {
         postMessage({ command: 'exportToMarkdown' });
     }, []);
+    
+    // Title Editing
+    const startEditingTitle = useCallback(() => {
+        setTitleInputValue(treeName);
+        setIsEditingTitle(true);
+    }, [treeName]);
 
-    const header = (currentGroupId || visibleTraces.length > 0) && (
+    const saveTitle = useCallback(() => {
+        const newName = titleInputValue.trim();
+        if (newName && newName !== treeName) {
+            setTreeName(newName);
+            postMessage({ command: 'renameTree', name: newName });
+        }
+        setIsEditingTitle(false);
+    }, [titleInputValue, treeName]);
+
+    const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            saveTitle();
+        } else if (e.key === 'Escape') {
+            setIsEditingTitle(false);
+        }
+    }, [saveTitle]);
+
+
+    const header = (
         <div className="storyboard-header">
-            {currentGroupId && (
-                <>
+            {currentGroupId ? (
+                // Group Navigation Header
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button className="back-button" onClick={handleExitGroup}>← Back</button>
                     {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
-                </>
+                </div>
+            ) : (
+                // Root Level: Show Editable Tree Title
+                <div className="tree-title-container">
+                    {isEditingTitle ? (
+                        <input
+                            className="tree-title-input"
+                            value={titleInputValue}
+                            onChange={(e) => setTitleInputValue(e.target.value)}
+                            onBlur={saveTitle}
+                            onKeyDown={handleTitleKeyDown}
+                            autoFocus
+                        />
+                    ) : (
+                        <div 
+                            className="tree-title" 
+                            onClick={startEditingTitle}
+                            title="Click to rename trace"
+                        >
+                            {treeName}
+                        </div>
+                    )}
+                </div>
             )}
+            
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                 <span className="trace-count">
-                    {visibleTraces.length} trace{visibleTraces.length !== 1 ? 's' : ''}
+                    {visibleTraces.length} items
                 </span>
                 <button
                     className="toolbar-btn export-btn"

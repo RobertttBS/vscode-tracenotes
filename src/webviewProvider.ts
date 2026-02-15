@@ -46,7 +46,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
                         breadcrumb: this.traceManager.getActiveBreadcrumb(),
                     });
                 }
-                this.postMessage({ type: 'syncAll', payload: this.traceManager.getAll() });
+                this.postMessage({ type: 'syncAll', payload: this.traceManager.getSyncPayload() });
             } else {
                 this.onMessage(msg);
             }

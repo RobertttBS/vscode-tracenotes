@@ -381,6 +381,44 @@ style.textContent = `
     border-color: #9D00FF !important;
     box-shadow: 0 0 8px rgba(157, 0, 255, 0.5);
 }
+/* ---- Tree Title ---- */
+.tree-title-container {
+    flex: 1;
+    overflow: hidden;
+    margin-right: 8px;
+    min-width: 0;
+}
+
+.tree-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: text;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tree-title:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+    border-color: var(--vscode-panel-border, #555);
+}
+
+.tree-title-input {
+    width: 100%;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 6px;
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ccc);
+    border: 1px solid var(--vscode-focusBorder, #007fd4);
+    border-radius: 4px;
+    outline: none;
+    box-sizing: border-box;
+}
 `
 document.head.appendChild(style);
 

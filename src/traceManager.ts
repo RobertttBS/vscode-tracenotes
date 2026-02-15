@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TracePoint, MAX_DEPTH } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH } from './types';
 
 const SEARCH_RADIUS = 5000;
 const MAX_REGEX_LENGTH = 2000; 
@@ -9,10 +9,13 @@ const MAX_REGEX_LENGTH = 2000;
  * Persists both traces and activeGroupId to workspaceState to survive reloads.
  */
 export class TraceManager {
-    private traces: TracePoint[] = [];
+    private trees: TraceTree[] = [];
+    private activeTreeId: string | null = null;
     private activeGroupId: string | null = null;
+
     private readonly storageKey = 'tracenotes.traces';
     private readonly activeGroupKey = 'tracenotes.activeGroupId';
+    private readonly activeTreeKey = 'tracenotes.activeTreeId';
 
     // Debounce / Batching
     private validationDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -28,11 +31,46 @@ export class TraceManager {
 
     /** Restore traces and activeGroupId from workspaceState */
     private restore(): void {
-        const saved = this.context.workspaceState.get<TracePoint[]>(this.storageKey);
+        const saved = this.context.workspaceState.get<any>(this.storageKey);
+
         if (saved && Array.isArray(saved)) {
-            this.traces = saved;
+            // Check if it's the old format (TracePoint[]) or new format (TraceTree[])
+            // Heuristic: Check if the first item has 'traces' property
+            const isNewFormat = saved.length > 0 && 'traces' in saved[0];
+
+            if (isNewFormat) {
+                this.trees = saved;
+            } else {
+                // Migration: Wrap existing traces in a default tree
+                const defaultTree: TraceTree = {
+                    id: 'default',
+                    name: 'Default Trace',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    traces: saved, // saved is TracePoint[]
+                };
+                this.trees = [defaultTree];
+            }
+        } else {
+             // Initialize with a default empty tree if nothing exists
+             this.trees = [{
+                id: 'default',
+                name: 'Default Trace',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                traces: []
+            }];
         }
-        // Restore activeGroupId — validate it still exists in the tree
+
+        // Restore activeTreeId
+        const savedTreeId = this.context.workspaceState.get<string | null>(this.activeTreeKey);
+        if (savedTreeId && this.trees.some(t => t.id === savedTreeId)) {
+            this.activeTreeId = savedTreeId;
+        } else {
+            this.activeTreeId = this.trees[0].id;
+        }
+
+        // Restore activeGroupId — validate it still exists in the active tree
         const savedGroupId = this.context.workspaceState.get<string | null>(this.activeGroupKey);
         if (savedGroupId && this.findTraceById(savedGroupId)) {
             this.activeGroupId = savedGroupId;
@@ -43,22 +81,54 @@ export class TraceManager {
 
     /** Persist current traces to workspaceState */
     private persist(): void {
-        // Use undefined if array is empty to strictly remove the key from storage
-        const data = this.traces.length > 0 ? this.traces : undefined;
-        this.context.workspaceState.update(this.storageKey, data);
+        // Update updatedTimestamp for the active tree
+        const active = this.getActiveTree();
+        if (active) {
+            active.updatedAt = Date.now();
+        }
+        
+        this.context.workspaceState.update(this.storageKey, this.trees);
     }
 
     /** Persist activeGroupId to workspaceState */
     private persistActiveGroup(): void {
-        // Use undefined if null to strictly remove the key from storage
         const data = this.activeGroupId !== null ? this.activeGroupId : undefined;
         this.context.workspaceState.update(this.activeGroupKey, data);
+    }
+    
+    /** Persist activeTreeId to workspaceState */
+    private persistActiveTree(): void {
+        const data = this.activeTreeId !== null ? this.activeTreeId : undefined;
+        this.context.workspaceState.update(this.activeTreeKey, data);
     }
 
     // ── Tree helpers ─────────────────────────────────────────────
 
+    private getActiveTree(): TraceTree | undefined {
+        return this.trees.find(t => t.id === this.activeTreeId);
+    }
+
+    /** Get the root traces of the active tree */
+    private getActiveRootTraces(): TracePoint[] {
+        return this.getActiveTree()?.traces || [];
+    }
+
+    public getActiveTreeData(): { id: string; name: string } | undefined {
+        const tree = this.getActiveTree();
+        return tree ? { id: tree.id, name: tree.name } : undefined;
+    }
+
+    public renameActiveTree(name: string): void {
+        const tree = this.getActiveTree();
+        if (tree) {
+            tree.name = name;
+            this.persist();
+            this._onDidChangeTraces.fire();
+        }
+    }
+
     /** Recursively find a trace by id */
-    findTraceById(id: string, list: TracePoint[] = this.traces): TracePoint | undefined {
+    findTraceById(id: string, list: TracePoint[] = this.getActiveRootTraces()): TracePoint | undefined {
         for (const t of list) {
             if (t.id === id) { return t; }
             if (t.children?.length) {
@@ -70,7 +140,7 @@ export class TraceManager {
     }
 
     /** Return the parent array that contains the trace with the given id */
-    private findParentList(id: string, list: TracePoint[] = this.traces): TracePoint[] | undefined {
+    private findParentList(id: string, list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] | undefined {
         for (const t of list) {
             if (t.id === id) { return list; }
             if (t.children?.length) {
@@ -82,7 +152,7 @@ export class TraceManager {
     }
 
     /** Return the depth of a trace (0 = root level) */
-    private getDepth(id: string, list: TracePoint[] = this.traces, depth: number = 0): number {
+    private getDepth(id: string, list: TracePoint[] = this.getActiveRootTraces(), depth: number = 0): number {
         for (const t of list) {
             if (t.id === id) { return depth; }
             if (t.children?.length) {
@@ -124,7 +194,7 @@ export class TraceManager {
             this.activeGroupId = null;
             this.persistActiveGroup();
         }
-        this.removeFromTree(id, this.traces);
+        this.removeFromTree(id, this.getActiveRootTraces());
         this.persist();
     }
 
@@ -163,11 +233,23 @@ export class TraceManager {
 
     /** Return the full root-level tree (with nested children) */
     getAll(): TracePoint[] {
-        return [...this.traces];
+        return [...this.getActiveRootTraces()];
+    }
+
+    public getSyncPayload(): { treeId: string; treeName: string; traces: TracePoint[] } {
+        const active = this.getActiveTree();
+        if (!active) {
+            return { treeId: '', treeName: 'No Active Trace', traces: [] };
+        }
+        return {
+            treeId: active.id,
+            treeName: active.name,
+            traces: active.traces
+        };
     }
 
     /** Recursively collect every TracePoint across all levels into a flat list */
-    getAllFlat(list: TracePoint[] = this.traces): TracePoint[] {
+    getAllFlat(list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] {
         const result: TracePoint[] = [];
         for (const t of list) {
             result.push(t);
@@ -180,7 +262,10 @@ export class TraceManager {
 
     /** Clear all traces and reset active group */
     clear(): void {
-        this.traces = [];
+        const activeTree = this.getActiveTree();
+        if (activeTree) {
+            activeTree.traces = [];
+        }
         this.activeGroupId = null;
         this.persist();
         this.persistActiveGroup();
@@ -220,7 +305,7 @@ export class TraceManager {
     /** Find the id of the trace whose children array contains the given id */
     private findParentTraceId(
         id: string,
-        list: TracePoint[] = this.traces,
+        list: TracePoint[] = this.getActiveRootTraces(),
     ): string | null {
         for (const t of list) {
             if (t.children?.some(c => c.id === id)) {
@@ -261,12 +346,12 @@ export class TraceManager {
     }
 
     getActiveChildren(): TracePoint[] {
-        if (this.activeGroupId === null) { return this.traces; }
+        if (this.activeGroupId === null) { return this.getActiveRootTraces(); }
         const group = this.findTraceById(this.activeGroupId);
         if (!group) {
             this.activeGroupId = null;
             this.persistActiveGroup();
-            return this.traces;
+            return this.getActiveRootTraces();
         }
         if (!group.children) { group.children = []; }
         return group.children;
@@ -280,7 +365,21 @@ export class TraceManager {
      */
     handleTextDocumentChange(event: vscode.TextDocumentChangeEvent): void {
         const document = event.document;
-        const tracesInFile = this.getAllFlat().filter(t => t.filePath === document.uri.fsPath);
+        // Important: check ALL trees?? No, probably just the active one for now?
+        // Or should we support background updates for inactive trees?
+        // For simplicity, let's stick to updating the ACTIVE tree only for now.
+        // It's a limitation, but handling N trees in sync might be expensive.
+        // ACTUALLY, if I switch back to a tree, I expect its offsets to be valid.
+        // So I should update ALL trees. 
+        // Let's stick to SINGLE ACTIVE TREE updating for this iteration to avoid performance issues
+        // and because the user didn't explicitly ask for background sync of all trees.
+        // WAIT, if I don't update them, they become orphaned immediately upon switch if edits happened.
+        // That's bad.
+        // 
+        // Compromise: Update ALL trees in memory (fast offset math).
+        
+        const allTracesAllTrees = this.trees.flatMap(tree => this.getAllFlat(tree.traces));
+        const tracesInFile = allTracesAllTrees.filter(t => t.filePath === document.uri.fsPath);
         
         if (tracesInFile.length === 0) return;
 
@@ -336,7 +435,8 @@ export class TraceManager {
         let stateChanged = false;
 
         for (const document of docsToProcess.values()) {
-            const tracesInFile = this.getAllFlat().filter(t => t.filePath === document.uri.fsPath);
+            const allTracesAllTrees = this.trees.flatMap(tree => this.getAllFlat(tree.traces));
+            const tracesInFile = allTracesAllTrees.filter(t => t.filePath === document.uri.fsPath);
             
             // Re-run your validation logic per document
             for (const trace of tracesInFile) {

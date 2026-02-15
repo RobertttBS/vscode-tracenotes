@@ -1,5 +1,6 @@
 export const MAX_DEPTH = 10;
 
+
 export interface TracePoint {
     id: string;
     filePath: string;
@@ -15,9 +16,18 @@ export interface TracePoint {
     children?: TracePoint[];     // sub-traces (max 3 levels deep)
 }
 
+/** Root level container for a tree of traces */
+export interface TraceTree {
+    id: string;
+    name: string;
+    createdAt: number;
+    updatedAt: number;
+    traces: TracePoint[];
+}
+
 /** Messages sent from Extension → Webview */
 export type ExtensionToWebviewMessage =
-    | { type: 'syncAll'; payload: TracePoint[] }
+    | { type: 'syncAll'; payload: { treeId: string; treeName: string; traces: TracePoint[] } }
     | { type: 'focusCard'; id: string }
     | { type: 'setActiveGroup'; id: string | null; depth: number; breadcrumb: string };
 
@@ -32,4 +42,5 @@ export type WebviewToExtensionMessage =
     | { command: 'exitGroup' }
     | { command: 'clearCurrentLevel' }
     | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | null }
-    | { command: 'exportToMarkdown' };
+    | { command: 'exportToMarkdown' }
+    | { command: 'renameTree'; name: string };
