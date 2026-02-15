@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { TracePoint, MAX_DEPTH } from './types';
 
+const SEARCH_RADIUS = 5000;
+const MAX_REGEX_LENGTH = 2000; 
+
 /**
  * Manages the collection of TracePoints as a tree (up to 3 levels deep).
  * Persists both traces and activeGroupId to workspaceState to survive reloads.
@@ -414,49 +417,72 @@ export class TraceManager {
         }
     }
 
-    /**
-     * Search for content near the expected location.
-     */
-    private recoverTracePoints(document: vscode.TextDocument, storedContent: string, lastKnownStart: number): [number, number] | null {
+    private recoverTracePoints(
+        document: vscode.TextDocument, 
+        storedContent: string, 
+        lastKnownStart: number
+    ): [number, number] | null {
         const fullText = document.getText();
-        const normalizedStored = storedContent.replace(/\s+/g, '');
         
-        // Helper to check match at offset (optimized)
-        // We can't easily jump around with normalized spacing.
-        // So we fallback to standard indexOf on full text? No, spacing issues.
-        // The user suggested: "Remove all spaces and line breaks using a single regular expression"
-        
-        // If we strictly implement "Remove all spaces", we lose the ability to map back to original offsets efficiently
-        // unless we map the whole file. 
-        // Better approach: Use the stored content (dedented) and try to find it in the document.
-        
-        // Let's try to find the exact string first? 
-        // Traces usually preserve formatting.
-        
-        // Implementation:
-        // 1. Proximity search: Look around lastKnownStart using the stored content (raw).
-        // 2. If fail, maybe loose search?
-        
-        const SEARCH_RADIUS = 5000;
         const searchStart = Math.max(0, lastKnownStart - SEARCH_RADIUS);
         const searchEnd = Math.min(fullText.length, lastKnownStart + SEARCH_RADIUS + storedContent.length);
         const searchArea = fullText.slice(searchStart, searchEnd);
-        
-        // Exact match attempt in search area
+
         let idx = searchArea.indexOf(storedContent);
         if (idx >= 0) {
             const absoluteStart = searchStart + idx;
             return [absoluteStart, absoluteStart + storedContent.length];
         }
 
-        // If exact match fails, try whitespace compliant match?
-        // This is expensive. For now, rely on exact match of the block content.
-        // If the user reformatted the code, the trace is likely "broken" in meaning too.
+        if (storedContent.length <= MAX_REGEX_LENGTH) {
+            const escapedContent = storedContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const flexibleRegexStr = escapedContent.replace(/\s+/g, '\\s+');
+            
+            try {
+                const regex = new RegExp(flexibleRegexStr, 'g');
+                const match = regex.exec(searchArea);
+                
+                if (match) {
+                    // regex.exec 的好處是：match[0].length 就是它在「實際文件」中佔用的長度！
+                    // 完美解決了您「無法映射回原始 offset」的困擾。
+                    const absoluteStart = searchStart + match.index;
+                    const absoluteEnd = absoluteStart + match[0].length;
+                    return [absoluteStart, absoluteEnd];
+                }
+            } catch (e) {
+                console.warn('Trace recovery regex compilation failed', e);
+            }
+        }
+
+        const minAnchorLength = 20;
+        const contentLines = storedContent.trim().split('\n');
         
-        // Global search fallback (if it moved far)
+        if (contentLines.length >= 3 && storedContent.length > minAnchorLength * 2) {
+            const headText = contentLines[0].trim();
+            const tailText = contentLines[contentLines.length - 1].trim();
+            
+            // 在 searchArea 尋找頭部
+            const headIdx = searchArea.indexOf(headText);
+            if (headIdx >= 0) {
+                // 從頭部往後尋找尾部 (限制在合理的長度範圍內)
+                const expectedTailPos = headIdx + storedContent.length;
+                const searchTailStart = Math.max(headIdx, expectedTailPos - 500);
+                const searchTailEnd = Math.min(searchArea.length, expectedTailPos + 500);
+                
+                const tailSearchArea = searchArea.slice(searchTailStart, searchTailEnd);
+                const tailIdxInSlice = tailSearchArea.indexOf(tailText);
+                
+                if (tailIdxInSlice >= 0) {
+                    const absoluteStart = searchStart + headIdx;
+                    const absoluteEnd = searchStart + searchTailStart + tailIdxInSlice + tailText.length;
+                    return [absoluteStart, absoluteEnd];
+                }
+            }
+        }
+
         idx = fullText.indexOf(storedContent);
         if (idx >= 0) {
-             return [idx, idx + storedContent.length];
+            return [idx, idx + storedContent.length];
         }
 
         return null;
