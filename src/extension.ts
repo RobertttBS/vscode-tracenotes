@@ -201,7 +201,11 @@ export function activate(context: vscode.ExtensionContext) {
                 try {
                     const fileData = await vscode.workspace.fs.readFile(fileUri[0]);
                     const markdown = new TextDecoder().decode(fileData);
-                    await traceManager.importTraceTree(markdown);
+                    
+                    // Extract filename without extension
+                    const fileName = fileUri[0].path.split('/').pop()?.replace(/\.md$/i, '') || 'Imported Trace';
+                    
+                    await traceManager.importTraceTree(markdown, fileName);
                     vscode.window.showInformationMessage('TraceNotes: Trace tree imported successfully!');
                 } catch (e) {
                     vscode.window.showErrorMessage(`TraceNotes: Failed to import trace tree. ${e}`);

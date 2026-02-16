@@ -900,15 +900,15 @@ export class TraceManager {
 
     // ── Import Logic ─────────────────────────────────────────────
 
-    public async importTraceTree(markdown: string): Promise<void> {
+    public async importTraceTree(markdown: string, treeName?: string): Promise<void> {
         try {
             const importedTraces = await this.parseMarkdown(markdown);
             
             // Create a new tree for the imported traces
-            const treeName = `Imported Trace ${new Date().toLocaleString()}`;
+            const finalTreeName = treeName || `Imported Trace ${new Date().toLocaleString()}`;
             const newTree: TraceTree = {
                 id: crypto.randomUUID(),
-                name: treeName,
+                name: finalTreeName,
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 traces: importedTraces
