@@ -185,7 +185,6 @@ const Storyboard: React.FC = () => {
     // Tell the extension we're ready to receive data and get the initial tree list
     useEffect(() => {
         postMessage({ command: 'ready' });
-        postMessage({ command: 'getTreeList' });
     }, []);
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {

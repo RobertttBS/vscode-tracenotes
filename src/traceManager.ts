@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
 import { TracePoint, TraceTree, MAX_DEPTH } from './types';
 
-const SEARCH_RADIUS = 5000;
-const MAX_REGEX_LENGTH = 2000; 
-
-/**
- * Manages the collection of TracePoints as a tree (up to 3 levels deep).
- * Persists both traces and activeGroupId to workspaceState to survive reloads.
- */
 export class TraceManager {
+    private static readonly SEARCH_RADIUS = 5000;
+    private static readonly MAX_REGEX_LENGTH = 2000;
+
     private trees: TraceTree[] = [];
     private activeTreeId: string | null = null;
 
@@ -324,17 +320,7 @@ export class TraceManager {
         return [...this.getActiveRootTraces()];
     }
 
-    public getSyncPayload(): { treeId: string; treeName: string; traces: TracePoint[] } {
-        const active = this.getActiveTree();
-        if (!active) {
-            return { treeId: '', treeName: 'No Active Trace', traces: [] };
-        }
-        return {
-            treeId: active.id,
-            treeName: active.name,
-            traces: active.traces
-        };
-    }
+
 
     public getWorkspaceSyncPayload(): {
         treeId: string;
@@ -345,7 +331,11 @@ export class TraceManager {
         breadcrumb: string;
         treeList: { id: string; name: string; active: boolean }[];
     } {
-        const basicPayload = this.getSyncPayload();
+        const active = this.getActiveTree();
+        const basicPayload = active 
+            ? { treeId: active.id, treeName: active.name, traces: active.traces }
+            : { treeId: '', treeName: 'No Active Trace', traces: [] };
+
         return {
             ...basicPayload,
             activeGroupId: this.activeGroupId,
@@ -649,8 +639,8 @@ export class TraceManager {
     ): [number, number] | null {
         const fullText = document.getText();
         
-        const searchStart = Math.max(0, lastKnownStart - SEARCH_RADIUS);
-        const searchEnd = Math.min(fullText.length, lastKnownStart + SEARCH_RADIUS + storedContent.length);
+        const searchStart = Math.max(0, lastKnownStart - TraceManager.SEARCH_RADIUS);
+        const searchEnd = Math.min(fullText.length, lastKnownStart + TraceManager.SEARCH_RADIUS + storedContent.length);
         const searchArea = fullText.slice(searchStart, searchEnd);
 
         let idx = searchArea.indexOf(storedContent);
@@ -659,7 +649,7 @@ export class TraceManager {
             return [absoluteStart, absoluteStart + storedContent.length];
         }
 
-        if (storedContent.length <= MAX_REGEX_LENGTH) {
+        if (storedContent.length <= TraceManager.MAX_REGEX_LENGTH) {
             const escapedContent = storedContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const flexibleRegexStr = escapedContent.replace(/\s+/g, '\\s+');
             
@@ -727,14 +717,18 @@ export class TraceManager {
      */
     private rebuildActiveTraceFiles(): void {
         this.activeTraceFiles.clear();
-        // We track files across ALL trees so that we can support background updates if we wanted to,
-        // but primarily to ensure we don't miss updates if the user switches trees.
-        // Actually, for performance, we only care about updating offsets for traces that exist.
-        for (const tree of this.trees) {
-            const flat = this.getAllFlat(tree.traces);
-            for (const t of flat) {
+        
+        const visit = (traces: TracePoint[]) => {
+            for (const t of traces) {
                 this.activeTraceFiles.add(t.filePath);
+                if (t.children && t.children.length > 0) {
+                    visit(t.children);
+                }
             }
+        };
+
+        for (const tree of this.trees) {
+            visit(tree.traces);
         }
     }
 }

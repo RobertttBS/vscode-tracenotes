@@ -241,7 +241,7 @@ style.textContent = `
     border-color: var(--vscode-focusBorder, #007fd4);
 }
 
-/* ---- Reverse-sync active highlight ---- */
+
 
 
 /* ---- Toolbar Button Base ---- */

@@ -34,7 +34,7 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'removeTrace':
                     traceManager.remove(msg.id);
-                    provider.postMessage({ type: 'syncAll', payload: traceManager.getSyncPayload() });
+                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     refreshDecorations();
                     break;
                 case 'reorderTraces':
@@ -83,9 +83,6 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'renameTree':
                     traceManager.renameActiveTree(msg.name);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    break;
-                case 'getTreeList':
                     provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     break;
                 case 'createTree':
