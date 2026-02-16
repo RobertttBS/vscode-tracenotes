@@ -494,6 +494,12 @@ style.textContent = `
     color: #fff;
 }
 
+.tree-delete-btn.confirming {
+    opacity: 1;
+    background: rgba(255, 77, 77, 0.1);
+    color: #ff4d4d;
+}
+
 .create-tree-btn {
     margin: 12px 8px;
     padding: 8px;

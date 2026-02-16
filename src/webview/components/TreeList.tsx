@@ -17,6 +17,7 @@ interface TreeListProps {
 
 export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, onDelete, onClose }) => {
     const [isCreating, setIsCreating] = useState(false);
+    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
 
     const handleCreate = useCallback(() => {
@@ -54,16 +55,27 @@ export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, o
                             {tree.name}
                         </div>
                         <button 
-                            className="tree-delete-btn"
+                            className={`tree-delete-btn ${deleteConfirmId === tree.id ? 'confirming' : ''}`}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm(`Delete trace "${tree.name}"?`)) {
+                                if (deleteConfirmId === tree.id) {
                                     onDelete(tree.id);
+                                    setDeleteConfirmId(null);
+                                } else {
+                                    setDeleteConfirmId(tree.id);
+                                    // Auto-reset after 3 seconds
+                                    setTimeout(() => {
+                                        setDeleteConfirmId(prev => prev === tree.id ? null : prev);
+                                    }, 3000);
                                 }
                             }}
-                            title="Delete Trace"
+                            title={deleteConfirmId === tree.id ? "Click again to confirm delete" : "Delete Trace"}
                         >
-                            <TrashIcon />
+                            {deleteConfirmId === tree.id ? (
+                                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#ff4d4d' }}>Confirm</span>
+                            ) : (
+                                <TrashIcon />
+                            )}
                         </button>
                     </div>
                 ))}

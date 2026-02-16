@@ -34,34 +34,22 @@ export function activate(context: vscode.ExtensionContext) {
                     break;
                 case 'removeTrace':
                     traceManager.remove(msg.id);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
                 case 'reorderTraces':
                     traceManager.reorder(msg.orderedIds);
-                    // Reorder doesn't change tree list or active group, but syncWorkspace is safer/easier
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     break;
                 case 'updateNote':
                     traceManager.updateNote(msg.id, msg.note);
-                    refreshDecorations(); // hover message may have changed
                     break;
                 case 'updateHighlight':
                     traceManager.updateHighlight(msg.id, msg.highlight);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
                 case 'enterGroup':
-
                     traceManager.enterGroup(msg.id);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
                 case 'exitGroup': {
                     const exitedGroupId = traceManager.getActiveGroupId();
-                    
                     traceManager.exitGroup();
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     if (exitedGroupId) {
                         // Defer so the webview re-renders with the parent view first
                         if (focusCardTimer) { clearTimeout(focusCardTimer); }
@@ -70,34 +58,25 @@ export function activate(context: vscode.ExtensionContext) {
                             focusCardTimer = undefined;
                         }, 100);
                     }
-                    refreshDecorations();
                     break;
                 }
                 case 'clearCurrentLevel':
                     traceManager.clearActiveChildren();
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
                 case 'exportToMarkdown':
                     vscode.commands.executeCommand('tracenotes.exportMarkdown');
                     break;
                 case 'renameTree':
                     traceManager.renameActiveTree(msg.name);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     break;
                 case 'createTree':
                     traceManager.createTree(msg.name);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
                     break;
                 case 'switchTree':
                     traceManager.switchTree(msg.id);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
                 case 'deleteTree':
                     traceManager.deleteTree(msg.id);
-                    provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                    refreshDecorations();
                     break;
             }
         },
@@ -125,12 +104,6 @@ export function activate(context: vscode.ExtensionContext) {
                 } else {
                     vscode.commands.executeCommand('tracenotes.storyboard.focus');
                 }
-
-
-
-                provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-                
-                refreshDecorations();
 
                 // Delay focus to allow view to render/settle
                 setTimeout(() => {
@@ -193,8 +166,6 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.clearAll', () => {
             traceManager.clear();
-            provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-            refreshDecorations();
             vscode.window.showInformationMessage('TraceNotes: All traces cleared.');
         }),
     );
@@ -273,15 +244,14 @@ export function activate(context: vscode.ExtensionContext) {
     // Listen for trace changes from validation/updates (UI Sync)
     context.subscriptions.push(
         traceManager.onDidChangeTraces(() => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
+            for (const editor of vscode.window.visibleTextEditors) {
                 updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
             }
             // Sync with webview (Debounced to prevent flooding during rapid typing/validation)
             if (syncDebounce) { clearTimeout(syncDebounce); }
             syncDebounce = setTimeout(() => {
                 provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
-            }, 300);
+            }, 50);
         })
     );
 

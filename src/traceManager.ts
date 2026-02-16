@@ -34,6 +34,13 @@ export class TraceManager {
 
     constructor(private context: vscode.ExtensionContext) {
         this.restore();
+
+        // Cleanup validation queue when documents are closed to avoid memory leaks (holding TextDocument references)
+        context.subscriptions.push(
+            vscode.workspace.onDidCloseTextDocument(doc => {
+                this.pendingValidationDocs.delete(doc.uri.toString());
+            })
+        );
     }
 
     // ── Persistence ──────────────────────────────────────────────
@@ -301,19 +308,22 @@ export class TraceManager {
         this.traceIndex.set(trace.filePath, existing);
 
         this.persist();
+        this._onDidChangeTraces.fire();
     }
 
     /** Recursively remove a trace by id from anywhere in the tree */
     remove(id: string): void {
-        // If removing the active group itself, reset to root
-        if (id === this.activeGroupId) {
+        this.removeFromTree(id, this.getActiveRootTraces());
+
+        // Ensure activeGroupId is still valid (the removed trace might have been the group or its ancestor)
+        if (this.activeGroupId && !this.findTraceById(this.activeGroupId)) {
             this.activeGroupId = null;
             this.persistActiveGroup();
         }
-        this.removeFromTree(id, this.getActiveRootTraces());
 
         this.rebuildTraceIndex(); // File paths might have been removed
         this.persist();
+        this._onDidChangeTraces.fire();
     }
 
     /** Reorder traces within the current active group */
@@ -329,6 +339,7 @@ export class TraceManager {
         children.length = 0;
         children.push(...reordered);
         this.persist();
+        this._onDidChangeTraces.fire();
     }
 
     /** Update the note of a trace (recursive search) */
@@ -337,6 +348,7 @@ export class TraceManager {
         if (trace) {
             trace.note = note;
             this.persist();
+            this._onDidChangeTraces.fire();
         }
     }
 
@@ -346,6 +358,7 @@ export class TraceManager {
         if (trace) {
             trace.highlight = highlight;
             this.persist();
+            this._onDidChangeTraces.fire();
         }
     }
 
@@ -403,6 +416,7 @@ export class TraceManager {
         this.traceIndex.clear();
         this.persist();
         this.persistActiveGroup();
+        this._onDidChangeTraces.fire();
     }
 
     /** Clear traces in the current active group (or root) */
@@ -410,10 +424,9 @@ export class TraceManager {
         const children = this.getActiveChildren();
         children.length = 0; // Clear in-place
 
-        children.length = 0; // Clear in-place
-
         this.rebuildTraceIndex();
         this.persist();
+        this._onDidChangeTraces.fire();
     }
 
     // ── Public: Navigation ───────────────────────────────────────
@@ -428,6 +441,7 @@ export class TraceManager {
         if (!trace.children) { trace.children = []; }
         this.activeGroupId = id;
         this.persistActiveGroup();
+        this._onDidChangeTraces.fire();
         return true;
     }
 
@@ -437,6 +451,7 @@ export class TraceManager {
         const parentId = this.findParentTraceId(this.activeGroupId);
         this.activeGroupId = parentId;
         this.persistActiveGroup();
+        this._onDidChangeTraces.fire();
         return this.activeGroupId;
     }
 
