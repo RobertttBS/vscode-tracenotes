@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TracePoint } from './types';
+import { generateIsomorphicUUID } from './utils/uuid';
 
 // function used to exist here, now using crypto.randomUUID() inline
 
@@ -33,7 +34,7 @@ export function collectTrace(editor: vscode.TextEditor): TracePoint | null {
         .join('\n');
 
     return {
-        id: crypto.randomUUID(),
+        id: generateIsomorphicUUID(),
         filePath,
         rangeOffset: [
             editor.document.offsetAt(selection.start),
