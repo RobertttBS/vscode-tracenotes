@@ -4,6 +4,8 @@ import { TracePoint, TraceTree, MAX_DEPTH } from './types';
 export class TraceManager {
     private static readonly SEARCH_RADIUS = 5000;
     private static readonly MAX_REGEX_LENGTH = 2000;
+    // How many milliseconds we allow for validation/recovery per tick
+    private static readonly VALIDATION_BUDGET_MS = 15;
 
     private trees: TraceTree[] = [];
     private activeTreeId: string | null = null;
@@ -11,6 +13,12 @@ export class TraceManager {
     private activeGroupId: string | null = null;
 
     // Fast-path lookup for handleTextDocumentChange
+    // Maps filePath -> list of traces in that file (from ALL trees or just active? 
+    // Plan: Just ACTIVE tree for now to keep things simple and performant, 
+    // but the optimized strategy allows us to index ALL trees if we wanted global awareness later.)
+    // For now, let's index the ACTIVE tree's traces to solve the immediate bottleneck.
+    private traceIndex: Map<string, TracePoint[]> = new Map();
+
     private activeTraceFiles: Set<string> = new Set();
 
     private readonly storageKey = 'tracenotes.traces';
@@ -19,6 +27,7 @@ export class TraceManager {
 
     // Debounce / Batching
     private validationDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+    private persistenceDebounceTimer: ReturnType<typeof setTimeout> | undefined;
     private pendingValidationDocs: Map<string, vscode.TextDocument> = new Map();
     private _onDidChangeTraces = new vscode.EventEmitter<void>();
     public readonly onDidChangeTraces = this._onDidChangeTraces.event;
@@ -83,17 +92,35 @@ export class TraceManager {
 
 
         // Initialize the fast-path set based on currently loaded trees
-        this.rebuildActiveTraceFiles();
+        this.rebuildTraceIndex();
     }
 
-    /** Persist current traces to workspaceState */
+    /** Persist current traces to workspaceState (Debounced) */
     private persist(): void {
         // Update updatedTimestamp for the active tree
         const active = this.getActiveTree();
         if (active) {
             active.updatedAt = Date.now();
         }
-        
+
+        // Cancel existing timer
+        if (this.persistenceDebounceTimer) {
+            clearTimeout(this.persistenceDebounceTimer);
+        }
+
+        // Debounce for 2 seconds
+        this.persistenceDebounceTimer = setTimeout(() => {
+            this.context.workspaceState.update(this.storageKey, this.trees);
+            this.persistenceDebounceTimer = undefined;
+        }, 2000);
+    }
+
+    /** Force immediate persistence (e.g. on deactivation) */
+    public persistImmediately(): void {
+        if (this.persistenceDebounceTimer) {
+            clearTimeout(this.persistenceDebounceTimer);
+            this.persistenceDebounceTimer = undefined;
+        }
         this.context.workspaceState.update(this.storageKey, this.trees);
     }
 
@@ -153,7 +180,7 @@ export class TraceManager {
         this.trees.push(newTree);
         this.activeTreeId = newTree.id;
 
-        this.rebuildActiveTraceFiles();
+        this.rebuildTraceIndex();
         this.persist();
         this.persistActiveTree();
         this._onDidChangeTraces.fire();
@@ -165,6 +192,7 @@ export class TraceManager {
             this.activeGroupId = null; // Reset group nav when switching trees
             this.persistActiveTree();
             this.persistActiveGroup();
+            this.rebuildTraceIndex();
             this._onDidChangeTraces.fire();
         }
     }
@@ -203,7 +231,7 @@ export class TraceManager {
 
         this.persist();
 
-        this.rebuildActiveTraceFiles();
+        this.rebuildTraceIndex();
         this._onDidChangeTraces.fire();
     }
 
@@ -266,6 +294,12 @@ export class TraceManager {
         target.push(trace);
 
         this.activeTraceFiles.add(trace.filePath);
+        
+        // Update index immediately for the new trace
+        const existing = this.traceIndex.get(trace.filePath) || [];
+        existing.push(trace);
+        this.traceIndex.set(trace.filePath, existing);
+
         this.persist();
     }
 
@@ -278,7 +312,7 @@ export class TraceManager {
         }
         this.removeFromTree(id, this.getActiveRootTraces());
 
-        this.rebuildActiveTraceFiles(); // File paths might have been removed
+        this.rebuildTraceIndex(); // File paths might have been removed
         this.persist();
     }
 
@@ -366,6 +400,7 @@ export class TraceManager {
         this.activeGroupId = null;
 
         this.activeTraceFiles.clear();
+        this.traceIndex.clear();
         this.persist();
         this.persistActiveGroup();
     }
@@ -375,8 +410,9 @@ export class TraceManager {
         const children = this.getActiveChildren();
         children.length = 0; // Clear in-place
 
-        // We cleared a subtree. Ideally we just rebuild the set.
-        this.rebuildActiveTraceFiles();
+        children.length = 0; // Clear in-place
+
+        this.rebuildTraceIndex();
         this.persist();
     }
 
@@ -485,10 +521,10 @@ export class TraceManager {
             return;
         }
         
-        const allTracesAllTrees = this.trees.flatMap(tree => this.getAllFlat(tree.traces));
-        const tracesInFile = allTracesAllTrees.filter(t => t.filePath === document.uri.fsPath);
+        // O(1) Retrieval from Index
+        const tracesInFile = this.traceIndex.get(document.uri.fsPath);
         
-        if (tracesInFile.length === 0) return;
+        if (!tracesInFile || tracesInFile.length === 0) return;
 
         let needsValidation = false;
 
@@ -535,59 +571,96 @@ export class TraceManager {
     private processValidationQueue(): void {
         if (this.pendingValidationDocs.size === 0) return;
 
-        // Clone and clear the queue so incoming edits don't interfere
-        const docsToProcess = new Map(this.pendingValidationDocs);
-        this.pendingValidationDocs.clear();
-
+        const startTime = Date.now();
         let stateChanged = false;
 
-        for (const document of docsToProcess.values()) {
-            const allTracesAllTrees = this.trees.flatMap(tree => this.getAllFlat(tree.traces));
-            const tracesInFile = allTracesAllTrees.filter(t => t.filePath === document.uri.fsPath);
+        // Clone and clear the queue map to iterate safely. 
+        // If we yield, we might need to put things back?
+        // Better strategy: Process one doc at a time, check budget. 
+        // If budget exceeded, put remaining docs back into pendingValidationDocs and schedule another run.
+        
+        // We iterate the map directly. We can't easily "put back" into the front if we cleared it.
+        // So let's NOT clear immediately. Iterate and remove handled ones.
+        
+        const iterator = this.pendingValidationDocs.entries();
+        let result = iterator.next();
+
+        while (!result.done) {
+            const [uri, document] = result.value;
             
-            // Re-run your validation logic per document
-            for (const trace of tracesInFile) {
-                if (!trace.rangeOffset) continue;
+            // Check budget
+            if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
+                // Time's up for this tick. Schedule continuation.
+                if (this.validationDebounceTimer) { clearTimeout(this.validationDebounceTimer); }
+                this.validationDebounceTimer = setTimeout(() => {
+                    this.processValidationQueue();
+                }, 0); // Immediate (next tick)
+                break;
+            }
 
-                const [startOffset, endOffset] = trace.rangeOffset;
-                
-                if (startOffset < 0 || endOffset > document.getText().length) {
-                    trace.orphaned = true;
-                    stateChanged = true;
-                    continue;
-                }
-
-                const startPos = document.positionAt(startOffset);
-                const endPos = document.positionAt(endOffset);
-                
-                // Update lineRange and check for changes
-                const newStartLine = startPos.line;
-                const newEndLine = endPos.line;
-                
-                if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
-                    trace.lineRange = [newStartLine, newEndLine];
-                    stateChanged = true;
-                }
-
-                const currentContent = document.getText(new vscode.Range(startPos, endPos));
-                
-                if (!this.contentMatches(currentContent, trace.content)) {
-                    const recovered = this.recoverTracePoints(document, trace.content, startOffset);
-                    if (recovered) {
-                        trace.rangeOffset = recovered;
-                        const rStart = document.positionAt(recovered[0]);
-                        const rEnd = document.positionAt(recovered[1]);
-                        trace.lineRange = [rStart.line, rEnd.line];
-                        trace.orphaned = false;
-                    } else {
-                        trace.orphaned = true;
+            // Remove current from queue as we process it
+            this.pendingValidationDocs.delete(uri);
+            
+            // Process the document
+            const tracesInFile = this.traceIndex.get(document.uri.fsPath);
+            if (tracesInFile) {
+                for (const trace of tracesInFile) {
+                    // Check budget inside trace loop for documents with MANY traces
+                     if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
+                        // Put this doc back in queue! 
+                        // We haven't finished this doc.
+                        // Ideally we resume where we left off, but re-processing some traces is okay.
+                        // Or we can just break and let the outer loop handle "re-queueing".
+                        // Use pendingValidationDocs.set(uri, document) to ensure it stays.
+                        this.pendingValidationDocs.set(uri, document);
+                        break; 
                     }
-                    stateChanged = true;
-                } else if (trace.orphaned) {
-                    trace.orphaned = false;
-                    stateChanged = true;
+
+                    if (!trace.rangeOffset) continue;
+
+                    const [startOffset, endOffset] = trace.rangeOffset;
+                    
+                    if (startOffset < 0 || endOffset > document.getText().length) {
+                        trace.orphaned = true;
+                        stateChanged = true;
+                        continue;
+                    }
+
+                    const startPos = document.positionAt(startOffset);
+                    const endPos = document.positionAt(endOffset);
+                    
+                    // Update lineRange and check for changes
+                    const newStartLine = startPos.line;
+                    const newEndLine = endPos.line;
+                    
+                    if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
+                        trace.lineRange = [newStartLine, newEndLine];
+                        stateChanged = true;
+                    }
+
+                    const currentContent = document.getText(new vscode.Range(startPos, endPos));
+                    
+                    if (!this.contentMatches(currentContent, trace.content)) {
+                        // RECOVERY: This is the expensive part (Regex)
+                        const recovered = this.recoverTracePoints(document, trace.content, startOffset);
+                        if (recovered) {
+                            trace.rangeOffset = recovered;
+                            const rStart = document.positionAt(recovered[0]);
+                            const rEnd = document.positionAt(recovered[1]);
+                            trace.lineRange = [rStart.line, rEnd.line];
+                            trace.orphaned = false;
+                        } else {
+                            trace.orphaned = true;
+                        }
+                        stateChanged = true;
+                    } else if (trace.orphaned) {
+                        trace.orphaned = false;
+                        stateChanged = true;
+                    }
                 }
             }
+
+            result = iterator.next();
         }
 
         if (stateChanged) {
@@ -712,23 +785,37 @@ export class TraceManager {
 
 
     /**
-     * Rebuilds the fast-path Set of file paths that contain traces.
+     * Rebuilds the fast-path Index (Map<filePath, TracePoint[]>).
      * Should be called whenever traces are added, removed, or trees are switched/deleted.
      */
-    private rebuildActiveTraceFiles(): void {
+    private rebuildTraceIndex(): void {
         this.activeTraceFiles.clear();
+        this.traceIndex.clear();
         
         const visit = (traces: TracePoint[]) => {
             for (const t of traces) {
                 this.activeTraceFiles.add(t.filePath);
+                
+                const list = this.traceIndex.get(t.filePath) || [];
+                list.push(t);
+                this.traceIndex.set(t.filePath, list);
+
                 if (t.children && t.children.length > 0) {
                     visit(t.children);
                 }
             }
         };
 
-        for (const tree of this.trees) {
-            visit(tree.traces);
+        // Only index the ACTIVE tree to keep things simple for now. 
+        // If the user switches trees, we rebuild the index.
+        const activeTree = this.getActiveTree();
+        if (activeTree) {
+            visit(activeTree.traces);
         }
+    }
+
+    /** Public Accessor for efficient extensions usage */
+    public getTracesForFile(filePath: string): TracePoint[] {
+        return this.traceIndex.get(filePath) || [];
     }
 }

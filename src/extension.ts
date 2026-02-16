@@ -16,7 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
     const refreshDecorations = () => {
         const editor = vscode.window.activeTextEditor;
         if (editor) {
-            updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
+            updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
         }
     };
 
@@ -203,7 +203,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editor) {
-                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
+                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
             }
         }),
     );
@@ -220,7 +220,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor && editor.document === event.document) {
                 if (decorationDebounce) { clearTimeout(decorationDebounce); }
                 decorationDebounce = setTimeout(() => {
-                    updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
+                    updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
                 }, 100);
             }
         }),
@@ -229,6 +229,7 @@ export function activate(context: vscode.ExtensionContext) {
     // --- Reverse sync: cursor position → sidebar card ---
     let lastFocusedTraceId: string | undefined;
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    let syncDebounce: ReturnType<typeof setTimeout> | undefined;
 
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection((event) => {
@@ -274,10 +275,13 @@ export function activate(context: vscode.ExtensionContext) {
         traceManager.onDidChangeTraces(() => {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
-                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getAllFlat());
+                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
             }
-            // Sync with webview
-            provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
+            // Sync with webview (Debounced to prevent flooding during rapid typing/validation)
+            if (syncDebounce) { clearTimeout(syncDebounce); }
+            syncDebounce = setTimeout(() => {
+                provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
+            }, 300);
         })
     );
 
@@ -287,6 +291,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (focusCardTimer) { clearTimeout(focusCardTimer); }
             if (decorationDebounce) { clearTimeout(decorationDebounce); }
             if (debounceTimer) { clearTimeout(debounceTimer); }
+            if (syncDebounce) { clearTimeout(syncDebounce); }
         },
     });
 
