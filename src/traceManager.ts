@@ -801,8 +801,6 @@ export class TraceManager {
                 const match = regex.exec(searchArea);
                 
                 if (match) {
-                    // regex.exec 的好處是：match[0].length 就是它在「實際文件」中佔用的長度！
-                    // 完美解決了您「無法映射回原始 offset」的困擾。
                     const absoluteStart = searchStart + match.index;
                     const absoluteEnd = absoluteStart + match[0].length;
                     return [absoluteStart, absoluteEnd];
@@ -958,8 +956,7 @@ export class TraceManager {
                     currentTrace.content = currentContent.join('\n');
                     currentContent = [];
                     
-                    // Finalize current trace
-                    // Validate and Recover!
+                    // Validate and Recover
                     const validated = await this.validateAndRecover(currentTrace as TracePoint);
                     if (validated) {
                         const trace = validated;
@@ -1070,19 +1067,36 @@ export class TraceManager {
 
             const recovered = this.recoverTracePoints(doc, trace.content, estimatedOffset);
             if (recovered) {
+                // SUCCESS: Update locations
                 trace.rangeOffset = recovered;
                 const rStart = doc.positionAt(recovered[0]);
                 const rEnd = doc.positionAt(recovered[1]);
                 trace.lineRange = [rStart.line, rEnd.line];
                 trace.orphaned = false;
+                return trace;
             } else {
-                // 3. Recovery failed -> Mark as Orphaned
-                trace.orphaned = true;
-                trace.rangeOffset = [0, 0];
-            }
-            
-            return trace;
+                // FAILURE: 
+                // If original lineRange is within the file, use it and mark Red.
+                if (trace.lineRange && trace.lineRange[0] < doc.lineCount) {
+                    const startLine = trace.lineRange[0];
+                    const endLine = trace.lineRange[1]; // tolerant of endLine > doc.lineCount
 
+                    const effectiveEndLine = Math.min(endLine, doc.lineCount - 1);
+                    const startPos = new vscode.Position(startLine, 0);
+                    const endLineObj = doc.lineAt(effectiveEndLine);
+                    const endPos = endLineObj.range.end;
+
+                    trace.rangeOffset = [doc.offsetAt(startPos), doc.offsetAt(endPos)];
+                    trace.orphaned = false; // Logic: It is broken
+                    trace.highlight = 'red'; // Logic: Visual cue
+
+                    return trace;
+                } else {
+                    // Invalid range or file skipped -> Drop
+                    trace.orphaned = true;
+                    return null;
+                }
+            }
         } catch (e) {
             console.warn('Trace import error:', e);
             return null;
