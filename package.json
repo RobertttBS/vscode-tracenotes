@@ -1,7 +1,7 @@
 {
   "name": "tracenotes",
   "displayName": "TraceNotes",
-  "description": "Collect code trace points and visualize them in a sidebar storyboard",
+  "description": "An extension for code tracing and note-taking.",
   "version": "0.0.4",
   "publisher": "RobertttBS",
   "icon": "images/icon.png",
