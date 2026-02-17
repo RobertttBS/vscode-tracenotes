@@ -122,7 +122,8 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                     {showEnterGroup && (
                         <button
                             className="enter-group-btn"
-                            title={trace.children?.length ? 'View child traces' : 'Add child traces'}
+                            data-tooltip={trace.children?.length ? 'View child notes' : 'Add child note'}
+                            data-tooltip-pos="bottom"
                             onClick={(e) => { e.stopPropagation(); onEnterGroup(trace.id); }}
                         >
                             {trace.children?.length ? `> ${trace.children.length} Childs` : '+ Childs'}
@@ -132,7 +133,8 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                         <>
                             <button
                                 className="relocate-confirm-btn"
-                                title="Confirm Relocation (Update with current selection)"
+                                data-tooltip="Confirm Relocation (Update with current selection)"
+                                data-tooltip-pos="bottom-right"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onRelocate(trace.id);
@@ -143,7 +145,8 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                             </button>
                             <button
                                 className="relocate-cancel-btn"
-                                title="Cancel Relocation"
+                                data-tooltip="Cancel Relocation"
+                                data-tooltip-pos="bottom-right"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setIsRelocating(false);
@@ -155,7 +158,8 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                     ) : (
                         <button
                             className="relocate-btn"
-                            title="Relocate trace (Click then select code)"
+                            data-tooltip="Reselect the codes"
+                            data-tooltip-pos="bottom-right"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setIsRelocating(true);
@@ -166,7 +170,8 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                     )}
                     <button
                         className="card-remove"
-                        title="Remove trace"
+                        data-tooltip="Remove note"
+                        data-tooltip-pos="bottom-right"
                         onClick={(e) => { e.stopPropagation(); onRemove(trace.id); }}
                     >
                         ✕

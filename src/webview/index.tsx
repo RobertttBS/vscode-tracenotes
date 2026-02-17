@@ -58,9 +58,9 @@ style.textContent = `
     margin-bottom: 12px;
     border: 1px solid var(--vscode-panel-border, #555);
     border-radius: 6px;
-    overflow: hidden;
-    background: var(--vscode-editor-background, #1e1e1e);
     transition: border-color 0.15s ease;
+    background: var(--vscode-editor-background, #1e1e1e);
+    /* overflow: hidden removed to allow tooltips to pop out */
 }
 
 .trace-card:hover {
@@ -90,6 +90,7 @@ style.textContent = `
     background: var(--vscode-sideBarSectionHeader-background, #252526);
     cursor: pointer;
     user-select: none;
+    border-radius: 6px 6px 0 0;
 }
 
 .card-header:hover {
@@ -631,6 +632,61 @@ style.textContent = `
 
 .close-btn:hover {
     opacity: 1;
+}
+
+/* ---- Tooltip ---- */
+[data-tooltip] {
+    position: relative;
+}
+[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-foreground, #ccc);
+    border: 1px solid var(--vscode-widget-border, #454545);
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 10000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    margin-bottom: 6px;
+}
+[data-tooltip-pos="bottom"]:hover::after {
+    top: 100%;
+    bottom: auto;
+    margin-bottom: 0;
+    margin-top: 6px;
+}
+[data-tooltip-pos="bottom-left"]:hover::after {
+    top: 100%;
+    bottom: auto;
+    left: 0;
+    right: auto;
+    transform: none;
+    margin-bottom: 0;
+    margin-top: 6px;
+}
+[data-tooltip-pos="bottom-right"]:hover::after {
+    top: 100%;
+    bottom: auto;
+    left: auto;
+    right: 0;
+    transform: none;
+    margin-bottom: 0;
+    margin-top: 6px;
+}
+[data-tooltip-pos="top-right"]:hover::after {
+    bottom: 100%;
+    top: auto;
+    left: auto;
+    right: 0;
+    transform: none;
+    margin-bottom: 6px;
 }
 `
 document.head.appendChild(style);

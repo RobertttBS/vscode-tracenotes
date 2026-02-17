@@ -323,7 +323,8 @@ const Storyboard: React.FC = () => {
             <button 
                 className="toolbar-btn list-btn" 
                 onClick={() => setViewMode('list')}
-                title="Manage Traces"
+                data-tooltip="Manage Traces"
+                data-tooltip-pos="bottom-left"
                 style={{ marginRight: 8 }}
             >
                 <ListIcon />
@@ -351,7 +352,8 @@ const Storyboard: React.FC = () => {
                         <div 
                             className="tree-title" 
                             onClick={startEditingTitle}
-                            title="Click to rename trace"
+                            data-tooltip="Click to rename trace"
+                            data-tooltip-pos="bottom-right"
                         >
                             {treeName}
                         </div>
@@ -361,19 +363,21 @@ const Storyboard: React.FC = () => {
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                 <span className="trace-count">
-                    {visibleTraces.length} items
+                    {visibleTraces.length} notes
                 </span>
                 <button
                     className="toolbar-btn export-btn"
                     onClick={handleExport}
-                    title="Export to Markdown"
+                    data-tooltip="Export to Markdown"
+                    data-tooltip-pos="bottom-right"
                 >
                     <ExportIcon />
                 </button>
                 <button
                     className="toolbar-btn clear-all-btn"
                     onClick={handleClearAll}
-                    title="Clear All Traces"
+                    data-tooltip="Clear Notes in Current Level"
+                    data-tooltip-pos="bottom-right"
                 >
                     <TrashIcon />
                 </button>

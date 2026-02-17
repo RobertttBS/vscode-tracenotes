@@ -100,8 +100,8 @@ export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, o
                     <button className="create-tree-btn" style={{ flex: 1 }} onClick={() => setIsCreating(true)}>
                         + New Trace
                     </button>
-                    <button className="create-tree-btn" style={{ flex: 1 }} onClick={onImport}>
-                        Import Traces
+                    <button className="create-tree-btn" style={{ flex: 1 }} onClick={onImport} data-tooltip="Import Trace from Markdown" data-tooltip-pos="top">
+                        Import Trace
                     </button>
                 </div>
             )}
