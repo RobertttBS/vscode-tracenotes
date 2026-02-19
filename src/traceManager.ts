@@ -28,6 +28,7 @@ export class TraceManager {
     // Debounce / Batching
     private validationDebounceTimer: ReturnType<typeof setTimeout> | undefined;
     private persistenceDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+    private validationCts: vscode.CancellationTokenSource | undefined;
     private pendingValidationDocs: Map<string, vscode.TextDocument> = new Map();
     private _onDidChangeTraces = new vscode.EventEmitter<void>();
     public readonly onDidChangeTraces = this._onDidChangeTraces.event;
@@ -637,13 +638,23 @@ export class TraceManager {
             if (this.validationDebounceTimer) {
                 clearTimeout(this.validationDebounceTimer);
             }
+
+            // Cancel any ongoing validation
+            if (this.validationCts) {
+                this.validationCts.cancel();
+                this.validationCts.dispose();
+                this.validationCts = undefined;
+            }
+
             this.validationDebounceTimer = setTimeout(() => {
-                this.processValidationQueue();
+                this.validationCts = new vscode.CancellationTokenSource();
+                this.processValidationQueue(this.validationCts.token);
             }, 500);
         }
     }
 
-    private processValidationQueue(): void {
+    private processValidationQueue(token: vscode.CancellationToken): void {
+        if (token.isCancellationRequested) return;
         if (this.pendingValidationDocs.size === 0) return;
 
         const startTime = Date.now();
@@ -661,6 +672,8 @@ export class TraceManager {
         let result = iterator.next();
 
         while (!result.done) {
+            if (token.isCancellationRequested) return;
+
             const [uri, document] = result.value;
 
             // Check budget
@@ -668,7 +681,7 @@ export class TraceManager {
                 // Time's up for this tick. Schedule continuation.
                 if (this.validationDebounceTimer) { clearTimeout(this.validationDebounceTimer); }
                 this.validationDebounceTimer = setTimeout(() => {
-                    this.processValidationQueue();
+                    this.processValidationQueue(token);
                 }, 0); // Immediate (next tick)
                 break;
             }
@@ -680,6 +693,8 @@ export class TraceManager {
             const tracesInFile = this.traceIndex.get(document.uri.toString());
             if (tracesInFile) {
                 for (const trace of tracesInFile) {
+                    if (token.isCancellationRequested) return;
+
                     // Check budget inside trace loop for documents with MANY traces
                     if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
                         // Put this doc back in queue! 
