@@ -9,6 +9,7 @@ import { initDecorations, updateDecorations } from './decorationManager';
 
 export function activate(context: vscode.ExtensionContext) {
     const traceManager = new TraceManager(context);
+    context.subscriptions.push(traceManager);
 
     // Track the last active text editor safely to support actions from the webview
     const editorTracker = new EditorTracker();
@@ -145,7 +146,7 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
             const md = generateMarkdown(traces);
-            
+
             const treeData = traceManager.getActiveTreeData();
             const fileName = treeData ? `${treeData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md` : 'tracenotes.md';
 
@@ -162,15 +163,15 @@ export function activate(context: vscode.ExtensionContext) {
             // unless we save it.
             // For now, let's keep the existing flow but if we wanted to enforce name we'd need save dialog.
             // Code snippet below uses openTextDocument.
-            
+
             // To suggest a name, we might want to use showSaveDialog instead.
             // But for now, I'll stick to opening the document, but I can't easily set the title of untitled doc.
             // Actually, I can try to set the language and maybe content.
-            
+
             // Wait, the user requirement is "When exporting the markdown, it will use the name as markdown file name."
             // If I just show it, it's "Untitled-1".
             // Implementation idea: Use showSaveDialog to let user pick location, using tree name as default.
-            
+
             const uri = await vscode.window.showSaveDialog({
                 defaultUri: vscode.Uri.file(fileName),
                 filters: { 'Markdown': ['md'] }
@@ -186,12 +187,12 @@ export function activate(context: vscode.ExtensionContext) {
     // Command: Import Trace
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.importTrace', async () => {
-             const options: vscode.OpenDialogOptions = {
+            const options: vscode.OpenDialogOptions = {
                 canSelectMany: false, // User can only select one file
                 openLabel: 'Import',
                 filters: {
-                   'Markdown Files': ['md'],
-                   'All Files': ['*']
+                    'Markdown Files': ['md'],
+                    'All Files': ['*']
                 }
             };
 
@@ -201,10 +202,10 @@ export function activate(context: vscode.ExtensionContext) {
                 try {
                     const fileData = await vscode.workspace.fs.readFile(fileUri[0]);
                     const markdown = new TextDecoder().decode(fileData);
-                    
+
                     // Extract filename without extension
                     const fileName = fileUri[0].path.split('/').pop()?.replace(/\.md$/i, '') || 'Imported Trace';
-                    
+
                     await traceManager.importTraceTree(markdown, fileName);
                     vscode.window.showInformationMessage('TraceNotes: Trace tree imported successfully!');
                 } catch (e) {
@@ -266,8 +267,8 @@ export function activate(context: vscode.ExtensionContext) {
                 const matched = allTraces.find(t => {
                     if (t.filePath !== currentFilePath) { return false; }
                     if (t.rangeOffset) {
-                         const offset = editor.document.offsetAt(position);
-                         return offset >= t.rangeOffset[0] && offset <= t.rangeOffset[1];
+                        const offset = editor.document.offsetAt(position);
+                        return offset >= t.rangeOffset[0] && offset <= t.rangeOffset[1];
                     }
                     if (t.lineRange) {
                         return position.line >= t.lineRange[0] && position.line <= t.lineRange[1];
@@ -321,4 +322,4 @@ export function activate(context: vscode.ExtensionContext) {
     refreshDecorations();
 }
 
-export function deactivate() {}
+export function deactivate() { }
