@@ -23,6 +23,7 @@ export class TraceManager implements vscode.Disposable {
     private validationDebounceTimer: NodeJS.Timeout | undefined;
     private persistenceDebounceTimer: NodeJS.Timeout | undefined;
     private validationCts: vscode.CancellationTokenSource | undefined;
+    private treeValidationCts: vscode.CancellationTokenSource | undefined;
     private pendingValidationDocs: Map<string, vscode.TextDocument> = new Map();
 
     private _onDidChangeTraces = new vscode.EventEmitter<void>();
@@ -48,6 +49,10 @@ export class TraceManager implements vscode.Disposable {
         if (this.validationCts) {
             this.validationCts.cancel();
             this.validationCts.dispose();
+        }
+        if (this.treeValidationCts) {
+            this.treeValidationCts.cancel();
+            this.treeValidationCts.dispose();
         }
         if (this.validationDebounceTimer) {
             clearTimeout(this.validationDebounceTimer);
@@ -185,6 +190,62 @@ export class TraceManager implements vscode.Disposable {
             this.persistActiveGroup();
             this.rebuildTraceIndex();
             this._onDidChangeTraces.fire();
+
+            this.validateActiveTreeBackground();
+        }
+    }
+
+    private async validateActiveTreeBackground(): Promise<void> {
+        if (this.treeValidationCts) {
+            this.treeValidationCts.cancel();
+            this.treeValidationCts.dispose();
+        }
+
+        const cts = new vscode.CancellationTokenSource();
+        this.treeValidationCts = cts;
+        const token = cts.token;
+
+        const traces = this.getAllFlat();
+        let stateChanged = false;
+
+        for (const trace of traces) {
+            if (token.isCancellationRequested) {
+                return;
+            }
+
+            const originalOffset = trace.rangeOffset ? [...trace.rangeOffset] : null;
+            const originalOrphaned = trace.orphaned;
+            const originalHighlight = trace.highlight;
+            const originalLineRange = trace.lineRange ? [...trace.lineRange] : null;
+
+            await this.validateAndRecover(trace);
+
+            if (token.isCancellationRequested) {
+                return;
+            }
+
+            const offsetChanged = (!originalOffset && !!trace.rangeOffset) || 
+                                  (!!originalOffset && !!trace.rangeOffset && (originalOffset[0] !== trace.rangeOffset[0] || originalOffset[1] !== trace.rangeOffset[1]));
+            const orphanedChanged = originalOrphaned !== trace.orphaned;
+            const highlightChanged = originalHighlight !== trace.highlight;
+            const lineRangeChanged = (!originalLineRange && !!trace.lineRange) || 
+                                     (!!originalLineRange && !!trace.lineRange && (originalLineRange[0] !== trace.lineRange[0] || originalLineRange[1] !== trace.lineRange[1]));
+
+            if (offsetChanged || orphanedChanged || highlightChanged || lineRangeChanged) {
+                stateChanged = true;
+            }
+
+            // Yield to event loop to avoid freezing UI
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        if (!token.isCancellationRequested && stateChanged) {
+            this.persist();
+            this._onDidChangeTraces.fire();
+        }
+
+        if (this.treeValidationCts === cts) {
+            this.treeValidationCts = undefined;
         }
     }
 
@@ -625,6 +686,7 @@ export class TraceManager implements vscode.Disposable {
                             trace.lineRange = [rStart.line, rEnd.line];
                             trace.orphaned = false;
                         } else {
+                            trace.highlight = 'red';
                             trace.orphaned = true;
                         }
                         stateChanged = true;
@@ -910,7 +972,9 @@ export class TraceManager implements vscode.Disposable {
             try {
                 await vscode.workspace.fs.stat(vscode.Uri.file(trace.filePath));
             } catch {
-                console.warn('Trace import skipped missing file:', trace.filePath);
+                console.warn('Trace validation skipped missing file:', trace.filePath);
+                trace.highlight = 'red';
+                trace.orphaned = true;
                 return null;
             }
 
@@ -947,28 +1011,15 @@ export class TraceManager implements vscode.Disposable {
                 trace.orphaned = false;
                 return trace;
             } else {
-                if (trace.lineRange && trace.lineRange[0] < doc.lineCount) {
-                    const startLine = trace.lineRange[0];
-                    const endLine = trace.lineRange[1];
-
-                    const effectiveEndLine = Math.min(endLine, doc.lineCount - 1);
-                    const startPos = new vscode.Position(startLine, 0);
-                    const endLineObj = doc.lineAt(effectiveEndLine);
-                    const endPos = endLineObj.range.end;
-
-                    trace.rangeOffset = [doc.offsetAt(startPos), doc.offsetAt(endPos)];
-                    trace.orphaned = false;
-                    trace.highlight = 'red';
-
-                    return trace;
-                } else {
-                    trace.orphaned = true;
-                    return null;
-                }
+                trace.highlight = 'red';
+                trace.orphaned = true;
+                return trace;
             }
         } catch (e) {
             console.warn('Trace import error:', e);
-            return null;
+            trace.highlight = 'red';
+            trace.orphaned = true;
+            return trace;
         }
     }
 }
