@@ -106,7 +106,7 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
     return (
         <>
             <div
-                className={`trace-card ${trace.highlight || ''} ${isRelocating ? 'relocating' : ''}`}
+                className={`trace-card ${trace.highlight || ''} ${isRelocating ? 'relocating' : ''} ${trace.orphaned ? 'orphan' : ''}`}
                 onContextMenu={handleContextMenu}
             >
                 {/* Connector line */}

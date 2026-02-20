@@ -686,7 +686,6 @@ export class TraceManager implements vscode.Disposable {
                             trace.lineRange = [rStart.line, rEnd.line];
                             trace.orphaned = false;
                         } else {
-                            trace.highlight = 'red';
                             trace.orphaned = true;
                         }
                         stateChanged = true;
@@ -973,7 +972,6 @@ export class TraceManager implements vscode.Disposable {
                 await vscode.workspace.fs.stat(vscode.Uri.file(trace.filePath));
             } catch {
                 console.warn('Trace validation skipped missing file:', trace.filePath);
-                trace.highlight = 'red';
                 trace.orphaned = true;
                 return null;
             }
@@ -1011,13 +1009,11 @@ export class TraceManager implements vscode.Disposable {
                 trace.orphaned = false;
                 return trace;
             } else {
-                trace.highlight = 'red';
                 trace.orphaned = true;
                 return trace;
             }
         } catch (e) {
             console.warn('Trace import error:', e);
-            trace.highlight = 'red';
             trace.orphaned = true;
             return trace;
         }

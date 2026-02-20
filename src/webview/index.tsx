@@ -303,8 +303,15 @@ style.textContent = `
     color: var(--vscode-textLink-foreground, #3794ff);
 }
 
+/* ---- Orphan State Styles ---- */
+.trace-card.orphan {
+    opacity: 0.5;
+    border-color: #ff000084 !important;
+}
 
-
+.trace-card.orphan:hover {
+    opacity: 0.8;
+}
 
 /* ---- Toolbar Button Base ---- */
 .toolbar-btn {
