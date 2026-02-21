@@ -798,50 +798,76 @@ export class TraceManager implements vscode.Disposable {
         }
     }
 
+    /**
+     * Improved recovery logic with whitespace normalization and proximity weighting
+     */
     private recoverTracePoints(
         document: ITraceDocument,
         storedContent: string,
         lastKnownStart: number
     ): [number, number] | null {
         const fullText = document.getText();
-
+        const cleanContent = storedContent.trim();
+        
+        // 1. Exact Match in Radius (Fastest)
         const searchStart = Math.max(0, lastKnownStart - TraceManager.SEARCH_RADIUS);
-        const searchEnd = Math.min(fullText.length, lastKnownStart + TraceManager.SEARCH_RADIUS + storedContent.length);
+        const searchEnd = Math.min(fullText.length, lastKnownStart + TraceManager.SEARCH_RADIUS + cleanContent.length);
         const searchArea = fullText.slice(searchStart, searchEnd);
 
-        let idx = searchArea.indexOf(storedContent);
-        if (idx >= 0) {
-            const absoluteStart = searchStart + idx;
-            return [absoluteStart, absoluteStart + storedContent.length];
+        const localIdx = searchArea.indexOf(cleanContent);
+        if (localIdx >= 0) {
+            const start = searchStart + localIdx;
+            return [start, start + cleanContent.length];
         }
 
-        const contentLines = storedContent.trim().split('\n');
-
-        // Find the first and last lines to act as anchors
-        if (contentLines.length >= 3) {
-            const headText = contentLines[0].trim();
-            const tailText = contentLines[contentLines.length - 1].trim();
-
-            const headIdx = searchArea.indexOf(headText);
-            if (headIdx >= 0) {
-                // Search for the tail starting from where the head was found
-                const searchTailStart = headIdx;
-                const tailIdxInSlice = searchArea.slice(searchTailStart).indexOf(tailText);
-
-                if (tailIdxInSlice >= 0) {
-                    const absoluteStart = searchStart + headIdx;
-                    const absoluteEnd = searchStart + searchTailStart + tailIdxInSlice + tailText.length;
+        // 2. Regex-based Anchor Matching (Handles Indentation changes)
+        // We escape special regex chars and allow flexible whitespace \s*
+        const lines = cleanContent.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        
+        if (lines.length >= 2) {
+            const headRegex = this.escapeRegExp(lines[0]);
+            const tailRegex = this.escapeRegExp(lines[lines.length - 1]);
+            
+            // Search for the head anchor within the search area
+            const headMatch = new RegExp(headRegex, 'g').exec(searchArea);
+            if (headMatch) {
+                // Look for the tail anchor after the head match
+                const tailSearchArea = searchArea.slice(headMatch.index + headMatch[0].length);
+                const tailMatch = new RegExp(tailRegex, 'g').exec(tailSearchArea);
+                
+                if (tailMatch) {
+                    const absoluteStart = searchStart + headMatch.index;
+                    const absoluteEnd = absoluteStart + headMatch[0].length + tailMatch.index + tailMatch[0].length;
                     return [absoluteStart, absoluteEnd];
                 }
             }
         }
 
-        idx = fullText.indexOf(storedContent);
-        if (idx >= 0) {
-            return [idx, idx + storedContent.length];
+        // 3. Proximity-based Global Search
+        // If it moved far away, find the instance closest to the original offset
+        return this.findClosestMatch(fullText, cleanContent, lastKnownStart);
+    }
+
+    private findClosestMatch(fullText: string, target: string, preferredOffset: number): [number, number] | null {
+        let bestOffset = -1;
+        let minDiff = Infinity;
+        let currIdx = fullText.indexOf(target);
+
+        while (currIdx !== -1) {
+            const diff = Math.abs(currIdx - preferredOffset);
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestOffset = currIdx;
+            }
+            currIdx = fullText.indexOf(target, currIdx + 1);
         }
 
-        return null;
+        return bestOffset !== -1 ? [bestOffset, bestOffset + target.length] : null;
+    }
+
+    private escapeRegExp(string: string): string {
+        // Escapes regex special characters and replaces literal spaces with \s+
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
     }
 
     private contentMatches(docContent: string, storedContent: string): boolean {
