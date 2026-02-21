@@ -490,15 +490,15 @@ export class TraceManager implements vscode.Disposable {
 
     public getAllFlat(list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] {
         const result: TracePoint[] = [];
-        const stack = [...list]; // Initialize stack with roots
-        
+        const stack = [...list].reverse(); // Push reversed roots to map correctly
+
         while (stack.length > 0) {
-            const current = stack.shift()!; // Take from the front
+            const current = stack.pop()!; // O(1) extract from back
             result.push(current);
-            
+
             if (current.children?.length) {
-                // Unshift children to the front for Depth-First Search
-                stack.unshift(...current.children); 
+                // Reverse children before pushing to preserve depth-first stack order
+                stack.push(...[...current.children].reverse());
             }
         }
         return result;
