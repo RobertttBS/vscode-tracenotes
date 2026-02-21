@@ -24,7 +24,7 @@ export class TraceManager implements vscode.Disposable {
     private persistenceDebounceTimer: NodeJS.Timeout | undefined;
     private validationCts: vscode.CancellationTokenSource | undefined;
     private treeValidationCts: vscode.CancellationTokenSource | undefined;
-    private pendingValidationDocs: Map<string, vscode.TextDocument> = new Map();
+    private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number }> = new Map();
 
     private _onDidChangeTraces = new vscode.EventEmitter<void>();
     public readonly onDidChangeTraces = this._onDidChangeTraces.event;
@@ -592,7 +592,7 @@ export class TraceManager implements vscode.Disposable {
         }
 
         if (needsValidation) {
-            this.pendingValidationDocs.set(docUriStr, document);
+            this.pendingValidationDocs.set(docUriStr, { uri: document.uri, version: document.version });
 
             if (this.validationDebounceTimer) {
                 clearTimeout(this.validationDebounceTimer);
@@ -626,7 +626,7 @@ export class TraceManager implements vscode.Disposable {
         const startTime = Date.now();
         let stateChanged = false;
 
-        for (const [uri, document] of this.pendingValidationDocs) {
+        for (const [uri, docData] of this.pendingValidationDocs) {
             if (token.isCancellationRequested) return;
 
             if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
@@ -639,13 +639,16 @@ export class TraceManager implements vscode.Disposable {
 
             this.pendingValidationDocs.delete(uri);
 
+            const document = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri);
+            if (!document || document.version !== docData.version) continue;
+
             const tracesInFile = this.traceIndex.get(document.uri.toString());
             if (tracesInFile) {
                 for (const trace of tracesInFile) {
                     if (token.isCancellationRequested) return;
 
                     if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
-                        this.pendingValidationDocs.set(uri, document);
+                        this.pendingValidationDocs.set(uri, { uri: document.uri, version: document.version });
                         break;
                     }
 
