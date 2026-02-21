@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import { TracePoint, TraceTree, MAX_DEPTH } from './types';
 
+export interface ITraceDocument {
+    lineCount: number;
+    offsetAt(position: vscode.Position): number;
+    positionAt(offset: number): vscode.Position;
+    lineAt(line: number): { range: { end: vscode.Position } };
+    getText(range?: vscode.Range): string;
+}
+
 export class TraceManager implements vscode.Disposable {
     private static readonly SEARCH_RADIUS = 5000;
     private static readonly MAX_REGEX_LENGTH = 2000;
@@ -218,7 +226,7 @@ export class TraceManager implements vscode.Disposable {
             const originalHighlight = trace.highlight;
             const originalLineRange = trace.lineRange ? [...trace.lineRange] : null;
 
-            await this.validateAndRecover(trace);
+            await this.validateAndRecover(trace, true);
 
             if (token.isCancellationRequested) {
                 return;
@@ -791,7 +799,7 @@ export class TraceManager implements vscode.Disposable {
     }
 
     private recoverTracePoints(
-        document: vscode.TextDocument,
+        document: ITraceDocument,
         storedContent: string,
         lastKnownStart: number
     ): [number, number] | null {
@@ -981,7 +989,7 @@ export class TraceManager implements vscode.Disposable {
         return rootTraces;
     }
 
-    private async validateAndRecover(trace: TracePoint): Promise<TracePoint | null> {
+    private async validateAndRecover(trace: TracePoint, background: boolean = false): Promise<TracePoint | null> {
         try {
             try {
                 await vscode.workspace.fs.stat(vscode.Uri.file(trace.filePath));
@@ -992,12 +1000,72 @@ export class TraceManager implements vscode.Disposable {
             }
 
             const uri = vscode.Uri.file(trace.filePath);
-            let doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+            let docAdapter: ITraceDocument | undefined = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
             let newlyOpened = false;
+            
+            if (!docAdapter) {
+                if (!background) {
+                    docAdapter = await vscode.workspace.openTextDocument(uri);
+                    newlyOpened = true;
+                } else {
+                    const bytes = await vscode.workspace.fs.readFile(uri);
+                    
+                    const config = vscode.workspace.getConfiguration('files', uri);
+                    let encoding = config.get<string>('encoding', 'utf8');
+                    if (encoding === 'utf8bom') {
+                        encoding = 'utf-8';
+                    }
 
-            if (!doc) {
-                doc = await vscode.workspace.openTextDocument(uri);
-                newlyOpened = true;
+                    let fullText: string = "";
+                    try {
+                        fullText = new TextDecoder(encoding).decode(bytes);
+                    } catch (e) {
+                        docAdapter = await vscode.workspace.openTextDocument(uri);
+                        newlyOpened = true;
+                    }
+
+                    if (!docAdapter) {
+                        const lineOffsets: number[] = [0];
+                        for (let i = 0; i < fullText.length; i++) {
+                            if (fullText[i] === '\n') {
+                                lineOffsets.push(i + 1);
+                            }
+                        }
+
+                        docAdapter = {
+                            lineCount: lineOffsets.length,
+                            offsetAt: (pos: vscode.Position) => {
+                                const line = Math.max(0, Math.min(pos.line, lineOffsets.length - 1));
+                                return lineOffsets[line] + pos.character;
+                            },
+                            positionAt: (offset: number) => {
+                                offset = Math.max(0, Math.min(offset, fullText.length));
+                                let low = 0;
+                                let high = lineOffsets.length - 1;
+                                while(low <= high) {
+                                    const mid = Math.floor((low + high) / 2);
+                                    if(lineOffsets[mid] <= offset) low = mid + 1;
+                                    else high = mid - 1;
+                                }
+                                const line = Math.max(0, low - 1);
+                                return new vscode.Position(line, offset - lineOffsets[line]);
+                            },
+                            lineAt: (line: number) => {
+                                line = Math.max(0, Math.min(line, lineOffsets.length - 1));
+                                const start = lineOffsets[line];
+                                let end = line + 1 < lineOffsets.length ? lineOffsets[line + 1] - 1 : fullText.length;
+                                if (end > start && fullText[end - 1] === '\r') end--;
+                                return { range: { end: new vscode.Position(line, end - start) } };
+                            },
+                            getText: (range?: vscode.Range) => {
+                                if (!range) return fullText;
+                                const start = docAdapter!.offsetAt(range.start);
+                                const end = docAdapter!.offsetAt(range.end);
+                                return fullText.substring(start, end);
+                            }
+                        };
+                    }
+                }
             }
 
             if (newlyOpened) {
@@ -1006,15 +1074,15 @@ export class TraceManager implements vscode.Disposable {
 
             if (trace.lineRange) {
                 const [startLine, endLine] = trace.lineRange;
-                if (startLine < doc.lineCount) {
+                if (startLine < docAdapter.lineCount) {
                     const startPos = new vscode.Position(startLine, 0);
-                    const endLineObj = doc.lineAt(Math.min(endLine, doc.lineCount - 1));
+                    const endLineObj = docAdapter.lineAt(Math.min(endLine, docAdapter.lineCount - 1));
                     const endPos = endLineObj.range.end;
 
-                    const text = doc.getText(new vscode.Range(startPos, endPos));
+                    const text = docAdapter.getText(new vscode.Range(startPos, endPos));
 
                     if (this.contentMatches(text, trace.content)) {
-                        trace.rangeOffset = [doc.offsetAt(startPos), doc.offsetAt(endPos)];
+                        trace.rangeOffset = [docAdapter.offsetAt(startPos), docAdapter.offsetAt(endPos)];
                         trace.orphaned = false;
                         return trace;
                     }
@@ -1022,15 +1090,15 @@ export class TraceManager implements vscode.Disposable {
             }
 
             let estimatedOffset = 0;
-            if (trace.lineRange && trace.lineRange[0] < doc.lineCount) {
-                estimatedOffset = doc.offsetAt(new vscode.Position(trace.lineRange[0], 0));
+            if (trace.lineRange && trace.lineRange[0] < docAdapter.lineCount) {
+                estimatedOffset = docAdapter.offsetAt(new vscode.Position(trace.lineRange[0], 0));
             }
 
-            const recovered = this.recoverTracePoints(doc, trace.content, estimatedOffset);
+            const recovered = this.recoverTracePoints(docAdapter, trace.content, estimatedOffset);
             if (recovered) {
                 trace.rangeOffset = recovered;
-                const rStart = doc.positionAt(recovered[0]);
-                const rEnd = doc.positionAt(recovered[1]);
+                const rStart = docAdapter.positionAt(recovered[0]);
+                const rEnd = docAdapter.positionAt(recovered[1]);
                 trace.lineRange = [rStart.line, rEnd.line];
                 trace.orphaned = false;
                 return trace;
