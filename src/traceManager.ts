@@ -611,14 +611,16 @@ export class TraceManager implements vscode.Disposable {
 
         let needsValidation = Array.from(tracesInFile).some(t => t.orphaned);
 
-        for (const change of event.contentChanges) {
+        const sortedChanges = [...event.contentChanges].sort(
+            (a, b) => b.rangeOffset - a.rangeOffset,
+        );
+
+        for (const change of sortedChanges) {
             const changeStart = change.rangeOffset;
             const changeEnd = changeStart + change.rangeLength;
             const delta = change.text.length - change.rangeLength;
 
             for (const trace of tracesInFile) {
-                if (trace.orphaned) continue;
-
                 if (!trace.rangeOffset) { this.ensureOffsets(document, [trace]); }
                 const [start, end] = trace.rangeOffset!;
 
