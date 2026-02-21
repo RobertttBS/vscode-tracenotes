@@ -11,7 +11,7 @@ export class TraceManager implements vscode.Disposable {
     private activeGroupId: string | null = null;
 
     // Fast-path lookup maps
-    private traceIndex: Map<string, TracePoint[]> = new Map();
+    private traceIndex: Map<string, Set<TracePoint>> = new Map();
     private traceIdMap: Map<string, TracePoint> = new Map();
     private parentIdMap: Map<string, string | null> = new Map();
 
@@ -315,20 +315,56 @@ export class TraceManager implements vscode.Disposable {
         return false;
     }
 
+    private addTraceToIndex(trace: TracePoint, parentId: string | null): void {
+        const uriStr = vscode.Uri.file(trace.filePath).toString();
+        
+        let set = this.traceIndex.get(uriStr);
+        if (!set) {
+            set = new Set();
+            this.traceIndex.set(uriStr, set);
+        }
+        set.add(trace);
+        
+        this.traceIdMap.set(trace.id, trace);
+        this.parentIdMap.set(trace.id, parentId);
+
+        if (trace.children) {
+            for (const child of trace.children) {
+                this.addTraceToIndex(child, trace.id);
+            }
+        }
+    }
+
+    private removeTraceFromIndex(id: string): void {
+        const trace = this.traceIdMap.get(id);
+        if (!trace) return;
+
+        const uriStr = vscode.Uri.file(trace.filePath).toString();
+        const set = this.traceIndex.get(uriStr);
+        if (set) {
+            set.delete(trace);
+            if (set.size === 0) {
+                this.traceIndex.delete(uriStr);
+            }
+        }
+
+        this.traceIdMap.delete(id);
+        this.parentIdMap.delete(id);
+
+        if (trace.children) {
+            for (const child of trace.children) {
+                this.removeTraceFromIndex(child.id);
+            }
+        }
+    }
+
     // ── Public: CRUD ─────────────────────────────────────────────
 
     public add(trace: TracePoint): void {
         const target = this.getActiveChildren();
         target.push(trace);
 
-        const validUri = vscode.Uri.file(trace.filePath).toString();
-
-        const existing = this.traceIndex.get(validUri) || [];
-        existing.push(trace);
-        this.traceIndex.set(validUri, existing);
-
-        this.traceIdMap.set(trace.id, trace);
-        this.parentIdMap.set(trace.id, this.activeGroupId);
+        this.addTraceToIndex(trace, this.activeGroupId);
 
         this.persist();
         this._onDidChangeTraces.fire();
@@ -342,7 +378,7 @@ export class TraceManager implements vscode.Disposable {
             this.persistActiveGroup();
         }
 
-        this.rebuildTraceIndex();
+        this.removeTraceFromIndex(id);
         this.persist();
         this._onDidChangeTraces.fire();
     }
@@ -414,19 +450,19 @@ export class TraceManager implements vscode.Disposable {
             const oldUriStr = vscode.Uri.file(oldFilePath).toString();
             const oldIndexList = this.traceIndex.get(oldUriStr);
             if (oldIndexList) {
-                const idx = oldIndexList.findIndex(t => t.id === id);
-                if (idx !== -1) {
-                    oldIndexList.splice(idx, 1);
-                    if (oldIndexList.length === 0) {
-                        this.traceIndex.delete(oldUriStr);
-                    }
+                oldIndexList.delete(trace);
+                if (oldIndexList.size === 0) {
+                    this.traceIndex.delete(oldUriStr);
                 }
             }
 
             const newUriStr = document.uri.toString();
-            const newIndexList = this.traceIndex.get(newUriStr) || [];
-            newIndexList.push(trace);
-            this.traceIndex.set(newUriStr, newIndexList);
+            let newIndexList = this.traceIndex.get(newUriStr);
+            if (!newIndexList) {
+                newIndexList = new Set();
+                this.traceIndex.set(newUriStr, newIndexList);
+            }
+            newIndexList.add(trace);
         }
 
         this.persist();
@@ -478,9 +514,13 @@ export class TraceManager implements vscode.Disposable {
 
     public clearActiveChildren(): void {
         const children = this.getActiveChildren();
+        const idsToRemove = children.map(c => c.id);
         children.length = 0;
 
-        this.rebuildTraceIndex();
+        for (const id of idsToRemove) {
+            this.removeTraceFromIndex(id);
+        }
+
         this.persist();
         this._onDidChangeTraces.fire();
     }
@@ -562,9 +602,9 @@ export class TraceManager implements vscode.Disposable {
         }
 
         const tracesInFile = this.traceIndex.get(docUriStr);
-        if (!tracesInFile || tracesInFile.length === 0) return;
+        if (!tracesInFile || tracesInFile.size === 0) return;
 
-        let needsValidation = tracesInFile.some(t => t.orphaned);
+        let needsValidation = Array.from(tracesInFile).some(t => t.orphaned);
 
         for (const change of event.contentChanges) {
             const changeStart = change.rangeOffset;
@@ -760,39 +800,18 @@ export class TraceManager implements vscode.Disposable {
             return [absoluteStart, absoluteStart + storedContent.length];
         }
 
-        if (storedContent.length <= TraceManager.MAX_REGEX_LENGTH) {
-            const escapedContent = storedContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const flexibleRegexStr = escapedContent.replace(/\s+/g, '\\s+');
-
-            try {
-                const regex = new RegExp(flexibleRegexStr, 'g');
-                const match = regex.exec(searchArea);
-
-                if (match) {
-                    const absoluteStart = searchStart + match.index;
-                    const absoluteEnd = absoluteStart + match[0].length;
-                    return [absoluteStart, absoluteEnd];
-                }
-            } catch (e) {
-                console.warn('Trace recovery regex compilation failed', e);
-            }
-        }
-
-        const minAnchorLength = 20;
         const contentLines = storedContent.trim().split('\n');
 
-        if (contentLines.length >= 3 && storedContent.length > minAnchorLength * 2) {
+        // Find the first and last lines to act as anchors
+        if (contentLines.length >= 3) {
             const headText = contentLines[0].trim();
             const tailText = contentLines[contentLines.length - 1].trim();
 
             const headIdx = searchArea.indexOf(headText);
             if (headIdx >= 0) {
-                const expectedTailPos = headIdx + storedContent.length;
-                const searchTailStart = Math.max(headIdx, expectedTailPos - 500);
-                const searchTailEnd = Math.min(searchArea.length, expectedTailPos + 500);
-
-                const tailSearchArea = searchArea.slice(searchTailStart, searchTailEnd);
-                const tailIdxInSlice = tailSearchArea.indexOf(tailText);
+                // Search for the tail starting from where the head was found
+                const searchTailStart = headIdx;
+                const tailIdxInSlice = searchArea.slice(searchTailStart).indexOf(tailText);
 
                 if (tailIdxInSlice >= 0) {
                     const absoluteStart = searchStart + headIdx;
@@ -821,31 +840,17 @@ export class TraceManager implements vscode.Disposable {
         this.traceIdMap.clear();
         this.parentIdMap.clear();
 
-        const visit = (traces: TracePoint[], parentId: string | null) => {
-            for (const t of traces) {
-                const validUri = vscode.Uri.file(t.filePath).toString();
-
-                const list = this.traceIndex.get(validUri) || [];
-                list.push(t);
-                this.traceIndex.set(validUri, list);
-
-                this.traceIdMap.set(t.id, t);
-                this.parentIdMap.set(t.id, parentId);
-
-                if (t.children && t.children.length > 0) {
-                    visit(t.children, t.id);
-                }
-            }
-        };
-
         const activeTree = this.getActiveTree();
         if (activeTree) {
-            visit(activeTree.traces, null);
+            for (const t of activeTree.traces) {
+                this.addTraceToIndex(t, null);
+            }
         }
     }
 
     public getTracesForFile(filePath: string): TracePoint[] {
-        return this.traceIndex.get(vscode.Uri.file(filePath).toString()) || [];
+        const set = this.traceIndex.get(vscode.Uri.file(filePath).toString());
+        return set ? Array.from(set) : [];
     }
 
     // ── Import Logic ─────────────────────────────────────────────
