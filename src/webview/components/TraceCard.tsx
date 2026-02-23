@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { postMessage } from '../utils/messaging';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -45,6 +46,11 @@ function mapLanguage(lang: string): string {
 }
 
 const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
+    const themeMode = useVSCodeTheme();
+    const syntaxStyle = useMemo(() => {
+        return themeMode === 'light' ? prism : vscDarkPlus;
+    }, [themeMode]);
+
     const [editing, setEditing] = useState(false);
     const [isRelocating, setIsRelocating] = useState(false);
     const [noteValue, setNoteValue] = useState(trace.note);
@@ -182,13 +188,16 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 <div className="card-code">
                     <SyntaxHighlighter
                         language={mapLanguage(trace.lang)}
-                        style={vscDarkPlus}
+                        style={syntaxStyle}
                         customStyle={{
                             margin: 0,
-                            padding: '8px',
-                            fontSize: '12px',
+                            padding: '12px',
+                            fontSize: 'var(--vscode-editor-font-size, 12px)',
+                            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                            lineHeight: '1.5',
                             borderRadius: '0 0 4px 4px',
-                            background: 'var(--vscode-editor-background, #1e1e1e)',
+                            background: 'var(--vscode-editor-background)',
+                            border: '1px solid var(--vscode-panel-border)',
                         }}
                         wrapLongLines
                     >

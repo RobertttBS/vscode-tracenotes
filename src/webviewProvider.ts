@@ -55,6 +55,9 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.js')
         );
+        const cssUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.css')
+        );
 
         const nonce = getNonce();
 
@@ -68,6 +71,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
                    style-src ${webview.cspSource} 'unsafe-inline';
                    script-src 'nonce-${nonce}';">
     <title>TraceNotes</title>
+    <link rel="stylesheet" href="${cssUri}">
     <style>
         body {
             margin: 0;
