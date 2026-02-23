@@ -6,7 +6,15 @@ import {
     useSensor,
     useSensors,
     DragEndEvent,
+    Modifier,
 } from '@dnd-kit/core';
+
+const restrictToVerticalAxis: Modifier = ({ transform }) => {
+    return {
+        ...transform,
+        x: 0,
+    };
+};
 import {
     arrayMove,
     SortableContext,
@@ -404,7 +412,7 @@ const Storyboard: React.FC = () => {
     return (
         <div className="storyboard">
             {header}
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     {visibleTraces.map((trace, index) => (
                         <div
