@@ -24,6 +24,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
+import { useWebviewState } from '../hooks/useWebviewState';
 import { TracePoint, MAX_DEPTH } from '../../types';
 
 /**
@@ -121,19 +122,20 @@ import { ExportIcon, TrashIcon, ListIcon } from './icons';
 import { TreeList } from './TreeList';
 
 const Storyboard: React.FC = () => {
-    const [traces, setTraces] = useState<TracePoint[]>([]);
-    const [treeName, setTreeName] = useState<string>('Trace');
+    // Cached state: hydrated synchronously from vscode.getState(), debounced save on change
+    const [traces, setTraces] = useWebviewState<TracePoint[]>('traces', []);
+    const [treeName, setTreeName] = useWebviewState<string>('treeName', 'Trace');
+    const [currentGroupId, setCurrentGroupId] = useWebviewState<string | null>('currentGroupId', null);
+    const [currentDepth, setCurrentDepth] = useWebviewState<number>('currentDepth', 0);
+    const [breadcrumb, setBreadcrumb] = useWebviewState<string>('breadcrumb', '');
+    const [treeList, setTreeList] = useWebviewState<{ id: string; name: string; active: boolean }[]>('treeList', []);
+
+    // Ephemeral state (not worth caching across tab switches)
     const [focusedId, setFocusedId] = useState<string | undefined>();
-    const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
-    const [currentDepth, setCurrentDepth] = useState(0);
-    const [breadcrumb, setBreadcrumb] = useState('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleInputValue, setTitleInputValue] = useState('');
-    
-    // Tree Management
     const [viewMode, setViewMode] = useState<'trace' | 'list'>('trace');
-    const [treeList, setTreeList] = useState<{ id: string; name: string; active: boolean }[]>([]);
-    
+
     // Fix race condition in saveTitle
     const isEditingRef = useRef(false);
 

@@ -24,3 +24,13 @@ export function onMessage(handler: MessageHandler): () => void {
 export function postMessage(message: Record<string, unknown>): void {
     vscode.postMessage(message);
 }
+
+/** Persist UI state into the webview's VS Code state cache */
+export function saveState(state: unknown): void {
+    vscode.setState(state);
+}
+
+/** Restore previously cached UI state; returns undefined on first load */
+export function loadState<T = unknown>(): T | undefined {
+    return vscode.getState() as T | undefined;
+}
