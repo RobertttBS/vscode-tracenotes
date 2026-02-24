@@ -6,10 +6,29 @@ import { collectTrace } from './collector';
 import { handleJump } from './decoration';
 import { generateMarkdown } from './exporter';
 import { initDecorations, updateDecorations } from './decorationManager';
+import { McpServerManager } from './mcp/McpServerManager';
 
 export function activate(context: vscode.ExtensionContext) {
     const traceManager = new TraceManager(context);
     context.subscriptions.push(traceManager);
+
+    // Start the MCP SSE server on a dynamic port
+    const mcpManager = new McpServerManager(traceManager);
+    mcpManager.start();
+    context.subscriptions.push(mcpManager);
+
+    // Command: Copy MCP SSE URL to clipboard
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tracenotes.copyMcpUrl', () => {
+            const url = mcpManager.getUrl();
+            if (!url) {
+                vscode.window.showWarningMessage('TraceNotes: MCP server is not running.');
+                return;
+            }
+            vscode.env.clipboard.writeText(url);
+            vscode.window.showInformationMessage(`TraceNotes: MCP URL copied! ${url}`);
+        })
+    );
 
     // Track the last active text editor safely to support actions from the webview
     const editorTracker = new EditorTracker();
