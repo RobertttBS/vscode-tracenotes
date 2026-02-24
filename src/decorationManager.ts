@@ -132,37 +132,98 @@ export function updateDecorations(
     const orangeActive = relevantActive.filter(t => t.highlight === 'orange');
     const purpleActive = relevantActive.filter(t => t.highlight === 'purple');
 
-    // --- Faded decorations (all other traces) ---
+    // --- Collect the set of line numbers already covered by active traces ---
+    // We use this to carve active lines out of faded ranges so gutter icons never
+    // physically overlap — the only reliable way to guarantee active icons win.
+    const activeLineNumbers = new Set<number>();
+    for (const trace of relevantActive) {
+        let startLine: number;
+        let endLine: number;
+        if (trace.rangeOffset) {
+            startLine = editor.document.positionAt(trace.rangeOffset[0]).line;
+            endLine   = editor.document.positionAt(trace.rangeOffset[1]).line;
+        } else if (trace.lineRange) {
+            startLine = trace.lineRange[0];
+            endLine   = trace.lineRange[1];
+        } else {
+            continue;
+        }
+        for (let ln = startLine; ln <= endLine; ln++) {
+            activeLineNumbers.add(ln);
+        }
+    }
+
+    /**
+     * Split a range into sub-ranges that skip any line in `activeLineNumbers`.
+     * Returns zero or more non-overlapping ranges covering the same lines minus
+     * the active ones.
+     */
+    function carveOutActiveLines(
+        fullRange: vscode.Range,
+        hoverMessage: vscode.MarkdownString,
+    ): vscode.DecorationOptions[] {
+        const results: vscode.DecorationOptions[] = [];
+        let segStart: number | null = null;
+
+        for (let ln = fullRange.start.line; ln <= fullRange.end.line; ln++) {
+            if (!activeLineNumbers.has(ln)) {
+                // This line is free — start or continue a segment.
+                if (segStart === null) { segStart = ln; }
+            } else {
+                // Active line — flush any open segment before it.
+                if (segStart !== null) {
+                    results.push({
+                        range: new vscode.Range(segStart, 0, ln - 1, 0),
+                        hoverMessage,
+                    });
+                    segStart = null;
+                }
+            }
+        }
+        // Flush trailing segment.
+        if (segStart !== null) {
+            results.push({
+                range: new vscode.Range(segStart, 0, fullRange.end.line, 0),
+                hoverMessage,
+            });
+        }
+        return results;
+    }
+
+    // --- Faded decorations (all other traces, with active lines carved out) ---
     const relevantFaded = allTraces.filter(
         t => t.filePath === currentFilePath && !activeIds.has(t.id),
     );
 
-    const fadedDecorations: vscode.DecorationOptions[] = relevantFaded.map(trace => {
-         let range: vscode.Range;
-         if (trace.rangeOffset) {
-             const startPos = editor.document.positionAt(trace.rangeOffset[0]);
-             const endPos = editor.document.positionAt(trace.rangeOffset[1]);
-             range = new vscode.Range(startPos, endPos);
-         } else if (trace.lineRange) {
-             range = new vscode.Range(trace.lineRange[0], 0, trace.lineRange[1], 0);
-         } else {
-             return null;
-         }
+    const fadedDecorations: vscode.DecorationOptions[] = relevantFaded.flatMap(trace => {
+        let range: vscode.Range;
+        if (trace.rangeOffset) {
+            const startPos = editor.document.positionAt(trace.rangeOffset[0]);
+            const endPos   = editor.document.positionAt(trace.rangeOffset[1]);
+            range = new vscode.Range(startPos, endPos);
+        } else if (trace.lineRange) {
+            range = new vscode.Range(trace.lineRange[0], 0, trace.lineRange[1], 0);
+        } else {
+            return [];
+        }
 
-         return {
-            range,
-            hoverMessage: new vscode.MarkdownString(
-                `*(Other level)* **Note:** ${trace.note || '(No note)'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
-            ),
-        };
-    }).filter(d => d !== null) as vscode.DecorationOptions[];
+        const hoverMessage = new vscode.MarkdownString(
+            `*(Other level)* **Note:** ${trace.note || '(No note)'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
+        );
+        return carveOutActiveLines(range, hoverMessage);
+    });
 
-    // Apply decorations
-    editor.setDecorations(fadedDecorationType, fadedDecorations);
+    // Apply decorations.
+    // Note: setDecorations call order does NOT control gutter icon priority.
+    // VS Code determines z-order from the order in which createTextEditorDecorationType()
+    // was called at activation time — that order is not configurable after the fact.
+    // Gutter conflicts are avoided spatially above: active lines are carved out of faded
+    // ranges so no two decoration types ever compete for the same gutter slot.
     editor.setDecorations(traceDecorationType, getDecorationOptions(defaultActive));
     editor.setDecorations(redDecorationType, getDecorationOptions(redActive));
     editor.setDecorations(blueDecorationType, getDecorationOptions(blueActive));
     editor.setDecorations(greenDecorationType, getDecorationOptions(greenActive));
     editor.setDecorations(orangeDecorationType, getDecorationOptions(orangeActive));
     editor.setDecorations(purpleDecorationType, getDecorationOptions(purpleActive));
+    editor.setDecorations(fadedDecorationType, fadedDecorations);
 }
