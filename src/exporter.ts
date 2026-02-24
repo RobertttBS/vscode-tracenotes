@@ -10,9 +10,6 @@ export function generateMarkdown(traces: TracePoint[]): string {
 
     traces.forEach((t, index) => {
         md += renderTrace(t, index, 0);
-        if (index < traces.length - 1) {
-            md += '---\n\n';
-        }
     });
 
     return md;

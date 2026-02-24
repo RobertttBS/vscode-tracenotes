@@ -936,6 +936,11 @@ export class TraceManager implements vscode.Disposable {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
+            // Skip horizontal rules outside of code blocks
+            if (!capturingContent && line.trim().startsWith('---')) {
+                continue;
+            }
+
             if (line.startsWith('```') && !capturingContent) {
                 const match = line.match(codeBlockStartRegex);
                 if (match && currentTrace) {
@@ -1016,7 +1021,7 @@ export class TraceManager implements vscode.Disposable {
                     _tempDepth: depth
                 } as any;
 
-            } else if (currentTrace && line.trim().length > 0 && !line.trim().startsWith('---')) {
+            } else if (currentTrace && line.trim().length > 0) {
                 currentTrace.note += '\n' + line;
             }
         }
