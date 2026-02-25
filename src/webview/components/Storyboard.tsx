@@ -211,18 +211,20 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'ready' });
     }, []);
 
-    // Scroll to a newly created card using rAF so React has flushed the DOM first
+    // Scroll to a newly created card
     useEffect(() => {
         if (!pendingFocusId) { return; }
-        const frameId = requestAnimationFrame(() => {
-            const el = document.getElementById(`trace-card-${pendingFocusId}`);
-            if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-            setPendingFocusId(null);
-        });
-        return () => cancelAnimationFrame(frameId);
-    }, [visibleTraces, pendingFocusId]);
+        
+        // The DOM is already flushed by the time useEffect runs.
+        const el = document.getElementById(`trace-card-${pendingFocusId}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        // Clear it so it doesn't re-run if visibleTraces changes for another reason
+        setPendingFocusId(null); 
+        
+    }, [pendingFocusId]); // Remove visibleTraces from the dependency array!
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
