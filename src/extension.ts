@@ -278,6 +278,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Listen for trace changes from validation/updates (UI Sync)
+    const syncPendingFocusIds: string[] = [];
     context.subscriptions.push(
         traceManager.onDidChangeTraces((eventPayload) => {
             for (const editor of vscode.window.visibleTextEditors) {
@@ -287,10 +288,17 @@ export function activate(context: vscode.ExtensionContext) {
             const focusId = (eventPayload && typeof eventPayload === 'object' && 'focusId' in eventPayload)
                 ? eventPayload.focusId
                 : undefined;
+            if (focusId) {
+                syncPendingFocusIds.push(focusId);
+            }
+
             // Sync with webview (Debounced to prevent flooding during rapid typing/validation)
             if (syncDebounce) { clearTimeout(syncDebounce); }
             syncDebounce = setTimeout(() => {
-                const payload = { ...traceManager.getWorkspaceSyncPayload(), focusId };
+                const latestFocusId = syncPendingFocusIds.pop();
+                syncPendingFocusIds.length = 0; // Clear the rest
+
+                const payload = { ...traceManager.getWorkspaceSyncPayload(), focusId: latestFocusId };
                 provider.postMessage({ type: 'syncWorkspace', payload });
             }, 50);
         })
@@ -303,6 +311,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (decorationDebounce) { clearTimeout(decorationDebounce); }
             if (debounceTimer) { clearTimeout(debounceTimer); }
             if (syncDebounce) { clearTimeout(syncDebounce); }
+            syncPendingFocusIds.length = 0;
         },
     });
 

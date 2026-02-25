@@ -83,13 +83,13 @@ const LazyRender: React.FC<{ height?: number; forceVisible?: boolean; children: 
 const SortableTraceCard: React.FC<{
     trace: TracePoint;
     index: number;
-    focusedId?: string;
+    isFocused: boolean;
     onUpdateNote: (id: string, note: string) => void;
     onRemove: (id: string) => void;
     onRelocate: (id: string) => void;
     onEnterGroup: (id: string) => void;
     showEnterGroup: boolean;
-}> = ({ trace, index, focusedId, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
+}> = ({ trace, index, isFocused, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: trace.id,
     });
@@ -102,8 +102,15 @@ const SortableTraceCard: React.FC<{
     };
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <LazyRender forceVisible={focusedId === trace.id}>
+        <div
+            ref={setNodeRef}
+            id={`trace-card-${trace.id}`}
+            className={isFocused ? 'highlight-active' : ''}
+            style={style}
+            {...attributes}
+            {...listeners}
+        >
+            <LazyRender forceVisible={isFocused}>
                 <TraceCard
                     trace={trace}
                     index={index}
@@ -447,22 +454,17 @@ const Storyboard: React.FC = () => {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     {visibleTraces.map((trace, index) => (
-                        <div
+                        <SortableTraceCard
                             key={trace.id}
-                            id={`trace-card-${trace.id}`}
-                            className={focusedId === trace.id ? 'highlight-active' : ''}
-                        >
-                            <SortableTraceCard
-                                trace={trace}
-                                index={index}
-                                focusedId={focusedId}
-                                onUpdateNote={handleUpdateNote}
-                                onRemove={handleRemove}
-                                onRelocate={handleRelocate}
-                                onEnterGroup={handleEnterGroup}
-                                showEnterGroup={currentDepth < MAX_DEPTH - 1}
-                            />
-                        </div>
+                            trace={trace}
+                            index={index}
+                            isFocused={focusedId === trace.id}
+                            onUpdateNote={handleUpdateNote}
+                            onRemove={handleRemove}
+                            onRelocate={handleRelocate}
+                            onEnterGroup={handleEnterGroup}
+                            showEnterGroup={currentDepth < MAX_DEPTH - 1}
+                        />
                     ))}
                 </SortableContext>
             </DndContext>

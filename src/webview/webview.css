@@ -440,36 +440,39 @@
 }
 
 /* ---- Reverse-sync active highlight ---- */
-/* Default (no color) -> Yellow */
+
+/* Focus Highlight Animation */
+@keyframes trace-focus-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--vscode-focusBorder);
+    background-color: var(--vscode-editor-selectionBackground);
+  }
+  70% {
+    box-shadow: 0 0 0 4px transparent;
+    background-color: transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background-color: transparent;
+  }
+}
+
+.highlight-active {
+  animation: trace-focus-pulse 1.2s ease-out;
+  border-radius: 4px;
+}
+
 .highlight-active .trace-card {
-  border: 2px solid #c1c1c1ff !important;
-  box-shadow: 0 0 8px rgba(255, 204, 0, 0.5);
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  border: 2px solid var(--vscode-focusBorder, #c1c1c1) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 /* Colored overrides */
-.highlight-active .trace-card.red {
-  border-color: #f14c4c !important;
-  box-shadow: 0 0 8px rgba(241, 76, 76, 0.5);
-}
-.highlight-active .trace-card.blue {
-  border-color: #3794ff !important;
-  box-shadow: 0 0 8px rgba(55, 148, 255, 0.5);
-}
-.highlight-active .trace-card.green {
-  border-color: #3ad900 !important;
-  box-shadow: 0 0 8px rgba(58, 217, 0, 0.5);
-}
-.highlight-active .trace-card.orange {
-  border-color: #ff8800 !important;
-  box-shadow: 0 0 8px rgba(255, 136, 0, 0.5);
-}
-.highlight-active .trace-card.purple {
-  border-color: #9d00ff !important;
-  box-shadow: 0 0 8px rgba(157, 0, 255, 0.5);
-}
+.highlight-active .trace-card.red { border-color: #f14c4c !important; }
+.highlight-active .trace-card.blue { border-color: #3794ff !important; }
+.highlight-active .trace-card.green { border-color: #3ad900 !important; }
+.highlight-active .trace-card.orange { border-color: #ff8800 !important; }
+.highlight-active .trace-card.purple { border-color: #9d00ff !important; }
 /* ---- Tree Title ---- */
 .tree-title-container {
   flex: 1;
