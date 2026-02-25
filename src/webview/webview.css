@@ -16,12 +16,7 @@
   margin: -8px -8px 12px;
 }
 
-.trace-count {
-  font-size: 11px;
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
+
 
 /* ---- Empty State ---- */
 .empty-state {
@@ -342,7 +337,7 @@
 
 /* ---- Add Empty Trace Button ---- */
 .add-btn {
-  color: var(--vscode-testing-iconPassed, #73c991);
+  color: var(--vscode-foreground, #cccccc);
 }
 
 /* ---- Export Button ---- */

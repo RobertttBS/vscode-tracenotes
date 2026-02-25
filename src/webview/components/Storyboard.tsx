@@ -401,9 +401,7 @@ const Storyboard: React.FC = () => {
             )}
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-                <span className="trace-count">
-                    {visibleTraces.length} notes
-                </span>
+
                 <button
                     className="toolbar-btn add-btn"
                     onClick={handleAddTrace}

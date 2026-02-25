@@ -119,12 +119,22 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 <div className="connector-line" />
 
                 {/* Header */}
-                <div className="card-header" onClick={handleJump} title="Click to jump to code (Right-click for highlight)">
+                <div 
+                    className="card-header" 
+                    onClick={trace.filePath ? handleJump : undefined} 
+                    title={trace.filePath ? "Click to jump to code (Right-click for highlight)" : "Right-click for highlight"}
+                    style={{ cursor: trace.filePath ? 'pointer' : 'default' }}
+                >
                     <span className="card-index">{index + 1}</span>
-                    <span className="card-file">{fileName}</span>
-                    <span className="card-line">
-                        {trace.lineRange ? `L${trace.lineRange[0] + 1}–${trace.lineRange[1] + 1}` : 'N/A'}
-                    </span>
+                    {trace.filePath && (
+                        <>
+                            <span className="card-file">{fileName}</span>
+                            <span className="card-line">
+                                {trace.lineRange ? `L${trace.lineRange[0] + 1}–${trace.lineRange[1] + 1}` : 'N/A'}
+                            </span>
+                        </>
+                    )}
+                    {!trace.filePath && <div style={{ flex: 1 }} />}
                     {showEnterGroup && (
                         <button
                             className="enter-group-btn"
@@ -185,25 +195,27 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 </div>
 
                 {/* Code block */}
-                <div className="card-code">
-                    <SyntaxHighlighter
-                        language={mapLanguage(trace.lang)}
-                        style={syntaxStyle}
-                        customStyle={{
-                            margin: 0,
-                            padding: '12px',
-                            fontSize: 'var(--vscode-editor-font-size, 12px)',
-                            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                            lineHeight: '1.5',
-                            borderRadius: '0 0 4px 4px',
-                            background: 'var(--vscode-editor-background)',
-                            border: '1px solid var(--vscode-panel-border)',
-                        }}
-                        wrapLongLines
-                    >
-                        {trace.content}
-                    </SyntaxHighlighter>
-                </div>
+                {trace.content && (
+                    <div className="card-code">
+                        <SyntaxHighlighter
+                            language={mapLanguage(trace.lang)}
+                            style={syntaxStyle}
+                            customStyle={{
+                                margin: 0,
+                                padding: '12px',
+                                fontSize: 'var(--vscode-editor-font-size, 12px)',
+                                fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                                lineHeight: '1.5',
+                                borderRadius: '0 0 4px 4px',
+                                background: 'var(--vscode-editor-background)',
+                                border: '1px solid var(--vscode-panel-border)',
+                            }}
+                            wrapLongLines
+                        >
+                            {trace.content}
+                        </SyntaxHighlighter>
+                    </div>
+                )}
 
                 {/* Note */}
                 <div className="card-note">
