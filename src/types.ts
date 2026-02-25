@@ -37,6 +37,7 @@ export type ExtensionToWebviewMessage =
             activeDepth: number;
             breadcrumb: string;
             treeList: { id: string; name: string; active: boolean }[];
+            focusId?: string;
         };
     };
 
@@ -57,4 +58,5 @@ export type WebviewToExtensionMessage =
     | { command: 'switchTree'; id: string }
     | { command: 'deleteTree'; id: string }
     | { command: 'relocateTrace'; id: string }
-    | { command: 'importTrace' };
+    | { command: 'importTrace' }
+    | { command: 'addEmptyTrace' };

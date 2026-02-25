@@ -118,7 +118,7 @@ const SortableTraceCard: React.FC<{
     );
 };
 
-import { ExportIcon, TrashIcon, ListIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon, PlusIcon } from './icons';
 import { TreeList } from './TreeList';
 
 const Storyboard: React.FC = () => {
@@ -132,6 +132,7 @@ const Storyboard: React.FC = () => {
 
     // Ephemeral state (not worth caching across tab switches)
     const [focusedId, setFocusedId] = useState<string | undefined>();
+    const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleInputValue, setTitleInputValue] = useState('');
     const [viewMode, setViewMode] = useState<'trace' | 'list'>('trace');
@@ -167,13 +168,17 @@ const Storyboard: React.FC = () => {
         const unsubscribe = onMessage((message) => {
             switch (message.type) {
                 case 'syncWorkspace': {
-                    const payload = message.payload as any; // Type assertion since we might not have full types imported here
+                    const payload = message.payload as any;
                     setTraces(payload.traces);
                     setTreeName(payload.treeName || 'Trace');
                     setCurrentGroupId(payload.activeGroupId);
                     setCurrentDepth(payload.activeDepth);
                     setBreadcrumb(payload.breadcrumb);
                     setTreeList(payload.treeList);
+                    if (payload.focusId) {
+                        setFocusedId(payload.focusId);
+                        setPendingFocusId(payload.focusId);
+                    }
                     break;
                 }
                 case 'focusCard': {
@@ -198,6 +203,19 @@ const Storyboard: React.FC = () => {
     useEffect(() => {
         postMessage({ command: 'ready' });
     }, []);
+
+    // Scroll to a newly created card using rAF so React has flushed the DOM first
+    useEffect(() => {
+        if (!pendingFocusId) { return; }
+        const frameId = requestAnimationFrame(() => {
+            const el = document.getElementById(`trace-card-${pendingFocusId}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            setPendingFocusId(null);
+        });
+        return () => cancelAnimationFrame(frameId);
+    }, [visibleTraces, pendingFocusId]);
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
@@ -266,6 +284,10 @@ const Storyboard: React.FC = () => {
 
     const handleExport = useCallback(() => {
         postMessage({ command: 'exportToMarkdown' });
+    }, []);
+
+    const handleAddTrace = useCallback(() => {
+        postMessage({ command: 'addEmptyTrace' });
     }, []);
     
     // Title Editing
@@ -375,6 +397,14 @@ const Storyboard: React.FC = () => {
                 <span className="trace-count">
                     {visibleTraces.length} notes
                 </span>
+                <button
+                    className="toolbar-btn add-btn"
+                    onClick={handleAddTrace}
+                    data-tooltip="Add Empty Note"
+                    data-tooltip-pos="bottom-right"
+                >
+                    <PlusIcon />
+                </button>
                 <button
                     className="toolbar-btn export-btn"
                     onClick={handleExport}

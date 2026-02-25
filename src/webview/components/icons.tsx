@@ -22,3 +22,9 @@ export const ListIcon = () => (
         />
     </svg>
 );
+
+export const PlusIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M14 7H9V2H7v5H2v2h5v5h2V9h5V7z" />
+    </svg>
+);

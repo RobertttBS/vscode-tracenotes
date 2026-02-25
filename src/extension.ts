@@ -100,6 +100,9 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'deleteTree':
                     traceManager.deleteTree(msg.id);
                     break;
+                case 'addEmptyTrace':
+                    traceManager.addEmptyTrace();
+                    break;
             }
         },
     );
@@ -276,14 +279,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Listen for trace changes from validation/updates (UI Sync)
     context.subscriptions.push(
-        traceManager.onDidChangeTraces(() => {
+        traceManager.onDidChangeTraces((eventPayload) => {
             for (const editor of vscode.window.visibleTextEditors) {
                 updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
             }
+            // Extract optional focusId carried by addEmptyTrace
+            const focusId = (eventPayload && typeof eventPayload === 'object' && 'focusId' in eventPayload)
+                ? eventPayload.focusId
+                : undefined;
             // Sync with webview (Debounced to prevent flooding during rapid typing/validation)
             if (syncDebounce) { clearTimeout(syncDebounce); }
             syncDebounce = setTimeout(() => {
-                provider.postMessage({ type: 'syncWorkspace', payload: traceManager.getWorkspaceSyncPayload() });
+                const payload = { ...traceManager.getWorkspaceSyncPayload(), focusId };
+                provider.postMessage({ type: 'syncWorkspace', payload });
             }, 50);
         })
     );

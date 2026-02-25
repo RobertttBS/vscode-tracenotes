@@ -340,6 +340,11 @@
   color: #ff4d4d;
 }
 
+/* ---- Add Empty Trace Button ---- */
+.add-btn {
+  color: var(--vscode-testing-iconPassed, #73c991);
+}
+
 /* ---- Export Button ---- */
 .export-btn {
   color: var(--vscode-textLink-foreground, #3794ff);

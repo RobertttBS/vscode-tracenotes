@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TracePoint, TraceTree, MAX_DEPTH } from './types';
+import { generateIsomorphicUUID } from './utils/uuid';
 
 export interface ITraceDocument {
     lineCount: number;
@@ -34,7 +35,7 @@ export class TraceManager implements vscode.Disposable {
     private treeValidationCts: vscode.CancellationTokenSource | undefined;
     private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number }> = new Map();
 
-    private _onDidChangeTraces = new vscode.EventEmitter<void>();
+    private _onDidChangeTraces = new vscode.EventEmitter<{ focusId?: string } | void>();
     public readonly onDidChangeTraces = this._onDidChangeTraces.event;
 
     constructor(private context: vscode.ExtensionContext) {
@@ -421,6 +422,29 @@ export class TraceManager implements vscode.Disposable {
             this.persist();
             this._onDidChangeTraces.fire();
         }
+    }
+
+    public addEmptyTrace(): string {
+        const newTrace: TracePoint = {
+            id: generateIsomorphicUUID(),
+            filePath: '',
+            rangeOffset: [0, 0],
+            lineRange: [0, 0],
+            content: '',
+            lang: 'plaintext',
+            note: '',
+            timestamp: Date.now(),
+        };
+
+        // Add to the store WITHOUT firing the generic event
+        const target = this.getActiveChildren();
+        target.push(newTrace);
+        this.addTraceToIndex(newTrace, this.activeGroupId);
+        this.persist();
+
+        // Fire with the focusId so listeners can scroll to the new card
+        this._onDidChangeTraces.fire({ focusId: newTrace.id });
+        return newTrace.id;
     }
 
     public relocateTrace(id: string, document: vscode.TextDocument, selection: vscode.Selection): void {
