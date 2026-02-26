@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { postMessage } from '../utils/messaging';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -54,6 +54,31 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
     const [editing, setEditing] = useState(false);
     const [isRelocating, setIsRelocating] = useState(false);
     const [noteValue, setNoteValue] = useState(trace.note);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const borderSumRef = useRef(0);
+
+    // Measure border widths once when entering edit mode
+    useLayoutEffect(() => {
+        if (editing && textareaRef.current) {
+            const style = window.getComputedStyle(textareaRef.current);
+            borderSumRef.current = (parseFloat(style.borderTopWidth) || 0)
+                                 + (parseFloat(style.borderBottomWidth) || 0);
+        }
+    }, [editing]);
+
+    const adjustHeight = useCallback(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight + borderSumRef.current}px`;
+        }
+    }, []);
+
+    useLayoutEffect(() => {
+        if (editing) {
+            adjustHeight();
+        }
+    }, [editing, noteValue, adjustHeight]);
 
     const fileName = useMemo(() => {
         const parts = trace.filePath.replace(/\\/g, '/').split('/');
@@ -74,14 +99,17 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
     }, [trace.id, noteValue, onUpdateNote]);
 
     const handleNoteKeyDown = useCallback((e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleNoteSave();
         }
+        // Escape to cancel
         if (e.key === 'Escape') {
             setEditing(false);
             setNoteValue(trace.note);
         }
+        // Note: Plain 'Enter' is now allowed to insert a newline (default behavior for textarea)
     }, [handleNoteSave, trace.note]);
 
     // Context Menu State
@@ -220,15 +248,21 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 {/* Note */}
                 <div className="card-note">
                     {editing ? (
-                        <textarea
-                            className="note-input"
-                            value={noteValue}
-                            onChange={(e) => setNoteValue(e.target.value)}
-                            onBlur={handleNoteSave}
-                            onKeyDown={handleNoteKeyDown}
-                            placeholder="Add a note..."
-                            autoFocus
-                        />
+                        <>
+                            <textarea
+                                ref={textareaRef}
+                                className="note-input"
+                                value={noteValue}
+                                onChange={(e) => setNoteValue(e.target.value)}
+                                onBlur={handleNoteSave}
+                                onKeyDown={handleNoteKeyDown}
+                                placeholder="Add a note..."
+                                autoFocus
+                            />
+                            <div className="note-save-hint">
+                                {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save · Esc to cancel
+                            </div>
+                        </>
                     ) : (
                         <div
                             className="note-display"
