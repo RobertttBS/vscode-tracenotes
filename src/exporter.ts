@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TracePoint } from './types';
+import { TracePoint, HIGHLIGHT_TO_TAG } from './types';
 
 /**
  * Generate a Markdown document from the collected traces.
@@ -21,7 +21,13 @@ function renderTrace(t: TracePoint, index: number, depth: number): string {
     const relativePath = vscode.workspace.asRelativePath(t.filePath, false);
     const startLine = t.lineRange ? t.lineRange[0] + 1 : '?';
     const title = t.note ? t.note.split(/\r?\n/)[0] : '';
-    let md = `${heading} ${index + 1}. ${title} ${t.orphaned ? '(Orphaned)' : ''}\n\n`;
+
+    // Encode highlight colour as a %%Tag%% marker in the heading
+    const tagStr = (t.highlight && HIGHLIGHT_TO_TAG[t.highlight])
+        ? `%%${HIGHLIGHT_TO_TAG[t.highlight]}%% `
+        : '';
+
+    let md = `${heading} ${index + 1}. ${tagStr}${title} ${t.orphaned ? '(Orphaned)' : ''}\n\n`;
     if (t.note) {
         const rest = t.note.split(/\r?\n/).slice(1).join('\n').trim();
         if (rest) {

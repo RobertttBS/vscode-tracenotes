@@ -15,6 +15,15 @@ export interface TracePoint {
     children?: TracePoint[];     // sub-traces (max 10 levels deep)
 }
 
+/** Maps a highlight colour to its human-readable Markdown tag (and vice-versa). */
+export const HIGHLIGHT_TO_TAG: Record<NonNullable<TracePoint['highlight']>, string> = {
+    red:    'Important',
+    orange: 'Faq',
+    blue:   'Note',
+    green:  'Tip',
+    purple: 'Remark',
+};
+
 /** Root level container for a tree of traces */
 export interface TraceTree {
     id: string;

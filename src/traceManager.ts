@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TracePoint, TraceTree, MAX_DEPTH } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
 
 export interface ITraceDocument {
@@ -951,11 +951,17 @@ export class TraceManager implements vscode.Disposable {
         const rootTraces: TracePoint[] = [];
         const stack: { trace: TracePoint, depth: number }[] = [];
 
+        /** Reverse map: Markdown tag → highlight colour (derived from the shared HIGHLIGHT_TO_TAG) */
+        const TAG_TO_HIGHLIGHT = Object.fromEntries(
+            Object.entries(HIGHLIGHT_TO_TAG).map(([colour, tag]) => [tag, colour as TracePoint['highlight']])
+        ) as Record<string, TracePoint['highlight']>;
+
         let currentTrace: (Partial<TracePoint> & { _tempDepth: number }) | null = null;
         let currentContent: string[] = [];
         let capturingContent = false;
 
-        const headerRegex = /^(#+)\s+\d+\.\s+(.*)/;
+        // Captures optional %%Tag%% immediately after the number+dot
+        const headerRegex = /^(#+)\s+\d+\.\s+(?:%%([^%]+)%%\s+)?(.*)/;
         const codeBlockStartRegex = /^```(\w*)\s+(\d+|\?):(\d+|\?):(.+)$/;
 
         const flushCurrentTrace = async () => {
@@ -1038,9 +1044,10 @@ export class TraceManager implements vscode.Disposable {
             if (headerMatch) {
                 await flushCurrentTrace();
 
-                const hashes = headerMatch[1];
-                const rawTitle = headerMatch[2].trim();
-                const depth = hashes.length - 2;
+                const hashes    = headerMatch[1];
+                const tag       = headerMatch[2]?.trim() ?? null;   // %%Tag%% content (may be undefined)
+                const rawTitle  = headerMatch[3].trim();
+                const depth     = hashes.length - 2;
                 if (depth < 0) continue;
 
                 let title = rawTitle;
@@ -1048,9 +1055,13 @@ export class TraceManager implements vscode.Disposable {
                     title = title.replace('(Orphaned)', '').trim();
                 }
 
+                // Restore highlight colour from %%Tag%% if present
+                const highlight = (tag && TAG_TO_HIGHLIGHT[tag]) ? TAG_TO_HIGHLIGHT[tag] : null;
+
                 currentTrace = {
                     id: generateIsomorphicUUID(),
                     note: title,
+                    highlight,
                     orphaned: false,
                     children: [],
                     _tempDepth: depth,
