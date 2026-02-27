@@ -68,4 +68,6 @@ export type WebviewToExtensionMessage =
     | { command: 'deleteTree'; id: string }
     | { command: 'relocateTrace'; id: string }
     | { command: 'importTrace' }
+    | { command: 'moveToChild'; traceId: string; targetId: string }
+    | { command: 'moveToParent'; traceId: string }
     | { command: 'addEmptyTrace' };

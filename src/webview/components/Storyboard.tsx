@@ -10,6 +10,8 @@ import {
     DragEndEvent,
     Modifier,
     DragOverlay,
+    useDroppable,
+    useDndContext,
 } from '@dnd-kit/core';
 
 /**
@@ -20,6 +22,17 @@ import {
 const customCollisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
     const pointerCollisions = pointerWithin(args);
     if (pointerCollisions.length > 0) {
+        // Prioritize specific drop zones
+        const specificTarget = pointerCollisions.find((c) => {
+            const container = args.droppableContainers.find(dc => dc.id === c.id);
+            const type = container?.data.current?.type;
+            return type === 'nesting-zone' || type === 'back-button';
+        });
+
+        if (specificTarget) {
+            return [specificTarget];
+        }
+
         return pointerCollisions;
     }
     return closestCorners(args);
@@ -157,11 +170,21 @@ const SortableTraceCard: React.FC<{
         id: trace.id,
     });
 
+    const dndContext = useDndContext();
+    const isDraggingAny = !!dndContext.active;
+
+    const { setNodeRef: setNestingRef, isOver: isDragOverNesting } = useDroppable({
+        id: `nest-${trace.id}`,
+        data: { type: 'nesting-zone', targetId: trace.id },
+        disabled: !showEnterGroup || isDragging,
+    });
+
     const style: React.CSSProperties = {
         transform: CSS.Transform.toString(transform),
         // Disable transition on the dragged item so it doesn't fight the DragOverlay
         transition: isDragging ? undefined : transition,
         cursor: isDragging ? 'grabbing' : 'grab',
+        position: 'relative',
     };
 
     return (
@@ -174,7 +197,7 @@ const SortableTraceCard: React.FC<{
             {...listeners}
         >
             {/* Ghost placeholder preserves layout; dashed border signals original position */}
-            <div className={isDragging ? 'card-ghost' : undefined}>
+            <div className={isDragging ? 'card-ghost' : undefined} style={{ position: 'relative' }}>
                 <LazyRender forceVisible={isFocused}>
                     <TraceCard
                         trace={trace}
@@ -186,13 +209,77 @@ const SortableTraceCard: React.FC<{
                         showEnterGroup={showEnterGroup}
                     />
                 </LazyRender>
+
+                {/* Nesting Drop Zone Overlay */}
+                {showEnterGroup && isDraggingAny && !isDragging && (
+                    <div 
+                        ref={setNestingRef} 
+                        className={`nesting-drop-zone ${isDragOverNesting ? 'active' : ''}`}
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                            <NestingIcon />
+                            {isDragOverNesting && (
+                                <span className="nesting-label">
+                                    Move to Child
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
 };
 
-import { ExportIcon, TrashIcon, ListIcon, PlusIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon } from './icons';
 import { TreeList } from './TreeList';
+
+const BackButtonDropZone: React.FC<{ onExitGroup: () => void }> = ({ onExitGroup }) => {
+    const { setNodeRef, isOver } = useDroppable({
+        id: 'back-button-drop-target',
+        data: { type: 'back-button' }
+    });
+
+    // 取得當前是否有東西在被拖拽
+    const { active } = useDndContext();
+    const isDraggingAny = !!active;
+    
+    return (
+        <button 
+            ref={setNodeRef} 
+            className={`back-button ${isDraggingAny ? 'drop-active' : ''} ${isOver ? 'drop-over' : ''}`}
+            onClick={onExitGroup}
+            style={{ 
+                // 關鍵：拖拽時提高 z-index 確保它在 DragOverlay 之上（或至少更顯眼）
+                zIndex: isDraggingAny ? 1000 : 1,
+                position: 'relative',
+                
+                // 基礎樣式與動態反饋
+                padding: '4px 12px',
+                borderRadius: '4px',
+                transition: 'all 0.2s ease',
+                
+                // 當有東西在拖拽時，按鈕變成「準備接收」狀態
+                border: isDraggingAny 
+                    ? `2px dashed ${isOver ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-background)'}` 
+                    : '1px solid transparent',
+                
+                // 當懸停在上方時，放大並改變背景
+                transform: isOver ? 'scale(1.1)' : 'scale(1)',
+                background: isOver 
+                    ? 'var(--vscode-button-background)' 
+                    : isDraggingAny ? 'var(--vscode-input-background)' : undefined,
+                color: isOver ? 'var(--vscode-button-foreground)' : undefined,
+                boxShadow: isOver ? '0 0 15px rgba(0,0,0,0.5)' : 'none',
+            }}
+        >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {isOver ? '📥' : <BackIcon />}
+                <span>{isOver ? 'Drop to Move to Parent Level' : 'Back'}</span>
+            </span>
+        </button>
+    );
+};
 
 const Storyboard: React.FC = () => {
     // Cached state: hydrated synchronously from vscode.getState(), debounced save on change
@@ -303,7 +390,21 @@ const Storyboard: React.FC = () => {
     const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
         setActiveId(null);
-        if (!over || active.id === over.id) { return; }
+        if (!over) { return; }
+
+        if (over.data.current?.type === 'back-button') {
+            postMessage({ command: 'moveToParent', traceId: active.id as string });
+            return;
+        }
+
+        const isNesting = over.data.current?.type === 'nesting-zone';
+        const targetId = over.data.current?.targetId;
+        if (isNesting && targetId && active.id !== targetId) {
+            postMessage({ command: 'moveToChild', traceId: active.id as string, targetId: targetId });
+            return;
+        }
+
+        if (active.id === over.id) { return; }
 
         // 1. Calculate purely for the extension message using current visible scope.
         const oldIndex = visibleTraces.findIndex(t => t.id === active.id);
@@ -477,7 +578,7 @@ const Storyboard: React.FC = () => {
             {currentGroupId ? (
                 // Group Navigation Header
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                    <button className="back-button" onClick={handleExitGroup}>← Back</button>
+                    <BackButtonDropZone onExitGroup={handleExitGroup} />
                     {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
                 </div>
             ) : (
@@ -538,23 +639,25 @@ const Storyboard: React.FC = () => {
     if (visibleTraces.length === 0) {
         return (
             <div className="storyboard">
-                {header}
-                <div className="empty-state">
-                    <div className="empty-icon">📌</div>
-                    <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
-                    <p className="empty-hint">
-                        Select some code and press <kbd>Alt+C</kbd> (or <kbd>Opt+C</kbd>) <br />
-                        or run <strong>TraceNotes: Collect Trace</strong>
-                    </p>
-                </div>
+                <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                    {header}
+                    <div className="empty-state">
+                        <div className="empty-icon">📌</div>
+                        <p>{currentGroupId ? 'No child traces yet.' : 'No traces yet.'}</p>
+                        <p className="empty-hint">
+                            Select some code and press <kbd>Alt+C</kbd> (or <kbd>Opt+C</kbd>) <br />
+                            or run <strong>TraceNotes: Collect Trace</strong>
+                        </p>
+                    </div>
+                </DndContext>
             </div>
         );
     }
 
     return (
         <div className="storyboard">
-            {header}
-            <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
+            <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                {header}
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
                     <div className="trace-list">
                         {visibleTraces.map((trace, index) => (
@@ -576,7 +679,12 @@ const Storyboard: React.FC = () => {
                     re-rendered list takes over without a positional race condition. */}
                 <DragOverlay dropAnimation={null}>
                     {activeId && activeTrace ? (
-                        <div className="drag-overlay-active">
+                        <div className="drag-overlay-active" style={{ 
+                            opacity: 0.7, // 降低透明度，讓下方的 Drop Zone 可見
+                            cursor: 'grabbing',
+                            transform: 'scale(1.02)', // 稍微放大讓它有浮起來的感覺
+                            boxShadow: '0 5px 15px rgba(0,0,0,0.3)'
+                        }}>
                             <TraceCardPreview
                                 trace={activeTrace}
                                 index={activeIndex ?? 0}

@@ -103,6 +103,12 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'addEmptyTrace':
                     traceManager.addEmptyTrace();
                     break;
+                case 'moveToChild':
+                    traceManager.moveToChild(msg.traceId, msg.targetId);
+                    break;
+                case 'moveToParent':
+                    traceManager.moveToParent(msg.traceId);
+                    break;
             }
         },
     );

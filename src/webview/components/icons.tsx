@@ -33,3 +33,17 @@ export const PlusIcon = () => (
         <path d="M14 7H9V2H7v5H2v2h5v5h2V9h5V7z" />
     </svg>
 );
+
+export const NestingIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="15 10 20 15 15 20"></polyline>
+        <path d="M4 4v7a4 4 0 0 0 4 4h12"></path>
+    </svg>
+);
+
+export const BackIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="9 10 4 15 9 20"></polyline>
+        <path d="M20 4v7a4 4 0 0 1-4 4H4"></path>
+    </svg>
+);

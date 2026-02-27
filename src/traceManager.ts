@@ -324,6 +324,78 @@ export class TraceManager implements vscode.Disposable {
         return false;
     }
 
+    public moveToChild(traceId: string, targetId: string): void {
+        const trace = this.findTraceById(traceId);
+        if (!trace) return;
+
+        if (this.isDescendant(traceId, targetId)) {
+            vscode.window.showErrorMessage("TraceNotes: Cannot move a trace into its own descendant.");
+            this._onDidChangeTraces.fire();
+            return;
+        }
+
+        const targetDepth = this.getDepth(targetId);
+        if (targetDepth >= MAX_DEPTH - 1) {
+            vscode.window.showErrorMessage("TraceNotes: Maximum trace depth reached.");
+            this._onDidChangeTraces.fire();
+            return;
+        }
+
+        this.removeFromTree(traceId);
+
+        const target = this.findTraceById(targetId);
+        if (target) {
+            if (!target.children) { target.children = []; }
+            target.children.push(trace);
+            this.parentIdMap.set(traceId, targetId);
+        }
+
+        this.persist();
+        this._onDidChangeTraces.fire();
+    }
+
+    public moveToParent(traceId: string): void {
+        const trace = this.findTraceById(traceId);
+        if (!trace) return;
+
+        const currentParentId = this.findParentTraceId(traceId);
+        if (currentParentId === null) {
+            this._onDidChangeTraces.fire();
+            return; // Already at root
+        }
+
+        const grandParentId = this.findParentTraceId(currentParentId);
+
+        this.removeFromTree(traceId);
+        
+        if (grandParentId === null) {
+            const activeTree = this.getActiveTree();
+            if (activeTree) {
+                activeTree.traces.push(trace);
+            }
+            this.parentIdMap.set(traceId, null);
+        } else {
+            const grandParent = this.findTraceById(grandParentId);
+            if (grandParent) {
+                if (!grandParent.children) grandParent.children = [];
+                grandParent.children.push(trace);
+                this.parentIdMap.set(traceId, grandParentId);
+            }
+        }
+
+        this.persist();
+        this._onDidChangeTraces.fire();
+    }
+
+    public isDescendant(ancestorId: string, descendantId: string): boolean {
+        let curr: string | null = descendantId;
+        while (curr !== null) {
+            if (curr === ancestorId) { return true; }
+            curr = this.findParentTraceId(curr);
+        }
+        return false;
+    }
+
     private addTraceToIndex(trace: TracePoint, parentId: string | null): void {
         const uriStr = vscode.Uri.file(trace.filePath).toString();
         
