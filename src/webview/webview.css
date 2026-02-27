@@ -51,9 +51,9 @@ kbd {
 /* ---- Trace Card ---- */
 .trace-card {
   position: relative;
-  margin-bottom: 12px;
   border: 1px solid var(--vscode-panel-border, #555);
   border-radius: 6px;
+  box-sizing: border-box; /* prevents solid→dashed swap from shifting layout */
   transition: border-color 0.15s ease;
   background: var(--vscode-editor-background, #1e1e1e);
   /* overflow: hidden removed to allow tooltips to pop out */
@@ -61,6 +61,43 @@ kbd {
 
 .trace-card:hover {
   border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+/* ---- Drag and Drop Visuals ---- */
+
+/* The sortable list — flex gap replaces margin-bottom for predictable spacing */
+.trace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+
+/* Ghost placeholder — keeps layout geometry, signals the original position */
+/* Fix #4: box-sizing: border-box ensures the dashed border doesn't expand
+   the card height \u2014 border-width stays 1px, swapping solid→dashed only. */
+.card-ghost {
+    box-sizing: border-box;
+}
+.card-ghost .trace-card {
+    opacity: 0.4;
+    border-style: dashed !important;
+    border-color: var(--vscode-focusBorder, #007fd4) !important;
+    background: var(--vscode-editor-inactiveSelectionBackground,
+                    rgba(58, 61, 65, 0.3)) !important;
+    box-sizing: border-box;
+}
+
+/* Premium Drag Overlay (The item attached to the cursor) */
+.drag-overlay-active {
+    opacity: 0.8;
+}
+
+.drag-overlay-active .trace-card {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    transform: scale(1.02);
+    cursor: grabbing !important;
+    border-color: var(--vscode-focusBorder, #007fd4) !important;
 }
 
 /* Connector line */

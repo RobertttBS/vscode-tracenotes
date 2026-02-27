@@ -1,13 +1,29 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     DndContext,
-    closestCenter,
+    closestCorners,
+    pointerWithin,
     PointerSensor,
     useSensor,
     useSensors,
+    DragStartEvent,
     DragEndEvent,
     Modifier,
+    DragOverlay,
 } from '@dnd-kit/core';
+
+/**
+ * Custom collision: prefer pointer position for immediacy,
+ * fall back to closest corners so tall cards don't miss drops
+ * when the cursor grazes the boundary edge.
+ */
+const customCollisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+        return pointerCollisions;
+    }
+    return closestCorners(args);
+};
 
 const restrictToVerticalAxis: Modifier = ({ transform }) => {
     return {
@@ -26,6 +42,54 @@ import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
 import { useWebviewState } from '../hooks/useWebviewState';
 import { TracePoint, MAX_DEPTH } from '../../types';
+
+// Renders only static, non-heavy UI — no SyntaxHighlighter mount,
+// no local state — so drag initiation stays at 60 fps.
+const TraceCardPreview: React.FC<{ trace: TracePoint; index: number }> = ({ trace, index }) => {
+    const fileName = trace.filePath
+        ? trace.filePath.replace(/\\/g, '/').split('/').pop() || trace.filePath
+        : null;
+
+    return (
+        <div className="trace-card">
+            <div className="card-header" style={{ cursor: 'grabbing' }}>
+                <span className="card-index">{index + 1}</span>
+                {fileName && (
+                    <>
+                        <span className="card-file">{fileName}</span>
+                        <span className="card-line">
+                            {trace.lineRange
+                                ? `L${trace.lineRange[0] + 1}–${trace.lineRange[1] + 1}`
+                                : 'N/A'}
+                        </span>
+                    </>
+                )}
+            </div>
+            {trace.content && (
+                <div className="card-code">
+                    <pre style={{
+                        margin: 0,
+                        padding: '12px',
+                        fontSize: 'var(--vscode-editor-font-size, 12px)',
+                        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                        lineHeight: '1.5',
+                        background: 'var(--vscode-editor-background)',
+                        overflowX: 'auto',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                    }}>
+                        {trace.content}
+                    </pre>
+                </div>
+            )}
+            {trace.note && (
+                <div className="card-note">
+                    <div className="note-display">{trace.note}</div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 /**
  * Defers rendering of children until the element scrolls into the viewport.
@@ -68,7 +132,6 @@ const LazyRender: React.FC<{ height?: number; forceVisible?: boolean; children: 
                     minHeight: height,
                     background: 'var(--vscode-editor-background, #1e1e1e)',
                     borderRadius: 6,
-                    marginBottom: 12,
                     border: '1px solid var(--vscode-panel-border, #333)',
                     opacity: 0.4,
                 }}
@@ -96,9 +159,9 @@ const SortableTraceCard: React.FC<{
 
     const style: React.CSSProperties = {
         transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-        cursor: 'grab',
+        // Disable transition on the dragged item so it doesn't fight the DragOverlay
+        transition: isDragging ? undefined : transition,
+        cursor: isDragging ? 'grabbing' : 'grab',
     };
 
     return (
@@ -110,17 +173,20 @@ const SortableTraceCard: React.FC<{
             {...attributes}
             {...listeners}
         >
-            <LazyRender forceVisible={isFocused}>
-                <TraceCard
-                    trace={trace}
-                    index={index}
-                    onUpdateNote={onUpdateNote}
-                    onRemove={onRemove}
-                    onRelocate={onRelocate}
-                    onEnterGroup={onEnterGroup}
-                    showEnterGroup={showEnterGroup}
-                />
-            </LazyRender>
+            {/* Ghost placeholder preserves layout; dashed border signals original position */}
+            <div className={isDragging ? 'card-ghost' : undefined}>
+                <LazyRender forceVisible={isFocused}>
+                    <TraceCard
+                        trace={trace}
+                        index={index}
+                        onUpdateNote={onUpdateNote}
+                        onRemove={onRemove}
+                        onRelocate={onRelocate}
+                        onEnterGroup={onEnterGroup}
+                        showEnterGroup={showEnterGroup}
+                    />
+                </LazyRender>
+            </div>
         </div>
     );
 };
@@ -143,6 +209,7 @@ const Storyboard: React.FC = () => {
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleInputValue, setTitleInputValue] = useState('');
     const [viewMode, setViewMode] = useState<'trace' | 'list'>('trace');
+    const [activeId, setActiveId] = useState<string | null>(null);
 
     // Fix race condition in saveTitle
     const isEditingRef = useRef(false);
@@ -169,6 +236,9 @@ const Storyboard: React.FC = () => {
         const group = findTraceById(currentGroupId, traces);
         return group?.children ?? [];
     }, [traces, currentGroupId, findTraceById]);
+
+    const activeIndex = activeId ? visibleTraces.findIndex(item => item.id === activeId) : null;
+    const activeTrace = activeId ? visibleTraces.find(item => item.id === activeId) : null;
 
     // Listen for messages from the extension
     useEffect(() => {
@@ -224,27 +294,60 @@ const Storyboard: React.FC = () => {
         // Clear it so it doesn't re-run if visibleTraces changes for another reason
         setPendingFocusId(null); 
         
-    }, [pendingFocusId]); // Remove visibleTraces from the dependency array!
+    }, [pendingFocusId]);
+
+    const handleDragStart = useCallback((event: DragStartEvent) => {
+        setActiveId(event.active.id as string);
+    }, []);
 
     const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
+        setActiveId(null);
         if (!over || active.id === over.id) { return; }
 
-        setTraces(prev => {
-            // We need to reorder within the visible (current group) scope
-            // But traces state holds the full tree, so we work with visibleTraces IDs
-            const oldIndex = visibleTraces.findIndex(t => t.id === active.id);
-            const newIndex = visibleTraces.findIndex(t => t.id === over.id);
-            if (oldIndex < 0 || newIndex < 0) { return prev; }
-            const newOrder = arrayMove(visibleTraces, oldIndex, newIndex);
-            // Notify extension
-            postMessage({
-                command: 'reorderTraces',
-                orderedIds: newOrder.map(t => t.id),
-            });
-            return prev; // Extension will sync back the full tree
+        // 1. Calculate purely for the extension message using current visible scope.
+        const oldIndex = visibleTraces.findIndex(t => t.id === active.id);
+        const newIndex = visibleTraces.findIndex(t => t.id === over.id);
+        if (oldIndex < 0 || newIndex < 0) { return; }
+
+        const messageOrder = arrayMove(visibleTraces, oldIndex, newIndex);
+
+        // Notify extension so it can persist the new order.
+        postMessage({
+            command: 'reorderTraces',
+            orderedIds: messageOrder.map(t => t.id),
         });
-    }, [visibleTraces]);
+
+        // 2. Strict functional update — re-derive indices from `prev` so we never
+        //    overwrite state that may have been updated by a background sync event
+        //    while the drag was in progress.
+        setTraces(prev => {
+            if (currentGroupId === null) {
+                // Root level: recalculate against `prev` directly.
+                const prevOldIdx = prev.findIndex(t => t.id === active.id);
+                const prevNewIdx = prev.findIndex(t => t.id === over.id);
+                if (prevOldIdx < 0 || prevNewIdx < 0) { return prev; }
+                return arrayMove(prev, prevOldIdx, prevNewIdx);
+            }
+
+            // Group level: recursively find the parent and swap its fresh children.
+            const updateChildren = (list: TracePoint[]): TracePoint[] =>
+                list.map(t => {
+                    if (t.id === currentGroupId) {
+                        const children = t.children || [];
+                        const prevOldIdx = children.findIndex(c => c.id === active.id);
+                        const prevNewIdx = children.findIndex(c => c.id === over.id);
+                        if (prevOldIdx < 0 || prevNewIdx < 0) { return t; }
+                        return { ...t, children: arrayMove(children, prevOldIdx, prevNewIdx) };
+                    }
+                    if (t.children?.length) {
+                        return { ...t, children: updateChildren(t.children) };
+                    }
+                    return t;
+                });
+            return updateChildren(prev);
+        });
+    }, [visibleTraces, currentGroupId]);
 
     const handleUpdateNote = useCallback((id: string, note: string) => {
         // Recursively update note in the tree so child-level changes
@@ -451,22 +554,36 @@ const Storyboard: React.FC = () => {
     return (
         <div className="storyboard">
             {header}
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
+            <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                    {visibleTraces.map((trace, index) => (
-                        <SortableTraceCard
-                            key={trace.id}
-                            trace={trace}
-                            index={index}
-                            isFocused={focusedId === trace.id}
-                            onUpdateNote={handleUpdateNote}
-                            onRemove={handleRemove}
-                            onRelocate={handleRelocate}
-                            onEnterGroup={handleEnterGroup}
-                            showEnterGroup={currentDepth < MAX_DEPTH - 1}
-                        />
-                    ))}
+                    <div className="trace-list">
+                        {visibleTraces.map((trace, index) => (
+                            <SortableTraceCard
+                                key={trace.id}
+                                trace={trace}
+                                index={index}
+                                isFocused={focusedId === trace.id}
+                                onUpdateNote={handleUpdateNote}
+                                onRemove={handleRemove}
+                                onRelocate={handleRelocate}
+                                onEnterGroup={handleEnterGroup}
+                                showEnterGroup={currentDepth < MAX_DEPTH - 1}
+                            />
+                        ))}
+                    </div>
                 </SortableContext>
+                {/* dropAnimation={null}: overlay vanishes instantly on drop so the
+                    re-rendered list takes over without a positional race condition. */}
+                <DragOverlay dropAnimation={null}>
+                    {activeId && activeTrace ? (
+                        <div className="drag-overlay-active">
+                            <TraceCardPreview
+                                trace={activeTrace}
+                                index={activeIndex ?? 0}
+                            />
+                        </div>
+                    ) : null}
+                </DragOverlay>
             </DndContext>
         </div>
     );
