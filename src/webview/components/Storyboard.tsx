@@ -22,10 +22,12 @@ import {
 const customCollisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
     const pointerCollisions = pointerWithin(args);
     if (pointerCollisions.length > 0) {
+        // Optimize: Build a quick O(1) lookup map once per frame, rather than nesting `find`
+        const containerMap = new Map(args.droppableContainers.map(dc => [dc.id, dc]));
+
         // Prioritize specific drop zones
         const specificTarget = pointerCollisions.find((c) => {
-            const container = args.droppableContainers.find(dc => dc.id === c.id);
-            const type = container?.data.current?.type;
+            const type = containerMap.get(c.id)?.data.current?.type;
             return type === 'nesting-zone' || type === 'back-button';
         });
 
@@ -170,9 +172,6 @@ const SortableTraceCard: React.FC<{
         id: trace.id,
     });
 
-    const dndContext = useDndContext();
-    const isDraggingAny = !!dndContext.active;
-
     const { setNodeRef: setNestingRef, isOver: isDragOverNesting } = useDroppable({
         id: `nest-${trace.id}`,
         data: { type: 'nesting-zone', targetId: trace.id },
@@ -197,7 +196,7 @@ const SortableTraceCard: React.FC<{
             {...listeners}
         >
             {/* Ghost placeholder preserves layout; dashed border signals original position */}
-            <div className={isDragging ? 'card-ghost' : undefined} style={{ position: 'relative' }}>
+            <div className={`trace-card-wrapper ${isDragging ? 'card-ghost' : ''}`} style={{ position: 'relative' }}>
                 <LazyRender forceVisible={isFocused}>
                     <TraceCard
                         trace={trace}
@@ -211,7 +210,7 @@ const SortableTraceCard: React.FC<{
                 </LazyRender>
 
                 {/* Nesting Drop Zone Overlay */}
-                {showEnterGroup && isDraggingAny && !isDragging && (
+                {showEnterGroup && (
                     <div 
                         ref={setNestingRef} 
                         className={`nesting-drop-zone ${isDragOverNesting ? 'active' : ''}`}
@@ -638,7 +637,7 @@ const Storyboard: React.FC = () => {
 
     if (visibleTraces.length === 0) {
         return (
-            <div className="storyboard">
+            <div className={`storyboard ${activeId ? 'is-dragging-any' : ''}`}>
                 <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                     {header}
                     <div className="empty-state">
@@ -655,7 +654,7 @@ const Storyboard: React.FC = () => {
     }
 
     return (
-        <div className="storyboard">
+        <div className={`storyboard ${activeId ? 'is-dragging-any' : ''}`}>
             <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 {header}
                 <SortableContext items={visibleTraces.map(t => t.id)} strategy={verticalListSortingStrategy}>

@@ -346,7 +346,7 @@ export class TraceManager implements vscode.Disposable {
         const target = this.findTraceById(targetId);
         if (target) {
             if (!target.children) { target.children = []; }
-            target.children.push(trace);
+            target.children.unshift(trace); // Insert at the top for better UX
             this.parentIdMap.set(traceId, targetId);
         }
 
@@ -365,23 +365,36 @@ export class TraceManager implements vscode.Disposable {
         }
 
         const grandParentId = this.findParentTraceId(currentParentId);
-
-        this.removeFromTree(traceId);
         
+        // 1. Resolve target location FIRST
+        let targetArray: TracePoint[] | undefined;
         if (grandParentId === null) {
             const activeTree = this.getActiveTree();
-            if (activeTree) {
-                activeTree.traces.push(trace);
+            if (!activeTree) {
+                vscode.window.showErrorMessage("TraceNotes: Failed to find active tree.");
+                return; // Abort before mutating
             }
-            this.parentIdMap.set(traceId, null);
+            targetArray = activeTree.traces;
         } else {
             const grandParent = this.findTraceById(grandParentId);
-            if (grandParent) {
-                if (!grandParent.children) grandParent.children = [];
-                grandParent.children.push(trace);
-                this.parentIdMap.set(traceId, grandParentId);
-            }
+            if (!grandParent) return; // Abort
+            if (!grandParent.children) grandParent.children = [];
+            targetArray = grandParent.children;
         }
+
+        // Find the index of the original parent to place the trace right after it
+        const currentParentIndex = targetArray.findIndex(t => t.id === currentParentId);
+
+        // 2. Safely perform the move
+        this.removeFromTree(traceId);
+        
+        if (currentParentIndex >= 0) {
+            targetArray.splice(currentParentIndex + 1, 0, trace);
+        } else {
+            targetArray.push(trace);
+        }
+
+        this.parentIdMap.set(traceId, grandParentId);
 
         this.persist();
         this._onDidChangeTraces.fire();

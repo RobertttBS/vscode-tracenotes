@@ -832,7 +832,7 @@ body.vscode-high-contrast .trace-card {
   top: 0;
   bottom: 0;
   width: 35%;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -843,6 +843,11 @@ body.vscode-high-contrast .trace-card {
   background: var(--vscode-editor-background, rgba(30, 30, 30, 0.5));
   opacity: 0.8;
   backdrop-filter: blur(2px);
+}
+
+/* Hide by default, show only when the parent wrapper has the dragging class and the card itself isn't the one being dragged */
+.storyboard.is-dragging-any .trace-card-wrapper:not(.card-ghost) .nesting-drop-zone {
+  display: flex;
 }
 
 .nesting-drop-zone.active {
