@@ -33,7 +33,11 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this.getHtml(webviewView.webview);
 
-        webviewView.webview.onDidReceiveMessage((msg: WebviewToExtensionMessage) => {
+        webviewView.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
+            // Gate all webview commands behind initialization so no message
+            // can read or mutate trace data before the disk load resolves.
+            await this.traceManager.ensureReady();
+
             if (msg.command === 'ready') {
                 // Sync everything in one go
                 this.postMessage({ 

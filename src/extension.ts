@@ -7,8 +7,12 @@ import { handleJump } from './decoration';
 import { generateMarkdown } from './exporter';
 import { initDecorations, updateDecorations } from './decorationManager';
 
+// Module-level reference so `deactivate` can flush pending saves.
+let _traceManagerRef: TraceManager | undefined;
+
 export function activate(context: vscode.ExtensionContext) {
     const traceManager = new TraceManager(context);
+    _traceManagerRef = traceManager;
     context.subscriptions.push(traceManager);
 
     // Track the last active text editor safely to support actions from the webview
@@ -121,12 +125,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Collect Trace
     context.subscriptions.push(
-        vscode.commands.registerCommand('tracenotes.collectTrace', () => {
+        vscode.commands.registerCommand('tracenotes.collectTrace', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
                 vscode.window.showWarningMessage('TraceNotes: No active editor.');
                 return;
             }
+
+            // Wait for disk load to finish before writing, preventing the
+            // initialization race condition that would silently discard the trace.
+            await traceManager.ensureReady();
+
             const trace = collectTrace(editor);
             if (trace) {
                 traceManager.add(trace);
@@ -151,6 +160,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Command: Export to Markdown
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.exportMarkdown', async () => {
+            await traceManager.ensureReady();
+
             const traces = traceManager.getAll();
             if (traces.length === 0) {
                 vscode.window.showWarningMessage('TraceNotes: No traces to export.');
@@ -176,6 +187,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Command: Import Trace
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.importTrace', async () => {
+            await traceManager.ensureReady();
+
             const options: vscode.OpenDialogOptions = {
                 canSelectMany: false, // User can only select one file
                 openLabel: 'Import',
@@ -206,7 +219,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Clear All
     context.subscriptions.push(
-        vscode.commands.registerCommand('tracenotes.clearAll', () => {
+        vscode.commands.registerCommand('tracenotes.clearAll', async () => {
+            await traceManager.ensureReady();
             traceManager.clear();
             vscode.window.showInformationMessage('TraceNotes: All traces cleared.');
         }),
@@ -323,4 +337,13 @@ export function activate(context: vscode.ExtensionContext) {
     refreshDecorations();
 }
 
-export function deactivate() { }
+/**
+ * VS Code allows `deactivate` to return a Promise, giving up to ~5 s for
+ * background tasks to complete. We use this window to flush any pending
+ * debounced save so data is never lost when the window closes mid-debounce.
+ */
+export async function deactivate(): Promise<void> {
+    if (_traceManagerRef) {
+        await _traceManagerRef.flush();
+    }
+}

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
+import { FileStorageManager } from './storage/FileStorageManager';
 
 export interface ITraceDocument {
     lineCount: number;
@@ -28,6 +29,9 @@ export class TraceManager implements vscode.Disposable {
     private readonly activeGroupKey = 'tracenotes.activeGroupId';
     private readonly activeTreeKey = 'tracenotes.activeTreeId';
 
+    // File-based storage manager (atomic writes via vscode.workspace.fs)
+    private readonly fileStorage: FileStorageManager;
+
     // Debounce / Batching
     private validationDebounceTimer: NodeJS.Timeout | undefined;
     private persistenceDebounceTimer: NodeJS.Timeout | undefined;
@@ -35,11 +39,27 @@ export class TraceManager implements vscode.Disposable {
     private treeValidationCts: vscode.CancellationTokenSource | undefined;
     private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number }> = new Map();
 
+    // Initialization readiness
+    private _readyPromise: Promise<void>;
+
+    // Dirty flag: true when in-memory state has not yet been flushed to disk
+    private isDirty: boolean = false;
+
     private _onDidChangeTraces = new vscode.EventEmitter<{ focusId?: string } | void>();
     public readonly onDidChangeTraces = this._onDidChangeTraces.event;
 
     constructor(private context: vscode.ExtensionContext) {
-        this.restore();
+        this.fileStorage = new FileStorageManager(context);
+
+        // Initialize async; default state is set synchronously so the manager
+        // is usable immediately while file I/O completes in the background.
+        this.initializeDefaults();
+
+        // Store the promise so commands can await readiness before mutating data.
+        this._readyPromise = this.initialize().catch(err => {
+            console.error('TraceNotes: Fatal error during initialization', err);
+            vscode.window.showErrorMessage('TraceNotes failed to load your data. Check the Output panel (TraceNotes Storage) for details.');
+        });
 
         // Cleanup validation queue when documents are closed to avoid memory leaks
         context.subscriptions.push(
@@ -47,6 +67,15 @@ export class TraceManager implements vscode.Disposable {
                 this.pendingValidationDocs.delete(doc.uri.toString());
             })
         );
+    }
+
+    /**
+     * Resolves once initialization from disk is complete.
+     * Commands that mutate or read persisted data should await this first
+     * to prevent the initialization race condition.
+     */
+    public async ensureReady(): Promise<void> {
+        await this._readyPromise;
     }
 
     /** * IMPORTANT: Clean up all resources when the extension deactivates 
@@ -78,44 +107,72 @@ export class TraceManager implements vscode.Disposable {
 
     // ── Persistence ──────────────────────────────────────────────
 
-    private restore(): void {
-        const saved = this.context.workspaceState.get<any>(this.storageKey);
+    /** Sets up a safe empty default so the manager is usable before file I/O finishes. */
+    private initializeDefaults(): void {
+        this.trees = [{
+            id: 'default',
+            name: 'Default Trace',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            traces: []
+        }];
+        this.activeTreeId = this.trees[0].id;
+        this.activeGroupId = null;
+        this.rebuildTraceIndex();
+    }
 
-        if (saved && Array.isArray(saved)) {
-            const isNewFormat = saved.length > 0 && 'traces' in saved[0];
+    /**
+     * Async initialization: loads trees from the JSON file on disk.
+     * If no file exists yet, migrates from workspaceState (one-time migration).
+     * After loading, updates all derived state and fires a change event so the
+     * UI re-renders with the restored data.
+     */
+    private async initialize(): Promise<void> {
+        let loaded = await this.fileStorage.load();
 
-            if (isNewFormat) {
-                this.trees = saved;
-            } else {
-                const defaultTree: TraceTree = {
-                    id: 'default',
-                    name: 'Default Trace',
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    traces: saved,
-                };
-                this.trees = [defaultTree];
-                this.persist();
+        if (loaded === null) {
+            // ── One-time migration from workspaceState ──────────────
+            const saved = this.context.workspaceState.get<any>(this.storageKey);
+            if (saved && Array.isArray(saved)) {
+                const isNewFormat = saved.length > 0 && 'traces' in saved[0];
+                if (isNewFormat) {
+                    loaded = saved as TraceTree[];
+                } else {
+                    // Legacy flat-array format → wrap in a default tree
+                    loaded = [{
+                        id: 'default',
+                        name: 'Default Trace',
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                        traces: saved,
+                    }];
+                }
+                // Persist migrated data to file immediately
+                await this.fileStorage.save(loaded);
+                // Clear old workspaceState entry to free space
+                await this.context.workspaceState.update(this.storageKey, undefined);
             }
-        } else {
-            this.trees = [{
-                id: 'default',
-                name: 'Default Trace',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                traces: []
-            }];
         }
 
+        if (loaded && loaded.length > 0) {
+            this.trees = loaded;
+        }
+        // else: keep the defaults from initializeDefaults()
+
+        // Restore active tree selection
         const savedTreeId = this.context.workspaceState.get<string | null>(this.activeTreeKey);
         this.activeTreeId = (savedTreeId && this.trees.some(t => t.id === savedTreeId))
             ? savedTreeId
             : this.trees[0].id;
 
-        const savedGroupId = this.context.workspaceState.get<string | null>(this.activeGroupKey);
-        // Only restore if the group still exists in the map
+        // Rebuild index before resolving activeGroupId
         this.rebuildTraceIndex();
+
+        const savedGroupId = this.context.workspaceState.get<string | null>(this.activeGroupKey);
         this.activeGroupId = (savedGroupId && this.findTraceById(savedGroupId)) ? savedGroupId : null;
+
+        // Notify UI that restored data is ready
+        this._onDidChangeTraces.fire();
     }
 
     private persist(): void {
@@ -124,14 +181,45 @@ export class TraceManager implements vscode.Disposable {
             active.updatedAt = Date.now();
         }
 
+        // Mark in-memory state as unsaved
+        this.isDirty = true;
+
         if (this.persistenceDebounceTimer) {
             clearTimeout(this.persistenceDebounceTimer);
         }
 
         this.persistenceDebounceTimer = setTimeout(() => {
-            this.context.workspaceState.update(this.storageKey, this.trees);
             this.persistenceDebounceTimer = undefined;
+            this.flush().catch(err => {
+                console.error('TraceNotes: Background save failed', err);
+                vscode.window.showWarningMessage('TraceNotes: Failed to save your data. Check the Output panel for details.');
+            });
         }, 2000);
+    }
+
+    /**
+     * Forces an immediate save, bypassing the debounce timer.
+     * Must be called during the extension's `deactivate` lifecycle event
+     * to prevent data loss when VS Code closes while a debounced save is pending.
+     */
+    public async flush(): Promise<void> {
+        // Cancel any pending debounced save — we're doing it now.
+        if (this.persistenceDebounceTimer) {
+            clearTimeout(this.persistenceDebounceTimer);
+            this.persistenceDebounceTimer = undefined;
+        }
+
+        if (!this.isDirty) {
+            return; // Nothing new to write
+        }
+
+        this.isDirty = false; // Optimistically clear before the async write
+        try {
+            await this.fileStorage.save(this.trees);
+        } catch (err) {
+            this.isDirty = true; // Revert on failure so the next flush retries
+            throw err;
+        }
     }
 
     private persistActiveGroup(): void {
