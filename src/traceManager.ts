@@ -909,7 +909,10 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * Improved recovery logic with whitespace normalization and proximity weighting
+     * 3-Tier Optimized Recovery Logic
+     * Tier 1: Exact Match (Radius Bound)
+     * Tier 2: Regex Anchor Match with Proximity Preference (Radius Bound)
+     * Tier 3: Token-based Sliding Window (Elastic Radius Bound)
      */
     private recoverTracePoints(
         document: ITraceDocument,
@@ -918,65 +921,158 @@ export class TraceManager implements vscode.Disposable {
     ): [number, number] | null {
         const fullText = document.getText();
         const cleanContent = storedContent.trim();
-        
-        // 1. Exact Match in Radius (Fastest)
-        const searchStart = Math.max(0, lastKnownStart - TraceManager.SEARCH_RADIUS);
-        const searchEnd = Math.min(fullText.length, lastKnownStart + TraceManager.SEARCH_RADIUS + cleanContent.length);
+        const radius = TraceManager.SEARCH_RADIUS;
+
+        // --- Standard Bounds for Tiers 1 & 2 ---
+        const searchStart = Math.max(0, lastKnownStart - radius);
+        const searchEnd = Math.min(fullText.length, lastKnownStart + radius + cleanContent.length);
         const searchArea = fullText.slice(searchStart, searchEnd);
 
+        // ==========================================
+        // TIER 1: Exact Match in Radius (Fastest)
+        // ==========================================
         const localIdx = searchArea.indexOf(cleanContent);
         if (localIdx >= 0) {
             const start = searchStart + localIdx;
             return [start, start + cleanContent.length];
         }
 
-        // 2. Regex-based Anchor Matching (Handles Indentation changes)
-        // We escape special regex chars and allow flexible whitespace \s*
+        // ==========================================
+        // TIER 2: Regex-based Anchor Matching
+        // ==========================================
         const lines = cleanContent.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
         
         if (lines.length >= 2) {
-            const headRegex = this.escapeRegExp(lines[0]);
-            const tailRegex = this.escapeRegExp(lines[lines.length - 1]);
+            const headRegexStr = this.escapeRegExp(lines[0]);
+            const tailRegexStr = this.escapeRegExp(lines[lines.length - 1]);
             
-            // Search for the head anchor within the search area
-            const headMatch = new RegExp(headRegex, 'g').exec(searchArea);
-            if (headMatch) {
-                // Look for the tail anchor after the head match
-                const tailSearchArea = searchArea.slice(headMatch.index + headMatch[0].length);
-                const tailMatch = new RegExp(tailRegex, 'g').exec(tailSearchArea);
+            const headRegex = new RegExp(headRegexStr, 'g');
+            const tailRegex = new RegExp(tailRegexStr, 'g');
+            
+            let bestPair: [number, number] | null = null;
+            let minDistance = Infinity;
+
+            let headMatch;
+            // Find ALL heads in the search area to resolve collisions
+            while ((headMatch = headRegex.exec(searchArea)) !== null) {
+                const headStart = searchStart + headMatch.index;
+                
+                // Look for the tail anchor after THIS specific head match
+                tailRegex.lastIndex = headMatch.index + headMatch[0].length;
+                let tailMatch = tailRegex.exec(searchArea);
                 
                 if (tailMatch) {
-                    const absoluteStart = searchStart + headMatch.index;
-                    const absoluteEnd = absoluteStart + headMatch[0].length + tailMatch.index + tailMatch[0].length;
-                    return [absoluteStart, absoluteEnd];
+                    const tailEnd = searchStart + tailMatch.index + tailMatch[0].length;
+                    const distanceToOrigin = Math.abs(headStart - lastKnownStart);
+                    
+                    // Collision Handling: Proximity Preference
+                    if (distanceToOrigin < minDistance) {
+                        minDistance = distanceToOrigin;
+                        bestPair = [headStart, tailEnd];
+                    }
+                }
+            }
+
+            if (bestPair) {
+                return bestPair;
+            }
+        }
+
+        // ==========================================
+        // TIER 3: Token Extraction & Sliding Window
+        // ==========================================
+        // Elastic Boundary restricts the ultimate fallback to SEARCH_RADIUS * 2
+        const elasticRadius = radius * 2;
+        const elasticStart = Math.max(0, lastKnownStart - elasticRadius);
+        const elasticEnd = Math.min(fullText.length, lastKnownStart + elasticRadius + cleanContent.length);
+        const elasticArea = fullText.slice(elasticStart, elasticEnd);
+
+        return this.slidingWindowTokenSearch(elasticArea, elasticStart, cleanContent);
+    }
+
+    /**
+     * Regex-based Lexer
+     * Strips // comments, /* *\/ comments, and string literals.
+     * Extracts identifiers, keywords, AND numeric literals.
+     */
+    private tokenize(text: string): { text: string, offset: number }[] {
+        // Match 1: Block comments
+        // Match 2: Line comments
+        // Match 3-5: String literals (Double, Single, Backtick)
+        // Capture Group 1: Identifiers / Keywords OR Numeric literals (\b\d+\b)
+        // Added \b\d+\b so we don't lose numbers in expressions like "return 42;"
+        const tokenRegex = /\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|([a-zA-Z_$][a-zA-Z0-9_$]*|#\w+|::|->|[*&]|\b\d+\b)/g;
+        
+        const tokens: { text: string, offset: number }[] = [];
+        let match;
+        
+        while ((match = tokenRegex.exec(text)) !== null) {
+            if (match[1]) {
+                tokens.push({ text: match[1], offset: match.index });
+            }
+        }
+        
+        return tokens;
+    }
+
+    /**
+     * Sliding Window Resolution
+     * Finds the minimal window that hits the maximum target tokens sequentially.
+     */
+    private slidingWindowTokenSearch(elasticArea: string, elasticStart: number, cleanContent: string): [number, number] | null {
+        const targetTokens = this.tokenize(cleanContent).map(t => t.text);
+        if (targetTokens.length === 0) return null;
+
+        const sourceTokens = this.tokenize(elasticArea);
+        if (sourceTokens.length === 0) return null;
+
+        let maxMatches = 0;
+        let minWindowLength = Infinity;
+        let bestWindow: [number, number] | null = null;
+
+        for (let i = 0; i < sourceTokens.length; i++) {
+            // Early-exit: remaining source tokens can't beat the current best score.
+            if (sourceTokens.length - i <= maxMatches && maxMatches > 0) {
+                break;
+            }
+
+            let matches = 0;
+            let targetIdx = 0;
+            let endTokenIdx = i;
+
+            // Slide the right edge forward, allowing gaps (insertions) in the source code.
+            for (let j = i; j < sourceTokens.length && targetIdx < targetTokens.length; j++) {
+                if (sourceTokens[j].text === targetTokens[targetIdx]) {
+                    matches++;
+                    targetIdx++;
+                    endTokenIdx = j;
+                }
+            }
+
+            // Guardrail: require at least 30 % of target tokens to match before
+            // accepting a window, preventing low-signal false positives.
+            const matchRatio = matches / targetTokens.length;
+            if (matches > 0 && matchRatio > 0.3) {
+                const startToken = sourceTokens[i];
+                const endToken = sourceTokens[endTokenIdx];
+                const charLength = (endToken.offset + endToken.text.length) - startToken.offset;
+
+                // Tie-breaking: Smallest Window Size (Highest token density)
+                if (matches > maxMatches || (matches === maxMatches && charLength < minWindowLength)) {
+                    maxMatches = matches;
+                    minWindowLength = charLength;
+                    bestWindow = [
+                        elasticStart + startToken.offset,
+                        elasticStart + endToken.offset + endToken.text.length
+                    ];
                 }
             }
         }
 
-        // 3. Proximity-based Global Search
-        // If it moved far away, find the instance closest to the original offset
-        return this.findClosestMatch(fullText, cleanContent, lastKnownStart);
-    }
-
-    private findClosestMatch(fullText: string, target: string, preferredOffset: number): [number, number] | null {
-        let bestOffset = -1;
-        let minDiff = Infinity;
-        let currIdx = fullText.indexOf(target);
-
-        while (currIdx !== -1) {
-            const diff = Math.abs(currIdx - preferredOffset);
-            if (diff < minDiff) {
-                minDiff = diff;
-                bestOffset = currIdx;
-            }
-            currIdx = fullText.indexOf(target, currIdx + 1);
-        }
-
-        return bestOffset !== -1 ? [bestOffset, bestOffset + target.length] : null;
+        return bestWindow;
     }
 
     private escapeRegExp(string: string): string {
-        // Escapes regex special characters and replaces literal spaces with \s+
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
     }
 
