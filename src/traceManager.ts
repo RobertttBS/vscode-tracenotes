@@ -1086,7 +1086,7 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * Tier 3 Helper: Searches all files in the workspace with the same extension.
+     * Tier 3 Helper: Searches all files in the workspace using VS Code's native ripgrep API.
      */
     private async searchAcrossWorkspace(
         originalUri: vscode.Uri, 
@@ -1096,63 +1096,98 @@ export class TraceManager implements vscode.Disposable {
         
         const fsPath = originalUri.fsPath;
         const extIndex = fsPath.lastIndexOf('.');
-        let searchPattern = '';
+        if (extIndex === -1) return null;
 
-        if (extIndex === -1) {
-            const fileName = fsPath.substring(fsPath.lastIndexOf('/') + 1).replace(/\\/g, '/');
-            searchPattern = `**/${fileName}`;
-        } else {
-            const ext = fsPath.substring(extIndex); 
-            searchPattern = `**/*${ext}`;
-        }
-        
-        const uris = await vscode.workspace.findFiles(searchPattern, null);
-        const batchSize = 10;
+        const ext = fsPath.substring(extIndex); 
+        const searchPattern = `**/*${ext}`;
 
-        for (let i = 0; i < uris.length; i += batchSize) {
-            if (token?.isCancellationRequested) return null;
+        // Phase 1: Native Exact Match Search (Lightning Fast)
+        let exactMatchUri: vscode.Uri | null = null;
+        let exactMatchOffset: [number, number] | null = null;
 
-            const batch = uris.slice(i, i + batchSize);
-            
-            const results = await Promise.all(batch.map(async (uri) => {
-                if (uri.fsPath === originalUri.fsPath) return null;
-
-                try {
-                    const bytes = await vscode.workspace.fs.readFile(uri);
-                    const text = this.decodeFileContent(uri, bytes); 
-                    
-                    // FIX 1: Run Tier 1 (Exact Match) First! 
-                    // If the user simply moved the file, this catches it instantly.
-                    const exactIdx = text.indexOf(cleanContent);
-                    if (exactIdx >= 0) {
-                        return { offset: [exactIdx, exactIdx + cleanContent.length] as [number, number], uri };
-                    }
-
-                    // Run Tier 2 (Sliding Window Fallback)
-                    const offset = this.slidingWindowTokenSearch(text, 0, cleanContent);
-                    if (offset) {
-                        // FIX 2: Validate by expanding the search area to account for 
-                        // stripped punctuation and comments at the boundaries.
-                        const expandedOffset = this.fuzzyValidateBounds(text, offset, cleanContent);
-                        if (expandedOffset) {
-                            return { offset: expandedOffset, uri };
-                        }
-                    }
-                } catch (err) {
-                    console.error(`Tier 3: Failed to read ${uri.fsPath}`, err);
+        // @ts-ignore: findTextInFiles is a proposed/newer API
+        await vscode.workspace.findTextInFiles(
+            { pattern: cleanContent, isLiteral: true },
+            { include: searchPattern },
+            (result: any) => {
+                // We only care about cross-file matches
+                if (result.uri.fsPath !== originalUri.fsPath && !exactMatchUri) {
+                    exactMatchUri = result.uri;
+                    // Note: findTextInFiles gives us line/character positions. 
+                    // We will resolve the exact absolute offset later if needed, 
+                    // but for a true exact match, we can just flag it here.
                 }
-                return null;
-            }));
+            },
+            token
+        );
 
-            const found = results.find(result => result !== null);
-            if (found) {
-                return found;
+        // If ripgrep found an exact match, read just that one file to get the absolute offset
+        if (exactMatchUri) {
+            const bytes = await vscode.workspace.fs.readFile(exactMatchUri);
+            const text = this.decodeFileContent(exactMatchUri, bytes);
+            const exactIdx = text.indexOf(cleanContent);
+            if (exactIdx >= 0) {
+                return { offset: [exactIdx, exactIdx + cleanContent.length], uri: exactMatchUri };
             }
-
-            await new Promise(resolve => setTimeout(resolve, 0));
         }
 
-        return null; // Totally orphaned
+        // Phase 2: Anchor Word Pre-filter via Ripgrep
+        // We only want to fuzzy search files that contain our most unique tokens.
+        if (cleanContent.length <= 20) {
+            return null; // Content too small to safely fuzzy match across the workspace
+        }
+
+        const anchorWords = this.extractAnchorWords(cleanContent, 5);
+        if (anchorWords.length === 0) return null;
+
+        // Create a regex pattern: (WordA|WordB|WordC)
+        const regexPattern = `(${anchorWords.map(w => this.escapeRegExp(w)).join('|')})`;
+        const candidateUris = new Set<string>();
+
+        // @ts-ignore: findTextInFiles is a proposed/newer API
+        await vscode.workspace.findTextInFiles(
+            { pattern: regexPattern, isRegExp: true, isCaseSensitive: true },
+            { include: searchPattern },
+            (result: any) => {
+                if (result.uri.fsPath !== originalUri.fsPath) {
+                    candidateUris.add(result.uri.toString());
+                }
+            },
+            token
+        );
+
+        // Phase 3: Run the heavy fuzzy search ONLY on the candidate files
+        for (const uriString of candidateUris) {
+            if (token?.isCancellationRequested) return null;
+            
+            const uri = vscode.Uri.parse(uriString);
+            
+            try {
+                const bytes = await vscode.workspace.fs.readFile(uri);
+                const text = this.decodeFileContent(uri, bytes); 
+                
+                // Verify our 40% threshold manually now that the file is in memory
+                let matches = 0;
+                for (const word of anchorWords) {
+                    if (text.includes(word)) matches++;
+                }
+                
+                const requiredMatches = Math.max(1, Math.ceil(anchorWords.length * 0.4));
+                if (matches < requiredMatches) continue;
+
+                // Run the expensive sliding window algorithm
+                const offset = this.slidingWindowTokenSearch(text, 0, cleanContent);
+                if (offset) {
+                    const expandedOffset = this.fuzzyValidateBounds(text, offset, cleanContent);
+                    if (expandedOffset) return { offset: expandedOffset, uri };
+                }
+            } catch (err) {
+                // Silent fail for individual file read errors
+                console.warn(`Failed to process candidate file ${uri.fsPath}`, err);
+            }
+        }
+
+        return null; 
     }
 
     /**
@@ -1326,6 +1361,21 @@ export class TraceManager implements vscode.Disposable {
         }
 
         return bestWindow;
+    }
+
+    private extractAnchorWords(content: string, limit: number): string[] {
+        // Extract tokens 3+ characters long
+        const tokens = this.tokenize(content)
+            .filter(t => t.type === 'code' && t.text.length >= 3)
+            .map(t => t.text);
+            
+        // Get unique tokens
+        const uniqueTokens = Array.from(new Set(tokens));
+        
+        // Sort by length descending, as longer words are more likely to be unique globally
+        uniqueTokens.sort((a, b) => b.length - a.length);
+        
+        return uniqueTokens.slice(0, limit);
     }
 
     private escapeRegExp(string: string): string {

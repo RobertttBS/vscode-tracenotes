@@ -5,7 +5,8 @@ import * as path from 'path';
 const mockVscode = {
     Uri: {
         file: (pathStr: string) => ({ fsPath: pathStr, toString: () => pathStr }),
-        joinPath: (base: any, ...segments: string[]) => ({ fsPath: path.join(base.fsPath, ...segments), toString: () => path.join(base.fsPath, ...segments) })
+        joinPath: (base: any, ...segments: string[]) => ({ fsPath: path.join(base.fsPath, ...segments), toString: () => path.join(base.fsPath, ...segments) }),
+        parse: (pathStr: string) => mockVscode.Uri.file(pathStr)
     },
     workspace: {
         workspaceFolders: [{ uri: { fsPath: '/workspace' } }],
@@ -14,6 +15,12 @@ const mockVscode = {
                 return [mockVscode.Uri.file('/workspace/src/otherFile.ts')];
             }
             return [];
+        },
+        findTextInFiles: async (query: any, options: any, callback: any, token: any) => {
+            if (options.include && options.include.includes('.ts')) {
+                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
+            }
+            return { limitHit: false };
         },
         fs: {
             readFile: async (uri: any) => {
