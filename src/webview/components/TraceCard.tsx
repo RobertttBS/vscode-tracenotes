@@ -256,6 +256,7 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                                 onChange={(e) => setNoteValue(e.target.value)}
                                 onBlur={handleNoteSave}
                                 onKeyDown={handleNoteKeyDown}
+                                onPointerDown={(e) => e.stopPropagation()}
                                 placeholder="Add a note..."
                                 autoFocus
                             />
@@ -267,6 +268,7 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                         <div
                             className="note-display"
                             onClick={() => setEditing(true)}
+                            onPointerDown={(e) => e.stopPropagation()}
                             title="Click to edit note"
                         >
                             {trace.note || <span className="note-placeholder">Click to add a note…</span>}
