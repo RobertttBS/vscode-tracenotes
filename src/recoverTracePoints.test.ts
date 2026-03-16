@@ -269,6 +269,26 @@ async function runTests() {
         assert.ok(res !== null, "Should recover indentation changes");
     });
 
+    await test("Short content should NOT match wrong identifier (int foo vs int test)", async () => {
+        const storedContent = `int foo(void) {`;
+        const newDocContent = `int test(void) {\n    return 0;\n}`;
+        const doc = new MockDocument(newDocContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+        
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.strictEqual(res, null, "Should NOT recover when a key identifier differs in short content");
+    });
+
+    await test("Short content SHOULD match when identical", async () => {
+        const storedContent = `int foo(void) {`;
+        const newDocContent = `// some header\nint foo(void) {\n    return 0;\n}`;
+        const doc = new MockDocument(newDocContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+        
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.ok(res !== null, "Should recover short content when it matches exactly");
+    });
+
     await test("Should not recover completely unrelated code", async () => {
         const storedContent = `function process() { let x = 1; let y = 2; return x + y; }`;
         const newDocContent = `function unrelated() { console.log('hello window'); return true; }`;

@@ -1267,8 +1267,11 @@ export class TraceManager implements vscode.Disposable {
             }
         }
 
-        // Acceptance threshold: 40% maximum mutation
-        const maxAllowedDistance = Math.max(2, Math.floor(T * 0.4));
+        // Acceptance threshold: strict for short content, lenient for long content
+        // Short content (≤10 tokens): 0 tolerance — must be exact (Tier 1 already failed)
+        // Medium content (≤18 tokens): allow at most 1 edit
+        // Long content: 40% edit distance
+        const maxAllowedDistance = T <= 10 ? 0 : T <= 18 ? 1 : Math.max(2, Math.floor(T * 0.4));
         
         if (bestDistance <= maxAllowedDistance && bestStartIdx >= 0 && bestEndIdx >= 0) {
             // Map token indices back to absolute text offsets
@@ -1386,7 +1389,9 @@ export class TraceManager implements vscode.Disposable {
             }
 
             // --- Capture Best State ---
-            if (matches / totalTargets > 0.3) {
+            // Short content needs stricter matching to prevent wrong-identifier matches
+            const minMatchRatio = totalTargets <= 10 ? 0.9 : totalTargets <= 18 ? 0.7 : 0.3;
+            if (matches / totalTargets > minMatchRatio) {
                 const startToken = sourceTokens[left];
                 const endToken = sourceTokens[right];
                 const charLength = (endToken.offset + endToken.text.length) - startToken.offset;
