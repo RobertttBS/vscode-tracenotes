@@ -1299,8 +1299,9 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * Sliding Window Resolution
-     * Finds the minimal window that hits the maximum target tokens sequentially.
+     * Sliding Window Resolution (O(N) Two-Pointer)
+     * Finds the minimal window that hits the maximum target tokens.
+     * Both left and right pointers traverse sourceTokens exactly once.
      */
     private slidingWindowTokenSearch(elasticArea: string, elasticStart: number, cleanContent: string): [number, number] | null {
         const targetTokens = this.tokenize(cleanContent).map(t => t.text);
@@ -1309,53 +1310,88 @@ export class TraceManager implements vscode.Disposable {
         const sourceTokens = this.tokenize(elasticArea);
         if (sourceTokens.length === 0) return null;
 
+        // Build target frequency map
         const targetFreq = new Map<string, number>();
         for (const t of targetTokens) {
             targetFreq.set(t, (targetFreq.get(t) || 0) + 1);
         }
+        const totalTargets = targetTokens.length;
+
+        // State: single window tracked by windowFreq
+        const windowFreq = new Map<string, number>();
+        let matches = 0;
+        let left = 0;
 
         let maxMatches = 0;
         let minWindowLength = Infinity;
         let bestWindow: [number, number] | null = null;
-        
+
         // Dynamic window size: large enough to allow insertions, bounded to prevent massive overlap
         const maxWindowSize = Math.min(targetTokens.length * 2 + 10, sourceTokens.length);
 
-        for (let i = 0; i < sourceTokens.length; i++) {
-            const windowFreq = new Map<string, number>();
-            let matches = 0;
-            
-            for (let j = i; j < sourceTokens.length && j < i + maxWindowSize; j++) {
-                const tokenText = sourceTokens[j].text;
-                const targetCount = targetFreq.get(tokenText) || 0;
-                
-                if (targetCount > 0) {
-                    const currentCount = windowFreq.get(tokenText) || 0;
-                    if (currentCount < targetCount) {
-                        windowFreq.set(tokenText, currentCount + 1);
-                        matches++;
+        // --- Expand Phase: iterate right pointer ---
+        for (let right = 0; right < sourceTokens.length; right++) {
+            const rightToken = sourceTokens[right].text;
+            const rightTarget = targetFreq.get(rightToken) || 0;
+
+            // Add right token to window
+            if (rightTarget > 0) {
+                const cur = windowFreq.get(rightToken) || 0;
+                windowFreq.set(rightToken, cur + 1);
+                // Only count as a useful match if we haven't exceeded the target need
+                if (cur < rightTarget) {
+                    matches++;
+                }
+            }
+
+            // --- Shrink Phase: advance left pointer ---
+            // Shrink if window exceeds max size
+            while (right - left + 1 > maxWindowSize) {
+                const leftToken = sourceTokens[left].text;
+                const leftTarget = targetFreq.get(leftToken) || 0;
+                if (leftTarget > 0) {
+                    const cur = windowFreq.get(leftToken)!;
+                    windowFreq.set(leftToken, cur - 1);
+                    if (cur <= leftTarget) {
+                        matches--;
                     }
                 }
+                left++;
+            }
 
-                const matchRatio = matches / targetTokens.length;
-                if (matchRatio > 0.3) {
-                    const startToken = sourceTokens[i];
-                    const endToken = sourceTokens[j];
-                    const charLength = (endToken.offset + endToken.text.length) - startToken.offset;
-
-                    // Tie-breaking: Smallest Window Size (Highest token density)
-                    if (matches > maxMatches || (matches === maxMatches && charLength < minWindowLength)) {
-                        maxMatches = matches;
-                        minWindowLength = charLength;
-                        bestWindow = [
-                            elasticStart + startToken.offset,
-                            elasticStart + endToken.offset + endToken.text.length
-                        ];
+            // Shrink further to discard useless/surplus tokens from left
+            while (left < right) {
+                const leftToken = sourceTokens[left].text;
+                const leftTarget = targetFreq.get(leftToken) || 0;
+                if (leftTarget === 0) {
+                    // Not a target token at all — discard
+                    left++;
+                } else {
+                    const cur = windowFreq.get(leftToken)!;
+                    if (cur > leftTarget) {
+                        // Surplus — we have more than needed, safe to discard
+                        windowFreq.set(leftToken, cur - 1);
+                        left++;
+                    } else {
+                        break; // This token is critically needed, stop shrinking
                     }
                 }
-                
-                if (matches === targetTokens.length) {
-                    break;
+            }
+
+            // --- Capture Best State ---
+            if (matches / totalTargets > 0.3) {
+                const startToken = sourceTokens[left];
+                const endToken = sourceTokens[right];
+                const charLength = (endToken.offset + endToken.text.length) - startToken.offset;
+
+                // Tie-breaking: most matches wins; on tie, shortest character span wins
+                if (matches > maxMatches || (matches === maxMatches && charLength < minWindowLength)) {
+                    maxMatches = matches;
+                    minWindowLength = charLength;
+                    bestWindow = [
+                        elasticStart + startToken.offset,
+                        elasticStart + endToken.offset + endToken.text.length
+                    ];
                 }
             }
         }
