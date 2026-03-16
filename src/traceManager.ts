@@ -1191,88 +1191,95 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * Replaces validateAndExpandTokenBounds.
-     * Uses a sliding window over the raw text to find the best fuzzy match
-     * based on Levenshtein distance, allowing for actual code mutations.
+     * Replaces validateAndExpandTokenBounds using Sellers' Algorithm (O(N * T)).
+     * Finds the substring in the local area that minimizes the Levenshtein distance
+     * to the target tokens.
      */
     private fuzzyValidateBounds(
         fullText: string,
         tokenBounds: [number, number],
         cleanContent: string
     ): [number, number] | null {
-        // Expand window to account for added/removed code inside the trace
-        // 50% buffer on lengths
         const buffer = Math.max(100, Math.floor(cleanContent.length * 0.5));
         const searchStart = Math.max(0, tokenBounds[0] - buffer);
         const searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
         const localArea = fullText.substring(searchStart, searchEnd);
 
-        // Extract code/string tokens from cleanContent
-        const targetTokens = this.tokenize(cleanContent)
-            .filter(t => t.type !== 'comment');
+        const targetTokens = this.tokenize(cleanContent).filter(t => t.type !== 'comment');
+        if (targetTokens.length === 0) return tokenBounds;
 
-        if (targetTokens.length === 0) return tokenBounds; // Fallback for whitespace-only traces
-
-        // Extract tokens from localArea
-        const searchTokens = this.tokenize(localArea)
-            .filter(t => t.type !== 'comment');
-
+        const searchTokens = this.tokenize(localArea).filter(t => t.type !== 'comment');
         if (searchTokens.length === 0) return null;
 
+        const T = targetTokens.length;
+        const S = searchTokens.length;
+
+        // dp[i] represents the current column in our DP matrix
+        // We track both the edit distance (cost) and where this match started (startIdx)
+        let dp: { cost: number; startIdx: number }[] = Array.from({ length: T + 1 }, (_, i) => ({
+            cost: i,        // Cost of deleting i target tokens
+            startIdx: 0     // Will be consumed as previousDiagonal at j=1 → match starts at search[0]
+        }));
+
         let bestDistance = Infinity;
-        let bestStart = -1;
-        let bestEnd = -1;
+        let bestEndIdx = -1;
+        let bestStartIdx = -1;
 
-        // Bounded length search helps early break
-        const minLength = Math.max(1, Math.floor(targetTokens.length * 0.5));
-        const maxLength = Math.floor(targetTokens.length * 2.0);
+        // O(N * T) Single-pass Dynamic Programming
+        for (let j = 1; j <= S; j++) {
+            const currentSearchToken = searchTokens[j - 1].text;
+            let previousDiagonal = dp[0];
 
-        // O(T^2) Sliding Window Levenshtein on Tokens
-        for (let i = 0; i < searchTokens.length; i++) {
-            let dp = new Array(targetTokens.length + 1);
-            for (let j = 0; j <= targetTokens.length; j++) dp[j] = j;
+            // A match can start at the current search token with 0 cost
+            // startIdx is j (not j-1) because this dp[0] will be consumed as previousDiagonal
+            // at column j+1, where a diagonal match corresponds to search token j (0-indexed).
+            dp[0] = { cost: 0, startIdx: j }; 
 
-            for (let len = 1; len <= searchTokens.length - i; len++) {
-                if (len > maxLength) break;
+            for (let i = 1; i <= T; i++) {
+                const temp = dp[i];
                 
-                const candidateToken = searchTokens[i + len - 1].text;
-                let previousDiagonal = dp[0];
-                dp[0] = len;
-                
-                for (let j = 1; j <= targetTokens.length; j++) {
-                    let temp = dp[j];
-                    if (targetTokens[j - 1].text === candidateToken) {
-                        dp[j] = previousDiagonal;
-                    } else {
-                        dp[j] = Math.min(
-                            previousDiagonal + 1, // substitution
-                            dp[j] + 1,            // insertion
-                            dp[j - 1] + 1         // deletion
-                        );
-                    }
-                    previousDiagonal = temp;
-                }
+                if (targetTokens[i - 1].text === currentSearchToken) {
+                    // Match: inherit cost and start index from the diagonal
+                    dp[i] = { ...previousDiagonal };
+                } else {
+                    // Mismatch: find the cheapest operation
+                    const subCost = previousDiagonal.cost + 1; // Substitution
+                    const insCost = dp[i].cost + 1;            // Insertion
+                    const delCost = dp[i - 1].cost + 1;        // Deletion
 
-                if (len >= minLength) {
-                    const distance = dp[targetTokens.length];
-                    if (distance < bestDistance) {
-                        bestDistance = distance;
-                        bestStart = searchTokens[i].offset + searchStart;
-                        const endToken = searchTokens[i + len - 1];
-                        bestEnd = endToken.offset + endToken.text.length + searchStart;
-                    }
+                    let minCost = Math.min(subCost, insCost, delCost);
+                    let inheritedStartIdx = 0;
+
+                    if (minCost === subCost) inheritedStartIdx = previousDiagonal.startIdx;
+                    else if (minCost === insCost) inheritedStartIdx = dp[i].startIdx;
+                    else inheritedStartIdx = dp[i - 1].startIdx;
+
+                    dp[i] = { cost: minCost, startIdx: inheritedStartIdx };
                 }
+                previousDiagonal = temp;
+            }
+
+            // Check if the current end position provides a better full-target match
+            if (dp[T].cost < bestDistance) {
+                bestDistance = dp[T].cost;
+                bestEndIdx = j - 1; // 0-indexed token array
+                bestStartIdx = dp[T].startIdx; // Already 0-indexed
             }
         }
 
         // Acceptance threshold: 40% maximum mutation
-        // For very small traces, give a strict minimum of 2 tokens variance allowance
-        const maxAllowedDistance = Math.max(2, Math.floor(targetTokens.length * 0.4));
-        if (bestDistance <= maxAllowedDistance && bestStart !== -1) {
-            return [bestStart, bestEnd];
+        const maxAllowedDistance = Math.max(2, Math.floor(T * 0.4));
+        
+        if (bestDistance <= maxAllowedDistance && bestStartIdx >= 0 && bestEndIdx >= 0) {
+            // Map token indices back to absolute text offsets
+            const absoluteStart = searchTokens[bestStartIdx].offset + searchStart;
+            const endToken = searchTokens[bestEndIdx];
+            const absoluteEnd = endToken.offset + endToken.text.length + searchStart;
+            
+            return [absoluteStart, absoluteEnd];
         }
 
-        return null; // Mutation was too severe
+        return null;
     }
 
     /**
