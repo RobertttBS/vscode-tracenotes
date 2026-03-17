@@ -281,12 +281,17 @@ async function runTests() {
 
     await test("Short content SHOULD match when identical", async () => {
         const storedContent = `int foo(void) {`;
-        const newDocContent = `// some header\nint foo(void) {\n    return 0;\n}`;
+        const newDocContent = `// some header\nint foo(void) {\n    return 0;\n}\nint test(void)\n`;
         const doc = new MockDocument(newDocContent);
         const uri = mockVscode.Uri.file('/workspace/src/file.c');
         
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
         assert.ok(res !== null, "Should recover short content when it matches exactly");
+
+        const expectedStart = newDocContent.indexOf(storedContent);
+        const expectedEnd = expectedStart + storedContent.length;
+        assert.strictEqual(res!.offset[0], expectedStart, "Should match the correct start offset");
+        assert.strictEqual(res!.offset[1], expectedEnd, "Should match the correct end offset");
     });
 
     await test("Should not recover completely unrelated code", async () => {

@@ -1314,7 +1314,9 @@ export class TraceManager implements vscode.Disposable {
      * Both left and right pointers traverse sourceTokens exactly once.
      */
     private slidingWindowTokenSearch(elasticArea: string, elasticStart: number, cleanContent: string): [number, number] | null {
-        const targetTokens = this.tokenize(cleanContent).map(t => t.text);
+        const targetTokens = this.tokenize(cleanContent)
+            .filter(t => t.type !== 'comment')
+            .map(t => t.text);
         if (targetTokens.length === 0) return null;
 
         const sourceTokens = this.tokenize(elasticArea);
