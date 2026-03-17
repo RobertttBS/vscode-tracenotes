@@ -942,6 +942,8 @@ export class TraceManager implements vscode.Disposable {
 
                     if (!this.contentMatches(currentContent, trace.content)) {
                         const recovered = await this.recoverTracePoints(document, trace.content, startOffset, document.uri, token);
+                        if (token.isCancellationRequested) return;
+
                         if (recovered) {
                             trace.rangeOffset = recovered.offset;
                             if (recovered.uri.fsPath !== document.uri.fsPath) {
@@ -1101,21 +1103,19 @@ export class TraceManager implements vscode.Disposable {
         const ext = fsPath.substring(extIndex); 
         const searchPattern = `**/*${ext}`;
 
-        // Phase 1: Native Exact Match Search (Lightning Fast)
+        // Phase 1: Robust Native Match Search (Case-insensitive + Whitespace tolerant)
         let exactMatchUri: vscode.Uri | null = null;
-        let exactMatchOffset: [number, number] | null = null;
+        
+        // Create a loose-literal regex that allows flexible whitespace/line-endings
+        const looseRegex = this.escapeRegExp(cleanContent).replace(/\\s\*/g, '\\s+').replace(/\\ /g, '\\s*');
 
         // @ts-ignore: findTextInFiles is a proposed/newer API
         await vscode.workspace.findTextInFiles(
-            { pattern: cleanContent, isLiteral: true },
+            { pattern: looseRegex, isRegExp: true, isCaseSensitive: true },
             { include: searchPattern },
             (result: any) => {
-                // We only care about cross-file matches
                 if (result.uri.fsPath !== originalUri.fsPath && !exactMatchUri) {
                     exactMatchUri = result.uri;
-                    // Note: findTextInFiles gives us line/character positions. 
-                    // We will resolve the exact absolute offset later if needed, 
-                    // but for a true exact match, we can just flag it here.
                 }
             },
             token
@@ -1414,15 +1414,25 @@ export class TraceManager implements vscode.Disposable {
     }
 
     private extractAnchorWords(content: string, limit: number): string[] {
-        // Extract tokens 3+ characters long
+        // Known common keywords to avoid using as anchor words
+        const forbidden = new Set(['void', 'int', 'char', 'long', 'float', 'double', 'short', 'signed', 'unsigned', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'default', 'const', 'static', 'extern', 'volatile', 'register', 'typedef', 'struct', 'union', 'enum', 'inline', 'restrict', 'alignas', 'alignof', 'atomic', 'bool', 'complex', 'generic', 'imaginary', 'noreturn', 'static_assert', 'thread_local', 'public', 'private', 'protected', 'class', 'interface', 'namespace', 'using', 'function', 'async', 'await', 'export', 'import', 'from', 'as', 'any', 'any', 'number', 'string', 'boolean', 'symbol', 'undefined', 'null', 'true', 'false', 'let', 'var', 'const', 'new', 'this', 'throw', 'try', 'catch', 'finally', 'super', 'extends', 'implements', 'module', 'package', 'type', 'declare', 'abstract', 'readonly', 'keyof', 'typeof', 'in', 'of', 'instanceof']);
+
+        // Extract tokens 5+ characters long to ensure uniqueness and avoid boilerplate
         const tokens = this.tokenize(content)
-            .filter(t => t.type === 'code' && t.text.length >= 3)
+            .filter(t => t.type === 'code' && t.text.length >= 5 && !forbidden.has(t.text))
             .map(t => t.text);
             
+        // Fallback to 3+ if nothing found
+        if (tokens.length === 0) {
+            tokens.push(...this.tokenize(content)
+                .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
+                .map(t => t.text));
+        }
+
         // Get unique tokens
         const uniqueTokens = Array.from(new Set(tokens));
         
-        // Sort by length descending, as longer words are more likely to be unique globally
+        // Sort by length descending, as longer words are more likely to be unique Globally
         uniqueTokens.sort((a, b) => b.length - a.length);
         
         return uniqueTokens.slice(0, limit);
