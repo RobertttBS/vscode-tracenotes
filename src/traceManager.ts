@@ -1106,42 +1106,51 @@ export class TraceManager implements vscode.Disposable {
         const searchPattern = `**/*${ext}`;
 
         // Phase 1: Robust Native Match Search (Case-insensitive + Whitespace tolerant)
-        let exactMatchUri: vscode.Uri | null = null;
+        const candidateUris: vscode.Uri[] = [];
         
-        // Create a loose-literal regex that allows flexible whitespace/line-endings
-        const looseRegex = this.escapeRegExp(cleanContent).replace(/\\s\*/g, '\\s+').replace(/\\ /g, '\\s*');
+        // Use a flexible regex that allows zero or more whitespace/line-endings between tokens
+        const looseRegex = this.toLooseRegex(cleanContent);
 
         // @ts-ignore: findTextInFiles is a proposed/newer API
         await vscode.workspace.findTextInFiles(
             { pattern: looseRegex, isRegExp: true, isCaseSensitive: false },
             { include: searchPattern },
             (result: any) => {
-                if (!exactMatchUri) {
-                    exactMatchUri = result.uri;
-                }
+                candidateUris.push(result.uri);
             },
             token
         );
 
-        // If ripgrep found an exact match, read just that one file to get the absolute offset
-        if (exactMatchUri) {
-            const targetUri = exactMatchUri as vscode.Uri;
-            let text: string;
-            if (targetUri.fsPath === originalUri.fsPath && document) {
-                text = document.getText();
-            } else {
-                const bytes = await vscode.workspace.fs.readFile(targetUri);
-                text = this.decodeFileContent(targetUri, bytes);
-            }
-            const exactIdx = text.toLowerCase().indexOf(cleanContent.toLowerCase());
-            if (exactIdx >= 0) {
-                return { offset: [exactIdx, exactIdx + cleanContent.length], uri: targetUri };
+        // Iterate through all exact match candidates to find the first one that matches
+        for (const targetUri of candidateUris) {
+            if (token?.isCancellationRequested) return null;
+            
+            try {
+                let text: string;
+                if (targetUri.fsPath === originalUri.fsPath && document) {
+                    text = document.getText();
+                } else {
+                    const bytes = await vscode.workspace.fs.readFile(targetUri);
+                    text = this.decodeFileContent(targetUri, bytes);
+                }
+
+                // Check for exact (case-insensitive) match of the clean content
+                // Note: since the regex was loose, we check using the same loose matching or a simple includes if applicable.
+                // However, the best way is to run a local regex match to get the exact offset.
+                const localMatch = new RegExp(looseRegex, 'i').exec(text);
+                if (localMatch) {
+                    const exactIdx = localMatch.index;
+                    const matchedContent = localMatch[0];
+                    return { offset: [exactIdx, exactIdx + matchedContent.length], uri: targetUri };
+                }
+            } catch (err) {
+                console.warn(`Failed to process exact match candidate ${targetUri.fsPath}`, err);
             }
         }
 
         // Phase 2: Anchor Word Pre-filter via Ripgrep
         // We only want to fuzzy search files that contain our most unique tokens.
-        if (cleanContent.length <= 20) {
+        if (cleanContent.length < 5) {
             return null; // Content too small to safely fuzzy match across the workspace
         }
 
@@ -1150,20 +1159,20 @@ export class TraceManager implements vscode.Disposable {
 
         // Create a regex pattern: (WordA|WordB|WordC)
         const regexPattern = `(${anchorWords.map(w => this.escapeRegExp(w)).join('|')})`;
-        const candidateUris = new Set<string>();
+        const fuzzyCandidates = new Set<string>();
 
         // @ts-ignore: findTextInFiles is a proposed/newer API
         await vscode.workspace.findTextInFiles(
             { pattern: regexPattern, isRegExp: true, isCaseSensitive: false },
             { include: searchPattern },
             (result: any) => {
-                candidateUris.add(result.uri.toString());
+                fuzzyCandidates.add(result.uri.toString());
             },
             token
         );
 
         // Phase 3: Run the heavy fuzzy search ONLY on the candidate files
-        for (const uriString of candidateUris) {
+        for (const uriString of fuzzyCandidates) {
             if (token?.isCancellationRequested) return null;
             
             const uri = vscode.Uri.parse(uriString);
@@ -1451,6 +1460,12 @@ export class TraceManager implements vscode.Disposable {
         uniqueTokens.sort((a, b) => b.length - a.length);
         
         return uniqueTokens.slice(0, limit);
+    }
+
+    private toLooseRegex(text: string): string {
+        // 1. Escape regex special characters
+        // 2. Replace any sequence of whitespace with a placeholder that matches zero or more whitespace/newlines
+        return this.escapeRegExp(text).replace(/\\s\*/g, '[\\s\\r\\n]*');
     }
 
     private escapeRegExp(string: string): string {
