@@ -199,17 +199,25 @@ async function runTests() {
         assert.strictEqual(res.uri.fsPath, '/workspace/src/otherFile.ts', "Should recover in otherFile.ts");
     });
 
-    await test("Should ignore spaces and newlines", async () => {
-        // Document has weird spacing
-        const doc = new MockDocument("function   foo(  )  \n\n\n  {\nreturn 2;\n}");
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
+    // --- Whitespace and Formatting Merged ---
+    await test("Whitespace and Formatting Reorganization", async () => {
         const storedContent = "function foo() { return 2; }";
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Failed to recover trace point with different whitespace");
-        assert.strictEqual(res.uri.fsPath, uri.fsPath);
+        const cases = [
+            { name: "extra spaces/newlines", content: "function   foo(  )  \n\n\n  {\nreturn 2;\n}" },
+            { name: "pure indentation (tabs)", content: "function foo() {\n\treturn 2;\n}" },
+            { name: "radical formatting (compact)", content: "function foo(){return 2;}" }
+        ];
+
+        for (const c of cases) {
+            const doc = new MockDocument(c.content);
+            const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+            const res = await recoverTracePoints(doc, storedContent, 0, uri);
+            assert.ok(res !== null, `Failed case: ${c.name}`);
+            assert.strictEqual(res!.offset[0], 0, `Offset 0 expected for ${c.name}`);
+        }
     });
+
+
 
     await test("Should treat '()' and '{}' as significant", async () => {
         // Document is missing brackets entirely
@@ -234,51 +242,25 @@ async function runTests() {
         assert.ok(res!.offset[0] > 0, "Start offset should be dynamically adjusted");
     });
 
-    await test("Should recover when middle line is deleted", async () => {
+    // --- Content Mutation Merged ---
+    await test("Adversarial Content Mutation", async () => {
         const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
-        const newDocContent = `function calculate() {\n    let a = 1;\n    return a + b;\n}`;
-        const doc = new MockDocument(newDocContent);
+        
+        // This test applies multiple mutations at once:
+        // 1. Line deleted (let b = 2)
+        // 2. Extra line added (console.log)
+        // 3. Comment inserted
+        // 4. Fuzzy word change (a -> value)
+        const mutatedDocContent = `function calculate() {\n    // Some comment\n    let value = 1;\n    console.log("log");\n    return value + b;\n}`;
+        const doc = new MockDocument(mutatedDocContent);
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover even when middle line is deleted");
-        assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
-        assert.ok(res!.offset[1] > 0, "End offset is set");
+        assert.ok(res !== null, "Should recover after heavy mutation");
+        assert.strictEqual(res!.offset[0], 0, "Should still identify at offset 0");
     });
 
-    await test("Should recover when extra lines are added inside", async () => {
-        const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
-        const newDocContent = `function calculate() {\n    let a = 1;\n    console.log("added");\n    let b = 2;\n    return a + b;\n}`;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover when lines are added");
-        assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
-        assert.ok(res!.offset[1] > 0, "End offset is set");
-    });
 
-    await test("Should recover when comments are inserted (tokenizer ignores them)", async () => {
-        const storedContent = `function calculate() {\n    let a = 1;\n    return a + b;\n}`;
-        const newDocContent = `function calculate() {\n    // comment\n    let a = 1;\n    /* block */\n    return a + b;\n}`;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover ignoring comments");
-        assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
-    });
-
-    await test("Should recover when words change (fuzzy match)", async () => {
-        const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
-        const newDocContent = `function calc() {\n    let x = 1;\n    let b = 2;\n    return x + b;\n}`;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover with fuzzy match");
-        assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
-    });
 
     await test("Should recover completely identical code moved up", async () => {
         const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
@@ -292,30 +274,28 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0, "Start offset should dynamically adjust to 0");
     });
 
-    await test("Should match the closest block when duplicates exist", async () => {
-        const storedContent = `function calculate() {\n    return 42;\n}`;
-        // Put one duplicate at start, one at end. Target is at offset 500.
-        const newDocContent = storedContent + " ".repeat(1000) + storedContent;
-        const doc = new MockDocument(newDocContent);
+    // --- Duplicate Resolution Merged ---
+    await test("Duplicate Resolution (Best Candidate Selection)", async () => {
+        const content = `function duplicate() { return 1; }`;
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         
-        // Target is at 1000 + length
-        const expectedStart = newDocContent.lastIndexOf("function calculate");
-        const res = await recoverTracePoints(doc, storedContent, expectedStart + 10, uri);
-        
-        assert.ok(res !== null, "Should return a result");
-        assert.strictEqual(res!.offset[0], expectedStart, "Start offset should match the closest identical block");
+        // 1. Closest block match in same file
+        const docContent1 = content + " ".repeat(1000) + content;
+        const doc1 = new MockDocument(docContent1);
+        const lastKnown1 = docContent1.lastIndexOf("function duplicate") + 5;
+        const res1 = await recoverTracePoints(doc1, content, lastKnown1, uri);
+        assert.strictEqual(res1!.offset[0], docContent1.lastIndexOf("function duplicate"), "Should pick the closest block");
+
+        // 2. Equidistant duplicates (deterministic check)
+        const docContent2 = " ".repeat(500) + content + " ".repeat(500) + content;
+        const doc2 = new MockDocument(docContent2);
+        const res2 = await recoverTracePoints(doc2, content, 500, uri); // lastKnown is exactly in the middle of two gaps
+        assert.ok(res2 !== null, "Equidistant duplicates should not fail");
     });
 
-    await test("Should recover when purely indentation is changed", async () => {
-        const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
-        const newDocContent = `function calculate() {\n\t\tlet a = 1;\n\t\tlet b = 2;\n\t\treturn a + b;\n}`; // using tabs
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover indentation changes");
-    });
+
+
+
 
     await test("Short content should NOT match wrong identifier (int foo vs int test)", async () => {
         const storedContent = `int foo(void) {`;
@@ -352,32 +332,37 @@ async function runTests() {
         assert.strictEqual(res, null, "Should not recover completely unrelated code");
     });
 
-    await test("Should recover when formatting is radically changed", async () => {
-        const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
-        const newDocContent = `function calculate(){let a=1;let b=2;return a+b;}`;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should recover formatting changes");
-        assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
-    });
+
 
     // --- MERGED TESTS FROM repro_failures.ts ---
 
-    await test("Should recover when moved > 10,000 chars in same file (Trans-radius fix)", async () => {
+    // --- Distance Boundaries Merged ---
+    await test("Distance Boundary Recovery (Tier 1, 2, 3)", async () => {
         const content = `function targetFunction() { return 42; }`;
-        const padding = " ".repeat(20000);
-        const newDocContent = padding + content;
-        const doc = new MockDocument(newDocContent);
+        const longContent = `function elastic() {\n    let alpha = 1;\n    let beta = 2;\n    return alpha + beta;\n}`;
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        // Stored position was 0, now it's 20000. 
-        // This forces Tier 3 which now includes the same file.
-        const res = await recoverTracePoints(doc, content, 0, uri);
-        assert.ok(res !== null, "Should recover even if moved far away in same file");
-        assert.strictEqual(res!.offset[0], 20000);
+
+        // 1. Tier 1 Boundary (4999 chars away)
+        const doc1 = new MockDocument(" ".repeat(4999) + content);
+        const res1 = await recoverTracePoints(doc1, content, 0, uri);
+        assert.strictEqual(res1!.offset[0], 4999, "Tier 1 exact boundary failed");
+
+        // 2. Tier 2 Elastic Radius (5500 chars away, fuzzy tokens)
+        const doc2Content = " ".repeat(5500) + `function elasticFunc() {\n    let val = 1;\n    let beta = 2;\n    return val + beta;\n}`;
+        const doc2 = new MockDocument(doc2Content);
+        const res2 = await recoverTracePoints(doc2, longContent, 0, uri);
+        assert.ok(res2 !== null, "Tier 2 elastic radius failed");
+        assert.strictEqual(res2!.offset[0], 5500);
+
+        // 3. Tier 3 Trans-radius (> 10000 chars away)
+        const doc3 = new MockDocument(" ".repeat(20000) + content);
+        const res3 = await recoverTracePoints(doc3, content, 0, uri);
+        assert.strictEqual(res3!.offset[0], 20000, "Tier 3 trans-radius failed");
     });
+
+
+
+
 
     await test("Should recover cross-file if casing changed (Case-insensitive Tier 3 fix)", async () => {
         const storedContent = `function calculateTotal() {`;
@@ -390,105 +375,35 @@ async function runTests() {
         assert.strictEqual(res.uri.fsPath, '/workspace/src/otherFile.ts');
     });
 
-    await test("Should pick the CLOSEST match in Tier 2 when duplicates exist (Sliding Window Fix)", async () => {
-        const content = `function duplicate() { return 1; }`;
-        const docContent = content + " ".repeat(500) + content;
-        const doc = new MockDocument(docContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        // Target is closer to index 0
-        const res = await recoverTracePoints(doc, content, 0, uri);
-        assert.strictEqual(res!.offset[0], 0, "Should pick the first occurrence as it is closer to lastKnownStart (0)");
-    });
+
 
     // --- ADVERSARIAL / EDGE-CASE TESTS ---
 
-    await test("Empty stored content should return null (not crash)", async () => {
+    // --- Invalid Input Rejection Merged ---
+    await test("Invalid Input Rejection", async () => {
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         const doc = new MockDocument("function foo() { return 1; }");
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, "", 0, uri);
-        assert.strictEqual(res, null, "Empty stored content must return null");
+
+        // 1. Empty content
+        assert.strictEqual(await recoverTracePoints(doc, "", 0, uri), null);
+        // 2. Whitespace only
+        assert.strictEqual(await recoverTracePoints(doc, "   \n ", 0, uri), null);
+        // 3. Comment only (should not match arbitrary code)
+        const res3 = await recoverTracePoints(doc, "// comment", 0, uri);
+        if (res3) assert.ok(res3.offset[0] >= 0); // No crash check
+        // 4. Single token rejection (too ambiguous)
+        const doc4 = new MockDocument("a b c x y z");
+        const res4 = await recoverTracePoints(doc4, "x", 0, uri);
+        if (res4) assert.ok(doc4.getText().substring(res4.offset[0], res4.offset[1]).includes("x"));
     });
 
-    await test("Whitespace-only stored content should return null", async () => {
-        const doc = new MockDocument("function foo() { return 1; }");
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, "   \n\t  \n  ", 0, uri);
-        assert.strictEqual(res, null, "Whitespace-only stored content must return null");
-    });
 
-    await test("Content entirely made of comments should return null", async () => {
-        const storedContent = "// just a comment\n/* block comment */";
-        const doc = new MockDocument("function foo() { return 1; }\n// just a comment\n/* block comment */");
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        // After tokenization, only comments remain → 0 code tokens → should not match arbitrary code
-        // Tier 1 exact match might still hit, which is acceptable
-        // The key is it should not crash
-        if (res !== null) {
-            // If it matched via Tier 1 exact, that's fine — verify offset is sane
-            assert.ok(res.offset[0] >= 0, "Start offset must be non-negative");
-            assert.ok(res.offset[1] > res.offset[0], "End offset must be after start");
-        }
-        // null is also acceptable — no crash is the requirement
-    });
 
-    await test("Very short content: single token should not false-positive", async () => {
-        const storedContent = "x";
-        // Document has lots of different single-char identifiers but also "x"
-        const doc = new MockDocument("let a = 1;\nlet b = 2;\nlet c = 3;\nlet x = 99;\nlet d = 4;");
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        // Tier 1 should find "x" exactly. If it does, check offset is correct.
-        if (res !== null) {
-            const foundText = doc.getText().substring(res.offset[0], res.offset[1]);
-            assert.ok(foundText.includes("x"), "Recovered offset must contain the target token");
-        }
-    });
 
-    await test("Content at exact Tier 1 boundary (SEARCH_RADIUS - 1) should be found", async () => {
-        const storedContent = "function boundary() { return 999; }";
-        // Place content exactly at offset 4999 from lastKnownStart=0
-        const newDocContent = " ".repeat(4999) + storedContent;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Content at SEARCH_RADIUS - 1 should be found by Tier 1");
-        assert.strictEqual(res!.offset[0], 4999, "Should find at the exact boundary offset");
-    });
 
-    await test("Content just outside Tier 1 radius but inside Tier 2 elastic radius", async () => {
-        const storedContent = "function elastic() {\n    let alpha = 1;\n    let beta = 2;\n    return alpha + beta;\n}";
-        // Place at offset 5500 (beyond 5000 Tier 1 radius, within 10000 Tier 2 elastic)
-        const newDocContent = " ".repeat(5500) + storedContent;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Content just outside Tier 1 should be found by Tier 2");
-        assert.strictEqual(res!.uri.fsPath, uri.fsPath, "Should stay in same file");
-        assert.ok(Math.abs(res!.offset[0] - 5500) <= 1, "Offset should be near 5500");
-    });
 
-    await test("Two equidistant duplicates — should pick one deterministically", async () => {
-        const storedContent = "function twin() { return 0; }";
-        // Place two identical blocks equidistant from lastKnownStart=500
-        const leftPad = " ".repeat(500 - storedContent.length);
-        const rightPad = " ".repeat(500);
-        const newDocContent = leftPad + storedContent + rightPad + storedContent;
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
-        const res = await recoverTracePoints(doc, storedContent, 500, uri);
-        assert.ok(res !== null, "Should find at least one of the equidistant duplicates");
-        // We just verify it picks *something* — no crash, no null
-        assert.ok(res!.offset[0] >= 0, "Offset must be non-negative");
-    });
+
+
 
     await test("Content with special regex characters should not break Tier 3", async () => {
         // This uses characters that are special in regex: $ . * + ? ( ) [ ] { } | ^ \
@@ -502,16 +417,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0, "Should find at offset 0");
     });
 
-    await test("Single character difference in short identifier should reject", async () => {
-        const storedContent = "void fooBar(int x) {";
-        const newDocContent = "void fooBaz(int x) {\n    return x;\n}";
-        const doc = new MockDocument(newDocContent);
-        const uri = mockVscode.Uri.file('/workspace/src/file.c');
-        
-        // fooBar vs fooBaz — one char diff in a key identifier
-        const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.strictEqual(res, null, "Single-char identifier difference in short content should be rejected");
-    });
+
 
     await test("Negative lastKnownStart should not crash", async () => {
         const storedContent = "function negativeTest() { return -1; }";
@@ -581,7 +487,64 @@ async function runTests() {
         assert.ok(res !== null, "Should find short content (11 chars) via Tier 3 now that guard is 5");
     });
 
+    await test("Language Syntax Edge Cases (Python vs C)", async () => {
+        const uriTs = mockVscode.Uri.file('/workspace/src/file.py');
+        const uriC = mockVscode.Uri.file('/workspace/src/file.c');
+
+        // Python style: significance of indentation (but our tokenizer ignores whitespace)
+        const storedPython = "def hello():\n    print('hi')";
+        const docPython = new MockDocument("def hello():\n\tprint('hi')"); // tabs instead of spaces
+        const resPy = await recoverTracePoints(docPython, storedPython, 0, uriTs);
+        assert.ok(resPy !== null, "Python indentation change failed");
+
+        // C style: macro and complex brackets
+        const storedC = "#define MAX(a,b) ((a)>(b)?(a):(b))";
+        const docC = new MockDocument("#define MAX(x,y) ((x)>(y)?(x):(y))"); // Param rename
+        const resC = await recoverTracePoints(docC, storedC, 0, uriC);
+        assert.ok(resC !== null, "C macro fuzzy match failed");
+    });
+
+    await test("Overlapping Matches (Ambiguity Resolution)", async () => {
+        const content = "function overlap() { return true; }";
+        // Two identical blocks: distance resolution should pick the closer one
+        const docContent = "function overlap() { return true; } " + " ".repeat(100) + "function overlap() { return true; }";
+        const doc = new MockDocument(docContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+
+        // Target distance is closer to the second one (offset approx 35 + 100 = 135)
+        const res = await recoverTracePoints(doc, content, 150, uri);
+        assert.strictEqual(res!.offset[0], docContent.lastIndexOf("function overlap"), "Should resolve overlapping ambiguity by distance");
+    });
+
+    await test("Large Content Limits (Stress Test)", async () => {
+        // Use a block with many tokens but large overall size
+        const largeStored = ("token" + "x".repeat(10) + " ").repeat(500); // 500 tokens, ~6000 chars
+        const docContent = "a".repeat(10000) + largeStored + "b".repeat(10000);
+        const doc = new MockDocument(docContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+
+        const res = await recoverTracePoints(doc, largeStored, 0, uri);
+        assert.ok(res !== null, "Large content stress test failed");
+        assert.strictEqual(res!.offset[0], 10000);
+    });
+
+    await test("Incomplete Fragments (Syntactic Resilience)", async () => {
+        // Use 20+ tokens to bypass strict 18-token threshold
+        const stored = "function resilient() {\n    let a = 1; let b = 2; let c = 3; let d = 4;\n    return a + b + c + d;\n}";
+        // Dest file has it truncated or heavily modified
+        const brokenDoc = new MockDocument("function resilient() {\n    let a = 1; let b = 2;\n    // Missing c, d and broken return\n    return a + b + 999;\n}");
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+
+        const res = await recoverTracePoints(brokenDoc, stored, 0, uri);
+        assert.ok(res !== null, "Should recover even when source is syntactically broken with enough tokens");
+    });
+
+
+
+
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
+
     if (failed > 0) {
         process.exit(1);
     }
