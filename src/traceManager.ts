@@ -1033,6 +1033,7 @@ export class TraceManager implements vscode.Disposable {
     ): Promise<{ offset: [number, number], uri: vscode.Uri } | null> {
         const fullText = document.getText();
         const cleanContent = storedContent.trim();
+        if (cleanContent.length === 0) return null; // Guard: empty content would cause indexOf("") infinite loop
         const radius = TraceManager.SEARCH_RADIUS;
 
         // --- Standard Bounds for Tiers 1 & 2 ---
