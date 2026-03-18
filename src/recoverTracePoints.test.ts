@@ -17,22 +17,39 @@ const mockVscode = {
             return [];
         },
         findTextInFiles: async (query: any, options: any, callback: any, token: any) => {
-            if (options.include && options.include.includes('.ts')) {
+            // Tier 3 Phase 1: Robust Native Match Search
+            if (query.pattern.includes('testFunc') || query.pattern.includes('targetFunction') || query.pattern.includes('calculateTotal')) {
                 callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
+                // Also return the original file to test same-file Tier 3 recovery
+                callback({ uri: mockVscode.Uri.file('/workspace/src/file.ts') });
+            }
+            // Case-insensitive check for Tier 3 Phase 1 fix
+            if (query.pattern.includes('calculatetotal')) {
+                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
+            }
+            // Phase 2: Anchor Words
+            if (query.pattern.includes('|')) {
+                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
+                callback({ uri: mockVscode.Uri.file('/workspace/src/file.ts') });
             }
             return { limitHit: false };
         },
         fs: {
             readFile: async (uri: any) => {
                 if (uri.fsPath.endsWith('otherFile.ts')) {
-                    // Cross-file search mock
                     const content = `
 // Some other file
 function testFunc() {
     console.log("hello");
 }
+function calculatetotal() { return 0; }
 `;
                     return Buffer.from(content);
+                }
+                if (uri.fsPath.endsWith('file.ts')) {
+                    // This mock needs to be dynamic for some tests, but we'll provide a default
+                    // that matches the "targetFunction" test case.
+                    return Buffer.from(" ".repeat(20000) + "function targetFunction() { return 42; }");
                 }
                 return new Uint8Array();
             },
@@ -76,7 +93,9 @@ class MockDocument {
     constructor(private text: string) {}
     getText(range?: any) {
         if (!range) return this.text;
-        return ""; // mock range extraction if needed
+        const start = this.offsetAt(range.start);
+        const end = this.offsetAt(range.end);
+        return this.text.substring(start, end);
     }
     positionAt(offset: number) {
         let line = 0;
@@ -92,13 +111,23 @@ class MockDocument {
         return new mockVscode.Position(line, char);
     }
     offsetAt(position: any) {
-        return 0; // naive
+        const lines = this.text.split('\n');
+        let offset = 0;
+        for (let i = 0; i < position.line; i++) {
+            offset += lines[i].length + 1; // +1 for \n
+        }
+        return offset + position.character;
     }
     get lineCount() {
         return this.text.split('\n').length;
     }
     lineAt(line: number) {
-        return { text: this.text.split('\n')[line] || '' };
+        const lines = this.text.split('\n');
+        const text = lines[line] || '';
+        return { 
+            text, 
+            range: { end: new mockVscode.Position(line, text.length) } 
+        };
     }
 }
 
@@ -313,6 +342,44 @@ async function runTests() {
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
         assert.ok(res !== null, "Should recover formatting changes");
         assert.strictEqual(res!.offset[0], 0, "Start offset should be 0");
+    });
+
+    // --- MERGED TESTS FROM repro_failures.ts ---
+
+    await test("Should recover when moved > 10,000 chars in same file (Trans-radius fix)", async () => {
+        const content = `function targetFunction() { return 42; }`;
+        const padding = " ".repeat(20000);
+        const newDocContent = padding + content;
+        const doc = new MockDocument(newDocContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+        
+        // Stored position was 0, now it's 20000. 
+        // This forces Tier 3 which now includes the same file.
+        const res = await recoverTracePoints(doc, content, 0, uri);
+        assert.ok(res !== null, "Should recover even if moved far away in same file");
+        assert.strictEqual(res!.offset[0], 20000);
+    });
+
+    await test("Should recover cross-file if casing changed (Case-insensitive Tier 3 fix)", async () => {
+        const storedContent = `function calculateTotal() {`;
+        // otherFile.ts has "function calculatetotal() { return 0; }"
+        const doc = new MockDocument(""); // Empty doc to force Tier 3
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+        
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.ok(res !== null, "Should recover even if casing changed in workspace search");
+        assert.strictEqual(res.uri.fsPath, '/workspace/src/otherFile.ts');
+    });
+
+    await test("Should pick the CLOSEST match in Tier 2 when duplicates exist (Sliding Window Fix)", async () => {
+        const content = `function duplicate() { return 1; }`;
+        const docContent = content + " ".repeat(500) + content;
+        const doc = new MockDocument(docContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+        
+        // Target is closer to index 0
+        const res = await recoverTracePoints(doc, content, 0, uri);
+        assert.strictEqual(res!.offset[0], 0, "Should pick the first occurrence as it is closer to lastKnownStart (0)");
     });
 
     console.log(`\nResults: ${passed} passed, ${failed} failed`);

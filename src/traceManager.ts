@@ -1084,7 +1084,7 @@ export class TraceManager implements vscode.Disposable {
         // ==========================================
         // TIER 3: Cross-File Workspace Search
         // ==========================================
-        return await this.searchAcrossWorkspace(originalUri, cleanContent, token);
+        return await this.searchAcrossWorkspace(originalUri, cleanContent, token, document);
     }
 
     /**
@@ -1093,7 +1093,8 @@ export class TraceManager implements vscode.Disposable {
     private async searchAcrossWorkspace(
         originalUri: vscode.Uri, 
         cleanContent: string,
-        token?: vscode.CancellationToken
+        token?: vscode.CancellationToken,
+        document?: ITraceDocument
     ): Promise<{ offset: [number, number], uri: vscode.Uri } | null> {
         
         const fsPath = originalUri.fsPath;
@@ -1111,10 +1112,10 @@ export class TraceManager implements vscode.Disposable {
 
         // @ts-ignore: findTextInFiles is a proposed/newer API
         await vscode.workspace.findTextInFiles(
-            { pattern: looseRegex, isRegExp: true, isCaseSensitive: true },
+            { pattern: looseRegex, isRegExp: true, isCaseSensitive: false },
             { include: searchPattern },
             (result: any) => {
-                if (result.uri.fsPath !== originalUri.fsPath && !exactMatchUri) {
+                if (!exactMatchUri) {
                     exactMatchUri = result.uri;
                 }
             },
@@ -1123,11 +1124,17 @@ export class TraceManager implements vscode.Disposable {
 
         // If ripgrep found an exact match, read just that one file to get the absolute offset
         if (exactMatchUri) {
-            const bytes = await vscode.workspace.fs.readFile(exactMatchUri);
-            const text = this.decodeFileContent(exactMatchUri, bytes);
-            const exactIdx = text.indexOf(cleanContent);
+            const targetUri = exactMatchUri as vscode.Uri;
+            let text: string;
+            if (targetUri.fsPath === originalUri.fsPath && document) {
+                text = document.getText();
+            } else {
+                const bytes = await vscode.workspace.fs.readFile(targetUri);
+                text = this.decodeFileContent(targetUri, bytes);
+            }
+            const exactIdx = text.toLowerCase().indexOf(cleanContent.toLowerCase());
             if (exactIdx >= 0) {
-                return { offset: [exactIdx, exactIdx + cleanContent.length], uri: exactMatchUri };
+                return { offset: [exactIdx, exactIdx + cleanContent.length], uri: targetUri };
             }
         }
 
@@ -1146,12 +1153,10 @@ export class TraceManager implements vscode.Disposable {
 
         // @ts-ignore: findTextInFiles is a proposed/newer API
         await vscode.workspace.findTextInFiles(
-            { pattern: regexPattern, isRegExp: true, isCaseSensitive: true },
+            { pattern: regexPattern, isRegExp: true, isCaseSensitive: false },
             { include: searchPattern },
             (result: any) => {
-                if (result.uri.fsPath !== originalUri.fsPath) {
-                    candidateUris.add(result.uri.toString());
-                }
+                candidateUris.add(result.uri.toString());
             },
             token
         );
@@ -1163,13 +1168,18 @@ export class TraceManager implements vscode.Disposable {
             const uri = vscode.Uri.parse(uriString);
             
             try {
-                const bytes = await vscode.workspace.fs.readFile(uri);
-                const text = this.decodeFileContent(uri, bytes); 
+                let text: string;
+                if (uri.toString() === originalUri.toString() && document) {
+                    text = document.getText();
+                } else {
+                    const bytes = await vscode.workspace.fs.readFile(uri);
+                    text = this.decodeFileContent(uri, bytes); 
+                }
                 
                 // Verify our 40% threshold manually now that the file is in memory
                 let matches = 0;
                 for (const word of anchorWords) {
-                    if (text.includes(word)) matches++;
+                    if (text.toLowerCase().includes(word.toLowerCase())) matches++;
                 }
                 
                 const requiredMatches = Math.max(1, Math.ceil(anchorWords.length * 0.4));
@@ -1205,10 +1215,14 @@ export class TraceManager implements vscode.Disposable {
         const searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
         const localArea = fullText.substring(searchStart, searchEnd);
 
-        const targetTokens = this.tokenize(cleanContent).filter(t => t.type !== 'comment');
+        const targetTokens = this.tokenize(cleanContent)
+            .filter(t => t.type !== 'comment')
+            .map(t => ({ ...t, text: t.text.toLowerCase() }));
         if (targetTokens.length === 0) return tokenBounds;
 
-        const searchTokens = this.tokenize(localArea).filter(t => t.type !== 'comment');
+        const searchTokens = this.tokenize(localArea)
+            .filter(t => t.type !== 'comment')
+            .map(t => ({ ...t, text: t.text.toLowerCase() }));
         if (searchTokens.length === 0) return null;
 
         const T = targetTokens.length;
@@ -1316,7 +1330,7 @@ export class TraceManager implements vscode.Disposable {
     private slidingWindowTokenSearch(elasticArea: string, elasticStart: number, cleanContent: string): [number, number] | null {
         const targetTokens = this.tokenize(cleanContent)
             .filter(t => t.type !== 'comment')
-            .map(t => t.text);
+            .map(t => t.text.toLowerCase());
         if (targetTokens.length === 0) return null;
 
         const sourceTokens = this.tokenize(elasticArea);
@@ -1343,7 +1357,7 @@ export class TraceManager implements vscode.Disposable {
 
         // --- Expand Phase: iterate right pointer ---
         for (let right = 0; right < sourceTokens.length; right++) {
-            const rightToken = sourceTokens[right].text;
+            const rightToken = sourceTokens[right].text.toLowerCase();
             const rightTarget = targetFreq.get(rightToken) || 0;
 
             // Add right token to window
@@ -1359,7 +1373,7 @@ export class TraceManager implements vscode.Disposable {
             // --- Shrink Phase: advance left pointer ---
             // Shrink if window exceeds max size
             while (right - left + 1 > maxWindowSize) {
-                const leftToken = sourceTokens[left].text;
+                const leftToken = sourceTokens[left].text.toLowerCase();
                 const leftTarget = targetFreq.get(leftToken) || 0;
                 if (leftTarget > 0) {
                     const cur = windowFreq.get(leftToken)!;
@@ -1373,7 +1387,7 @@ export class TraceManager implements vscode.Disposable {
 
             // Shrink further to discard useless/surplus tokens from left
             while (left < right) {
-                const leftToken = sourceTokens[left].text;
+                const leftToken = sourceTokens[left].text.toLowerCase();
                 const leftTarget = targetFreq.get(leftToken) || 0;
                 if (leftTarget === 0) {
                     // Not a target token at all — discard
@@ -1392,7 +1406,7 @@ export class TraceManager implements vscode.Disposable {
 
             // --- Capture Best State ---
             // Short content needs stricter matching to prevent wrong-identifier matches
-            const minMatchRatio = totalTargets <= 10 ? 0.9 : totalTargets <= 18 ? 0.7 : 0.3;
+            const minMatchRatio = totalTargets <= 10 ? 0.95 : totalTargets <= 18 ? 0.7 : 0.3;
             if (matches / totalTargets > minMatchRatio) {
                 const startToken = sourceTokens[left];
                 const endToken = sourceTokens[right];
