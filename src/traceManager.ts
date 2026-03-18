@@ -19,7 +19,7 @@ export interface Token {
 }
 
 export class TraceManager implements vscode.Disposable {
-    private static readonly SEARCH_RADIUS = 5000;
+    private static readonly SEARCH_RADIUS = 15000;
     private static readonly VALIDATION_BUDGET_MS = 15;
 
     private trees: TraceTree[] = [];
@@ -1443,15 +1443,8 @@ export class TraceManager implements vscode.Disposable {
 
         // Extract tokens 5+ characters long to ensure uniqueness and avoid boilerplate
         const tokens = this.tokenize(content)
-            .filter(t => t.type === 'code' && t.text.length >= 5 && !forbidden.has(t.text))
+            .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
             .map(t => t.text);
-            
-        // Fallback to 3+ if nothing found
-        if (tokens.length === 0) {
-            tokens.push(...this.tokenize(content)
-                .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
-                .map(t => t.text));
-        }
 
         // Get unique tokens
         const uniqueTokens = Array.from(new Set(tokens));
@@ -1463,13 +1456,11 @@ export class TraceManager implements vscode.Disposable {
     }
 
     private toLooseRegex(text: string): string {
-        // 1. Escape regex special characters
-        // 2. Replace any sequence of whitespace with a placeholder that matches zero or more whitespace/newlines
-        return this.escapeRegExp(text).replace(/\\s\*/g, '[\\s\\r\\n]*');
+        return this.escapeRegExp(text);
     }
 
     private escapeRegExp(string: string): string {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\r\\n]*');
     }
 
     private findLongestCommonSubstring(line: string, searchArea: string, minLength: number = 5): string {
@@ -1675,12 +1666,14 @@ export class TraceManager implements vscode.Disposable {
     private decodeFileContent(uri: vscode.Uri, bytes: Uint8Array): string {
         const config = vscode.workspace.getConfiguration('files', uri);
         let encoding = config.get<string>('encoding', 'utf8');
-        if (encoding === 'utf8bom') {
+        if (!encoding || encoding === 'utf8bom') {
             encoding = 'utf-8';
         }
         try {
+            // TextDecoder supports many encodings like Big5, Shift_JIS, etc.
             return new TextDecoder(encoding).decode(bytes);
-        } catch {
+        } catch (err) {
+            console.warn(`Failed to decode file ${uri.fsPath} with encoding ${encoding}, falling back to UTF-8`, err);
             return new TextDecoder('utf-8').decode(bytes);
         }
     }
