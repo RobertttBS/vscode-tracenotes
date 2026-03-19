@@ -19,7 +19,6 @@ export interface Token {
 }
 
 export class TraceManager implements vscode.Disposable {
-    private static readonly SEARCH_RADIUS = 15000;
     private static readonly VALIDATION_BUDGET_MS = 15;
 
     private trees: TraceTree[] = [];
@@ -1019,10 +1018,9 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * 3-Tier Optimized Recovery Logic
-     * Tier 1: Exact Match (Radius Bound)
-     * Tier 2: Token-based Sliding Window (Elastic Radius Bound)
-     * Tier 3: Workspace-wide fallback for identical file extensions (Cross-file)
+     * 2-Level Recovery Logic
+     * Level 1: Search entire current file (exact → normalized → token fuzzy)
+     * Level 2: Cross-workspace search via stable findFiles API
      */
     private async recoverTracePoints(
         document: ITraceDocument,
@@ -1033,181 +1031,166 @@ export class TraceManager implements vscode.Disposable {
     ): Promise<{ offset: [number, number], uri: vscode.Uri } | null> {
         const fullText = document.getText();
         const cleanContent = storedContent.trim();
-        if (cleanContent.length === 0) return null; // Guard: empty content would cause indexOf("") infinite loop
-        const radius = TraceManager.SEARCH_RADIUS;
+        if (cleanContent.length === 0) return null;
 
-        // --- Standard Bounds for Tiers 1 & 2 ---
-        const searchStart = Math.max(0, lastKnownStart - radius);
-        const searchEnd = Math.min(fullText.length, lastKnownStart + radius + cleanContent.length);
-        const searchArea = fullText.slice(searchStart, searchEnd);
-
-        // ==========================================
-        // TIER 1: Exact Match in Radius (Fastest)
-        // ==========================================
-        let bestExactStart = -1;
-        let bestExactDistance = Infinity;
-        let currentIdx = searchArea.indexOf(cleanContent);
-        while (currentIdx >= 0) {
-            const absoluteStart = searchStart + currentIdx;
-            const dist = Math.abs(absoluteStart - lastKnownStart);
-            if (dist < bestExactDistance) {
-                bestExactDistance = dist;
-                bestExactStart = absoluteStart;
-            }
-            currentIdx = searchArea.indexOf(cleanContent, currentIdx + 1);
+        // Level 1: search the current file with no radius restriction
+        const sameFileResult = this.searchInText(fullText, cleanContent, lastKnownStart);
+        if (sameFileResult) {
+            return { offset: sameFileResult, uri: originalUri };
         }
 
-        if (bestExactStart >= 0) {
-            return { offset: [bestExactStart, bestExactStart + cleanContent.length], uri: originalUri };
-        }
-
-        // ==========================================
-        // TIER 2: Token Extraction & Sliding Window
-        // ==========================================
-        // Elastic Boundary restricts the ultimate fallback to SEARCH_RADIUS * 2
-        const elasticRadius = radius * 2;
-        const elasticStart = Math.max(0, lastKnownStart - elasticRadius);
-        const elasticEnd = Math.min(fullText.length, lastKnownStart + elasticRadius + cleanContent.length);
-        const elasticArea = fullText.slice(elasticStart, elasticEnd);
-
-        const tier2Offset = this.slidingWindowTokenSearch(elasticArea, elasticStart, cleanContent);
-        
-        if (tier2Offset) {
-            // FIX: Use the expanded bounding validation instead of strict string equality
-            const validatedOffset = this.fuzzyValidateBounds(fullText, tier2Offset, cleanContent);
-            if (validatedOffset) {
-                return { offset: validatedOffset, uri: originalUri };
-            } else {
-                console.warn('Tier 2 found a token match, but boundary validation failed. Moving to Tier 3.');
-            }
-        }
-
-        // ==========================================
-        // TIER 3: Cross-File Workspace Search
-        // ==========================================
-        return await this.searchAcrossWorkspace(originalUri, cleanContent, token, document);
+        // Level 2: cross-workspace search
+        return await this.searchAcrossWorkspace(originalUri, cleanContent, token);
     }
 
     /**
-     * Tier 3 Helper: Searches all files in the workspace using VS Code's native ripgrep API.
+     * Searches text for cleanContent using three strategies in order:
+     * A) Exact full-text indexOf (fastest, picks match closest to preferredOffset)
+     * B) Whitespace-normalized indexOf (handles spacing differences)
+     * C) Token-based sliding window + fuzzy bounds validation
+     */
+    private searchInText(
+        fullText: string,
+        cleanContent: string,
+        preferredOffset: number
+    ): [number, number] | null {
+        // Tier A: exact match across full text
+        const exactResult = this.findClosestExact(fullText, cleanContent, preferredOffset);
+        if (exactResult) return exactResult;
+
+        // Tier B: whitespace-normalized match
+        const normResult = this.findNormalized(fullText, cleanContent, preferredOffset);
+        if (normResult) return normResult;
+
+        // Tier C: token sliding window on full text
+        const tokenOffset = this.slidingWindowTokenSearch(fullText, 0, cleanContent);
+        if (tokenOffset) {
+            return this.fuzzyValidateBounds(fullText, tokenOffset, cleanContent);
+        }
+
+        return null;
+    }
+
+    /**
+     * Full-text exact indexOf, returns the match closest to preferredOffset.
+     */
+    private findClosestExact(
+        fullText: string,
+        cleanContent: string,
+        preferredOffset: number
+    ): [number, number] | null {
+        let best = -1;
+        let bestDist = Infinity;
+        let idx = fullText.indexOf(cleanContent);
+        while (idx >= 0) {
+            const dist = Math.abs(idx - preferredOffset);
+            if (dist < bestDist) { bestDist = dist; best = idx; }
+            idx = fullText.indexOf(cleanContent, idx + 1);
+        }
+        if (best >= 0) return [best, best + cleanContent.length];
+        return null;
+    }
+
+    /**
+     * Normalizes whitespace in both strings (collapse runs to single space),
+     * searches with indexOf, then maps the normalized position back to the
+     * original text offset via a forward character scan.
+     */
+    private findNormalized(
+        fullText: string,
+        cleanContent: string,
+        preferredOffset: number
+    ): [number, number] | null {
+        const normContent = cleanContent.replace(/\s+/g, ' ');
+        const normText = fullText.replace(/\s+/g, ' ');
+
+        let bestNormIdx = -1;
+        let bestDist = Infinity;
+        let idx = normText.indexOf(normContent);
+        while (idx >= 0) {
+            const dist = Math.abs(idx - preferredOffset);
+            if (dist < bestDist) { bestDist = dist; bestNormIdx = idx; }
+            idx = normText.indexOf(normContent, idx + 1);
+        }
+        if (bestNormIdx < 0) return null;
+
+        // Map normalized index back to original text offset.
+        // Both strings collapse whitespace runs identically, so we count
+        // non-whitespace chars and whitespace tokens to walk original text.
+        let origPos = 0;
+        let normPos = 0;
+        while (normPos < bestNormIdx && origPos < fullText.length) {
+            if (/\s/.test(fullText[origPos])) {
+                // skip the whole whitespace run in original
+                while (origPos < fullText.length && /\s/.test(fullText[origPos])) origPos++;
+                normPos++; // one space in normalized
+            } else {
+                origPos++;
+                normPos++;
+            }
+        }
+        const origStart = origPos;
+
+        // Walk forward to find end: match normContent.length chars in normalized space
+        let endNormPos = bestNormIdx;
+        let endOrigPos = origPos;
+        const normEnd = bestNormIdx + normContent.length;
+        while (endNormPos < normEnd && endOrigPos < fullText.length) {
+            if (/\s/.test(fullText[endOrigPos])) {
+                while (endOrigPos < fullText.length && /\s/.test(fullText[endOrigPos])) endOrigPos++;
+                endNormPos++;
+            } else {
+                endOrigPos++;
+                endNormPos++;
+            }
+        }
+
+        return [origStart, endOrigPos];
+    }
+
+    /**
+     * Level 2: Searches all workspace files with the same extension.
+     * Uses the stable vscode.workspace.findFiles API (not the proposed findTextInFiles).
+     * Pre-filters by anchor words, then applies the same searchInText strategy per file.
      */
     private async searchAcrossWorkspace(
-        originalUri: vscode.Uri, 
+        originalUri: vscode.Uri,
         cleanContent: string,
-        token?: vscode.CancellationToken,
-        document?: ITraceDocument
+        token?: vscode.CancellationToken
     ): Promise<{ offset: [number, number], uri: vscode.Uri } | null> {
-        
         const fsPath = originalUri.fsPath;
         const extIndex = fsPath.lastIndexOf('.');
         if (extIndex === -1) return null;
 
-        const ext = fsPath.substring(extIndex); 
+        const ext = fsPath.substring(extIndex);
         const searchPattern = `**/*${ext}`;
 
-        // Phase 1: Robust Native Match Search (Case-insensitive + Whitespace tolerant)
-        const candidateUris: vscode.Uri[] = [];
-        
-        // Use a flexible regex that allows zero or more whitespace/line-endings between tokens
-        const looseRegex = this.toLooseRegex(cleanContent);
-
-        // @ts-ignore: findTextInFiles is a proposed/newer API
-        await vscode.workspace.findTextInFiles(
-            { pattern: looseRegex, isRegExp: true, isCaseSensitive: false },
-            { include: searchPattern },
-            (result: any) => {
-                candidateUris.push(result.uri);
-            },
-            token
-        );
-
-        // Iterate through all exact match candidates to find the first one that matches
-        for (const targetUri of candidateUris) {
-            if (token?.isCancellationRequested) return null;
-            
-            try {
-                let text: string;
-                if (targetUri.fsPath === originalUri.fsPath && document) {
-                    text = document.getText();
-                } else {
-                    const bytes = await vscode.workspace.fs.readFile(targetUri);
-                    text = this.decodeFileContent(targetUri, bytes);
-                }
-
-                // Check for exact (case-insensitive) match of the clean content
-                // Note: since the regex was loose, we check using the same loose matching or a simple includes if applicable.
-                // However, the best way is to run a local regex match to get the exact offset.
-                const localMatch = new RegExp(looseRegex, 'i').exec(text);
-                if (localMatch) {
-                    const exactIdx = localMatch.index;
-                    const matchedContent = localMatch[0];
-                    return { offset: [exactIdx, exactIdx + matchedContent.length], uri: targetUri };
-                }
-            } catch (err) {
-                console.warn(`Failed to process exact match candidate ${targetUri.fsPath}`, err);
-            }
-        }
-
-        // Phase 2: Anchor Word Pre-filter via Ripgrep
-        // We only want to fuzzy search files that contain our most unique tokens.
-        if (cleanContent.length < 5) {
-            return null; // Content too small to safely fuzzy match across the workspace
-        }
+        if (cleanContent.length < 5) return null; // too short to cross-file match safely
 
         const anchorWords = this.extractAnchorWords(cleanContent, 5);
         if (anchorWords.length === 0) return null;
 
-        // Create a regex pattern: (WordA|WordB|WordC)
-        const regexPattern = `(${anchorWords.map(w => this.escapeRegExp(w)).join('|')})`;
-        const fuzzyCandidates = new Set<string>();
+        const allFiles = await vscode.workspace.findFiles(searchPattern, null, 500, token);
 
-        // @ts-ignore: findTextInFiles is a proposed/newer API
-        await vscode.workspace.findTextInFiles(
-            { pattern: regexPattern, isRegExp: true, isCaseSensitive: false },
-            { include: searchPattern },
-            (result: any) => {
-                fuzzyCandidates.add(result.uri.toString());
-            },
-            token
-        );
-
-        // Phase 3: Run the heavy fuzzy search ONLY on the candidate files
-        for (const uriString of fuzzyCandidates) {
+        for (const fileUri of allFiles) {
             if (token?.isCancellationRequested) return null;
-            
-            const uri = vscode.Uri.parse(uriString);
-            
             try {
-                let text: string;
-                if (uri.toString() === originalUri.toString() && document) {
-                    text = document.getText();
-                } else {
-                    const bytes = await vscode.workspace.fs.readFile(uri);
-                    text = this.decodeFileContent(uri, bytes); 
-                }
-                
-                // Verify our 40% threshold manually now that the file is in memory
-                let matches = 0;
-                for (const word of anchorWords) {
-                    if (text.toLowerCase().includes(word.toLowerCase())) matches++;
-                }
-                
-                const requiredMatches = Math.max(1, Math.ceil(anchorWords.length * 0.4));
-                if (matches < requiredMatches) continue;
+                const bytes = await vscode.workspace.fs.readFile(fileUri);
+                const text = this.decodeFileContent(fileUri, bytes);
 
-                // Run the expensive sliding window algorithm
-                const offset = this.slidingWindowTokenSearch(text, 0, cleanContent);
-                if (offset) {
-                    const expandedOffset = this.fuzzyValidateBounds(text, offset, cleanContent);
-                    if (expandedOffset) return { offset: expandedOffset, uri };
-                }
-            } catch (err) {
-                // Silent fail for individual file read errors
-                console.warn(`Failed to process candidate file ${uri.fsPath}`, err);
+                // Pre-filter: at least 40% of anchor words must be present
+                const matchCount = anchorWords.filter(w => text.toLowerCase().includes(w.toLowerCase())).length;
+                const required = Math.max(1, Math.ceil(anchorWords.length * 0.4));
+                if (matchCount < required) continue;
+
+                const found = this.searchInText(text, cleanContent, 0);
+                if (found) return { offset: found, uri: fileUri };
+            } catch {
+                // skip unreadable files silently
             }
         }
 
-        return null; 
+        return null;
     }
 
     /**
@@ -1455,28 +1438,6 @@ export class TraceManager implements vscode.Disposable {
         return uniqueTokens.slice(0, limit);
     }
 
-    private toLooseRegex(text: string): string {
-        return this.escapeRegExp(text);
-    }
-
-    private escapeRegExp(string: string): string {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s\\r\\n]*');
-    }
-
-    private findLongestCommonSubstring(line: string, searchArea: string, minLength: number = 5): string {
-        if (searchArea.includes(line)) return line;
-        
-        // Extract the longest consecutive match that still meets minLength requirement
-        for (let len = line.length - 1; len >= minLength; len--) {
-            for (let i = 0; i <= line.length - len; i++) {
-                const sub = line.substr(i, len);
-                if (searchArea.includes(sub)) {
-                    return sub;
-                }
-            }
-        }
-        return '';
-    }
 
     private contentMatches(docContent: string, storedContent: string): boolean {
         const normDoc = docContent.replace(/\s+/g, ' ').trim();
