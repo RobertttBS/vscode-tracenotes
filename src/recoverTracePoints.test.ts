@@ -11,43 +11,29 @@ const mockVscode = {
     workspace: {
         workspaceFolders: [{ uri: { fsPath: '/workspace' } }],
         findFiles: async (pattern: string) => {
+            if (pattern.includes('.c')) {
+                return [
+                    mockVscode.Uri.file('/workspace/src/short.c'),
+                    mockVscode.Uri.file('/workspace/src/reset.c'),
+                ];
+            }
             if (pattern.includes('.ts')) {
-                return [mockVscode.Uri.file('/workspace/src/otherFile.ts')];
+                return [
+                    mockVscode.Uri.file('/workspace/src/otherFile.ts'),
+                    mockVscode.Uri.file('/workspace/src/wrong.ts'),
+                    mockVscode.Uri.file('/workspace/src/right.ts'),
+                    mockVscode.Uri.file('/workspace/src/file.ts'),
+                ];
             }
             return [];
-        },
-        findTextInFiles: async (query: any, options: any, callback: any, token: any) => {
-            // console.log(`DEBUG MOCK findTextInFiles: pattern=${query.pattern}`);
-            // Tier 3 Phase 1: Robust Native Match Search
-            if (query.pattern.includes('testFunc') || query.pattern.includes('targetFunction') || query.pattern.includes('calculateTotal')) {
-                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
-                callback({ uri: mockVscode.Uri.file('/workspace/src/file.ts') });
-            }
-            // Case-insensitive check for Tier 3 Phase 1 fix
-            if (query.pattern.toLowerCase().includes('calculatetotal')) {
-                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
-            }
-            // Special "no-space" match scenario - use a simpler check since the regex is now loose
-            if (query.pattern.includes('init')) {
-                callback({ uri: mockVscode.Uri.file('/workspace/src/short.c') });
-            }
-            // Multi-candidate scenario: first file is "wrong", second is "right"
-            if (query.pattern.includes('multiCandidate')) {
-                callback({ uri: mockVscode.Uri.file('/workspace/src/wrong.ts') });
-                callback({ uri: mockVscode.Uri.file('/workspace/src/right.ts') });
-            }
-
-            // Phase 2: Anchor Words
-            if (query.pattern.includes('|')) {
-                callback({ uri: mockVscode.Uri.file('/workspace/src/otherFile.ts') });
-                callback({ uri: mockVscode.Uri.file('/workspace/src/file.ts') });
-            }
-            return { limitHit: false };
         },
         fs: {
             readFile: async (uri: any) => {
                 if (uri.fsPath.endsWith('short.c')) {
                     return Buffer.from("void init() { return; }");
+                }
+                if (uri.fsPath.endsWith('reset.c')) {
+                    return Buffer.from("void chkBgdClnBlkProc() { /* reset handler */ }");
                 }
                 if (uri.fsPath.endsWith('wrong.ts')) {
                     return Buffer.from("// Matches multiCandidate in a comment but not code\nvoid wrong() {}");
@@ -449,42 +435,38 @@ async function runTests() {
 
     // --- NEW TESTS FOR TIER 3 FIXES ---
 
-    await test("Tier 3: Should match exact even without spaces (Regex fix)", async () => {
+    await test("Cross-workspace: should find content in a different file of the same extension", async () => {
+        // void init() is in short.c; the trace was originally from file.c (now empty)
         const storedContent = "void init()";
-        // mock ripgrep returns short.c which has "void init() { return; }"
-        // The regex will be something like /void[\s\r\n]*init\(/i
-        const doc = new MockDocument(""); // Empty to force Tier 3
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
+        const doc = new MockDocument(""); // empty file — forces cross-workspace search
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should find void init() via Tier 3");
+        assert.ok(res !== null, "Should find void init() in short.c");
         assert.strictEqual(res!.uri.fsPath, '/workspace/src/short.c');
         assert.strictEqual(res!.offset[0], 0);
     });
 
-    await test("Tier 3: Should pick the second file if the first one doesn't match perfectly (Multi-candidate fix)", async () => {
+    await test("Cross-workspace: should skip files where content is only in a comment (multi-candidate)", async () => {
+        // wrong.ts has "multiCandidate" inside a // comment only; right.ts has it as code
         const storedContent = "void multiCandidate()";
-        // mock ripgrep returns [wrong.ts, right.ts]
-        // wrong.ts has it in a comment, so the exact match check should fail (no matchedContent from exec if we were stricter, but here it matches)
-        // Actually, our current Phase 1 logic uses the loose regex, so it WILL match "multiCandidate" even in comments.
-        // But the point is to test that it iterates through multiple candidates.
-        const doc = new MockDocument(""); 
+        const doc = new MockDocument("");
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
+
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should find via Tier 3 after checking multiple candidates");
-        // It will pick wrong.ts first because ripgrep mock returns it first and it matches the regex.
-        // To really test "multi-candidate", I should make the first one NOT match the regex.
-        assert.strictEqual(res!.uri.fsPath, '/workspace/src/right.ts');
+        assert.ok(res !== null, "Should find via cross-workspace search");
+        assert.strictEqual(res!.uri.fsPath, '/workspace/src/right.ts', "Should skip wrong.ts where match is only in a comment");
     });
 
-    await test("Tier 3: Should search for shorter content (Length guard fix)", async () => {
-        const storedContent = "void init()"; // 11 chars < 20
-        const doc = new MockDocument(""); 
-        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
-        
+    await test("Cross-workspace: cross-file exact match for real-world C function (chkBgdClnBlkProc)", async () => {
+        // Simulates: function defined in reset.c, trace was stored from rwcmd.c
+        const storedContent = "void chkBgdClnBlkProc()";
+        const doc = new MockDocument(""); // rwcmd.c no longer has this function
+        const uri = mockVscode.Uri.file('/workspace/src/rwcmd.c');
+
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
-        assert.ok(res !== null, "Should find short content (11 chars) via Tier 3 now that guard is 5");
+        assert.ok(res !== null, "Should find chkBgdClnBlkProc in reset.c");
+        assert.strictEqual(res!.uri.fsPath, '/workspace/src/reset.c');
     });
 
     await test("Language Syntax Edge Cases (Python vs C)", async () => {
@@ -542,6 +524,46 @@ async function runTests() {
 
 
 
+
+    // --- REAL-WORLD REGRESSION TESTS (same-file large move beyond old radius) ---
+
+    await test("Same-file large move: exact content at 100K offset, lastKnownStart at 0", async () => {
+        // Simulates: function moved from end of 3000-line file to near the top (line 133)
+        const storedContent = "void bgdClnCacheblkProc() { /* impl */ }";
+        const padding = "x".repeat(100000);
+        const docContent = storedContent + padding; // content at offset 0, lastKnown was pointing elsewhere
+        const doc = new MockDocument(docContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        const res = await recoverTracePoints(doc, storedContent, 100000, uri);
+        assert.ok(res !== null, "Should recover content that moved 100K bytes from lastKnownStart");
+        assert.strictEqual(res!.offset[0], 0, "Content is at offset 0");
+        assert.strictEqual(res!.uri.fsPath, uri.fsPath, "Same file");
+    });
+
+    await test("Same-file large move: exact content buried deep (lastKnownStart near start)", async () => {
+        const storedContent = "if((mGetGcState==cGcBuildSrc)&&!mChkGcFlag(cBrkBgdGcF))";
+        const padding = "/* padding */\n".repeat(5000); // ~70K chars
+        const docContent = padding + storedContent;
+        const doc = new MockDocument(docContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        // lastKnownStart points to end of file (stale from before content was moved up)
+        const res = await recoverTracePoints(doc, storedContent, docContent.length, uri);
+        assert.ok(res !== null, "Should recover C macro condition after large move");
+        assert.strictEqual(res!.offset[0], padding.length, "Should find content at correct offset");
+    });
+
+    await test("Same-file: whitespace-normalized match (stored with extra spaces, file has single spaces)", async () => {
+        const storedContent = "void bgdClnCacheblkProc()    // BYTE uCaller)";
+        const fileContent = "void bgdClnCacheblkProc() // BYTE uCaller)"; // fewer spaces before comment
+        const doc = new MockDocument(fileContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.ok(res !== null, "Should recover via whitespace-normalized match");
+        assert.strictEqual(res!.offset[0], 0);
+    });
 
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
 
