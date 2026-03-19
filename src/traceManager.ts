@@ -1047,7 +1047,7 @@ export class TraceManager implements vscode.Disposable {
      * Searches text for cleanContent using three strategies in order:
      * A) Exact full-text indexOf (fastest, picks match closest to preferredOffset)
      * B) Whitespace-normalized indexOf (handles spacing differences)
-     * C) Token-based sliding window + fuzzy bounds validation
+     * C) Anchor-then-Sellers: find positions of distinctive tokens, run Sellers' DP per candidate
      */
     private searchInText(
         fullText: string,
@@ -1062,13 +1062,8 @@ export class TraceManager implements vscode.Disposable {
         const normResult = this.findNormalized(fullText, cleanContent, preferredOffset);
         if (normResult) return normResult;
 
-        // Tier C: token sliding window on full text
-        const tokenOffset = this.slidingWindowTokenSearch(fullText, 0, cleanContent);
-        if (tokenOffset) {
-            return this.fuzzyValidateBounds(fullText, tokenOffset, cleanContent);
-        }
-
-        return null;
+        // Tier C: anchor-then-Sellers
+        return this.anchorThenSellers(fullText, cleanContent, preferredOffset);
     }
 
     /**
@@ -1316,108 +1311,58 @@ export class TraceManager implements vscode.Disposable {
     }
 
     /**
-     * Sliding Window Resolution (O(N) Two-Pointer)
-     * Finds the minimal window that hits the maximum target tokens.
-     * Both left and right pointers traverse sourceTokens exactly once.
+     * Anchor-Then-Sellers (Tier C)
+     *
+     * 1. Extract the 3 most distinctive tokens from cleanContent as anchors.
+     * 2. Find every occurrence of each anchor in fullText.
+     * 3. For each occurrence, run fuzzyValidateBounds on a window centered there.
+     * 4. Return the first result that passes the Sellers' threshold, preferring
+     *    candidates closest to preferredOffset.
+     *
+     * Falls back to a full-text Sellers' pass when no anchor words are present
+     * or none are found in the file.
      */
-    private slidingWindowTokenSearch(elasticArea: string, elasticStart: number, cleanContent: string): [number, number] | null {
-        const targetTokens = this.tokenize(cleanContent)
-            .filter(t => t.type !== 'comment')
-            .map(t => t.text.toLowerCase());
-        if (targetTokens.length === 0) return null;
+    private anchorThenSellers(fullText: string, cleanContent: string, preferredOffset: number): [number, number] | null {
+        const anchors = this.extractAnchorWords(cleanContent, 3);
 
-        const sourceTokens = this.tokenize(elasticArea);
-        if (sourceTokens.length === 0) return null;
-
-        // Build target frequency map
-        const targetFreq = new Map<string, number>();
-        for (const t of targetTokens) {
-            targetFreq.set(t, (targetFreq.get(t) || 0) + 1);
-        }
-        const totalTargets = targetTokens.length;
-
-        // State: single window tracked by windowFreq
-        const windowFreq = new Map<string, number>();
-        let matches = 0;
-        let left = 0;
-
-        let maxMatches = 0;
-        let minWindowLength = Infinity;
-        let bestWindow: [number, number] | null = null;
-
-        // Dynamic window size: large enough to allow insertions, bounded to prevent massive overlap
-        const maxWindowSize = Math.min(targetTokens.length * 2 + 10, sourceTokens.length);
-
-        // --- Expand Phase: iterate right pointer ---
-        for (let right = 0; right < sourceTokens.length; right++) {
-            const rightToken = sourceTokens[right].text.toLowerCase();
-            const rightTarget = targetFreq.get(rightToken) || 0;
-
-            // Add right token to window
-            if (rightTarget > 0) {
-                const cur = windowFreq.get(rightToken) || 0;
-                windowFreq.set(rightToken, cur + 1);
-                // Only count as a useful match if we haven't exceeded the target need
-                if (cur < rightTarget) {
-                    matches++;
-                }
-            }
-
-            // --- Shrink Phase: advance left pointer ---
-            // Shrink if window exceeds max size
-            while (right - left + 1 > maxWindowSize) {
-                const leftToken = sourceTokens[left].text.toLowerCase();
-                const leftTarget = targetFreq.get(leftToken) || 0;
-                if (leftTarget > 0) {
-                    const cur = windowFreq.get(leftToken)!;
-                    windowFreq.set(leftToken, cur - 1);
-                    if (cur <= leftTarget) {
-                        matches--;
-                    }
-                }
-                left++;
-            }
-
-            // Shrink further to discard useless/surplus tokens from left
-            while (left < right) {
-                const leftToken = sourceTokens[left].text.toLowerCase();
-                const leftTarget = targetFreq.get(leftToken) || 0;
-                if (leftTarget === 0) {
-                    // Not a target token at all — discard
-                    left++;
-                } else {
-                    const cur = windowFreq.get(leftToken)!;
-                    if (cur > leftTarget) {
-                        // Surplus — we have more than needed, safe to discard
-                        windowFreq.set(leftToken, cur - 1);
-                        left++;
-                    } else {
-                        break; // This token is critically needed, stop shrinking
-                    }
-                }
-            }
-
-            // --- Capture Best State ---
-            // Short content needs stricter matching to prevent wrong-identifier matches
-            const minMatchRatio = totalTargets <= 10 ? 0.95 : totalTargets <= 18 ? 0.7 : 0.3;
-            if (matches / totalTargets > minMatchRatio) {
-                const startToken = sourceTokens[left];
-                const endToken = sourceTokens[right];
-                const charLength = (endToken.offset + endToken.text.length) - startToken.offset;
-
-                // Tie-breaking: most matches wins; on tie, shortest character span wins
-                if (matches > maxMatches || (matches === maxMatches && charLength < minWindowLength)) {
-                    maxMatches = matches;
-                    minWindowLength = charLength;
-                    bestWindow = [
-                        elasticStart + startToken.offset,
-                        elasticStart + endToken.offset + endToken.text.length
-                    ];
+        // Collect candidate center positions from all anchor occurrences
+        const candidates: number[] = [];
+        if (anchors.length > 0) {
+            const lowerText = fullText.toLowerCase();
+            for (const anchor of anchors) {
+                const lowerAnchor = anchor.toLowerCase();
+                let idx = lowerText.indexOf(lowerAnchor);
+                while (idx >= 0) {
+                    candidates.push(idx);
+                    idx = lowerText.indexOf(lowerAnchor, idx + 1);
                 }
             }
         }
 
-        return bestWindow;
+        if (candidates.length === 0) {
+            // No anchor hits — run Sellers' over the full text
+            return this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent);
+        }
+
+        // Sort by proximity to preferredOffset so the most-likely hit is tried first
+        candidates.sort((a, b) => Math.abs(a - preferredOffset) - Math.abs(b - preferredOffset));
+
+        // Deduplicate: skip positions within cleanContent.length of an already-queued one
+        const deduped: number[] = [];
+        for (const pos of candidates) {
+            if (!deduped.some(p => Math.abs(p - pos) < cleanContent.length)) {
+                deduped.push(pos);
+            }
+        }
+
+        // For each anchor position, validate a window centered around it
+        const half = cleanContent.length;
+        for (const center of deduped) {
+            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent);
+            if (result) return result;
+        }
+
+        return null;
     }
 
     private extractAnchorWords(content: string, limit: number): string[] {
