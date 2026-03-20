@@ -1164,6 +1164,7 @@ export class TraceManager implements vscode.Disposable {
 
         const anchorWords = this.extractAnchorWords(cleanContent, 5);
         if (anchorWords.length === 0) return null;
+        const lowerAnchorWords = anchorWords.map(w => w.toLowerCase());
 
         const allFiles = await vscode.workspace.findFiles(searchPattern, null, 500, token);
 
@@ -1174,7 +1175,8 @@ export class TraceManager implements vscode.Disposable {
                 const text = this.decodeFileContent(fileUri, bytes);
 
                 // Pre-filter: at least 40% of anchor words must be present
-                const matchCount = anchorWords.filter(w => text.toLowerCase().includes(w.toLowerCase())).length;
+                const lowerText = text.toLowerCase();
+                const matchCount = lowerAnchorWords.filter(w => lowerText.includes(w)).length;
                 const required = Math.max(1, Math.ceil(anchorWords.length * 0.4));
                 if (matchCount < required) continue;
 
@@ -1196,14 +1198,15 @@ export class TraceManager implements vscode.Disposable {
     private fuzzyValidateBounds(
         fullText: string,
         tokenBounds: [number, number],
-        cleanContent: string
+        cleanContent: string,
+        precomputedTargetTokens?: { text: string; offset: number; type: string }[]
     ): [number, number] | null {
         const buffer = Math.max(100, Math.floor(cleanContent.length * 0.5));
         const searchStart = Math.max(0, tokenBounds[0] - buffer);
         const searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
         const localArea = fullText.substring(searchStart, searchEnd);
 
-        const targetTokens = this.tokenize(cleanContent)
+        const targetTokens = precomputedTargetTokens ?? this.tokenize(cleanContent)
             .filter(t => t.type !== 'comment')
             .map(t => ({ ...t, text: t.text.toLowerCase() }));
         if (targetTokens.length === 0) return tokenBounds;
@@ -1323,7 +1326,12 @@ export class TraceManager implements vscode.Disposable {
      * or none are found in the file.
      */
     private anchorThenSellers(fullText: string, cleanContent: string, preferredOffset: number): [number, number] | null {
-        const anchors = this.extractAnchorWords(cleanContent, 3);
+        // Tokenize cleanContent once — reuse for both anchor extraction and Sellers' DP
+        const allTokens = this.tokenize(cleanContent);
+        const anchors = this.extractAnchorWordsFromTokens(allTokens, 3);
+        const targetTokens = allTokens
+            .filter(t => t.type !== 'comment')
+            .map(t => ({ ...t, text: t.text.toLowerCase() }));
 
         // Collect candidate center positions from all anchor occurrences
         const candidates: number[] = [];
@@ -1341,7 +1349,7 @@ export class TraceManager implements vscode.Disposable {
 
         if (candidates.length === 0) {
             // No anchor hits — run Sellers' over the full text
-            return this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent);
+            return this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent, targetTokens);
         }
 
         // Sort by proximity to preferredOffset so the most-likely hit is tried first
@@ -1358,29 +1366,27 @@ export class TraceManager implements vscode.Disposable {
         // For each anchor position, validate a window centered around it
         const half = cleanContent.length;
         for (const center of deduped) {
-            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent);
+            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
             if (result) return result;
         }
 
         return null;
     }
 
-    private extractAnchorWords(content: string, limit: number): string[] {
-        // Known common keywords to avoid using as anchor words
-        const forbidden = new Set(['void', 'int', 'char', 'long', 'float', 'double', 'short', 'signed', 'unsigned', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'default', 'const', 'static', 'extern', 'volatile', 'register', 'typedef', 'struct', 'union', 'enum', 'inline', 'restrict', 'alignas', 'alignof', 'atomic', 'bool', 'complex', 'generic', 'imaginary', 'noreturn', 'static_assert', 'thread_local', 'public', 'private', 'protected', 'class', 'interface', 'namespace', 'using', 'function', 'async', 'await', 'export', 'import', 'from', 'as', 'any', 'any', 'number', 'string', 'boolean', 'symbol', 'undefined', 'null', 'true', 'false', 'let', 'var', 'const', 'new', 'this', 'throw', 'try', 'catch', 'finally', 'super', 'extends', 'implements', 'module', 'package', 'type', 'declare', 'abstract', 'readonly', 'keyof', 'typeof', 'in', 'of', 'instanceof']);
+    private static readonly ANCHOR_FORBIDDEN = new Set(['void', 'int', 'char', 'long', 'float', 'double', 'short', 'signed', 'unsigned', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'default', 'const', 'static', 'extern', 'volatile', 'register', 'typedef', 'struct', 'union', 'enum', 'inline', 'restrict', 'alignas', 'alignof', 'atomic', 'bool', 'complex', 'generic', 'imaginary', 'noreturn', 'static_assert', 'thread_local', 'public', 'private', 'protected', 'class', 'interface', 'namespace', 'using', 'function', 'async', 'await', 'export', 'import', 'from', 'as', 'any', 'any', 'number', 'string', 'boolean', 'symbol', 'undefined', 'null', 'true', 'false', 'let', 'var', 'const', 'new', 'this', 'throw', 'try', 'catch', 'finally', 'super', 'extends', 'implements', 'module', 'package', 'type', 'declare', 'abstract', 'readonly', 'keyof', 'typeof', 'in', 'of', 'instanceof']);
 
-        // Extract tokens 5+ characters long to ensure uniqueness and avoid boilerplate
-        const tokens = this.tokenize(content)
+    private extractAnchorWordsFromTokens(tokens: Token[], limit: number): string[] {
+        const forbidden = TraceManager.ANCHOR_FORBIDDEN;
+        const texts = tokens
             .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
             .map(t => t.text);
+        const unique = Array.from(new Set(texts));
+        unique.sort((a, b) => b.length - a.length);
+        return unique.slice(0, limit);
+    }
 
-        // Get unique tokens
-        const uniqueTokens = Array.from(new Set(tokens));
-        
-        // Sort by length descending, as longer words are more likely to be unique Globally
-        uniqueTokens.sort((a, b) => b.length - a.length);
-        
-        return uniqueTokens.slice(0, limit);
+    private extractAnchorWords(content: string, limit: number): string[] {
+        return this.extractAnchorWordsFromTokens(this.tokenize(content), limit);
     }
 
 
