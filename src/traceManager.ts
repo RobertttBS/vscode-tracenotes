@@ -1096,8 +1096,9 @@ export class TraceManager implements vscode.Disposable {
         cleanContent: string,
         preferredOffset: number
     ): [number, number] | null {
-        const normContent = cleanContent.replace(/\s+/g, ' ');
-        const normText = fullText.replace(/\s+/g, ' ');
+        const ZW_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
+        const normContent = cleanContent.replace(ZW_RE, '').replace(/\s+/g, ' ');
+        const normText = fullText.replace(ZW_RE, '').replace(/\s+/g, ' ');
 
         let bestNormIdx = -1;
         let bestDist = Infinity;
@@ -1110,15 +1111,21 @@ export class TraceManager implements vscode.Disposable {
         if (bestNormIdx < 0) return null;
 
         // Map normalized index back to original text offset.
-        // Both strings collapse whitespace runs identically, so we count
-        // non-whitespace chars and whitespace tokens to walk original text.
+        // Both strings collapse whitespace runs and strip zero-width chars identically.
+        const isSkippable = (ch: string) => /[\s\u200B\u200C\u200D\u2060\uFEFF]/.test(ch);
+        const isWS = (ch: string) => /\s/.test(ch);
         let origPos = 0;
         let normPos = 0;
         while (normPos < bestNormIdx && origPos < fullText.length) {
-            if (/\s/.test(fullText[origPos])) {
-                // skip the whole whitespace run in original
-                while (origPos < fullText.length && /\s/.test(fullText[origPos])) origPos++;
-                normPos++; // one space in normalized
+            if (isSkippable(fullText[origPos])) {
+                if (isWS(fullText[origPos])) {
+                    // skip the whole whitespace run in original
+                    while (origPos < fullText.length && isWS(fullText[origPos])) origPos++;
+                    normPos++; // one space in normalized
+                } else {
+                    // zero-width char: skip in original, no normPos advance (was stripped)
+                    origPos++;
+                }
             } else {
                 origPos++;
                 normPos++;
@@ -1131,9 +1138,13 @@ export class TraceManager implements vscode.Disposable {
         let endOrigPos = origPos;
         const normEnd = bestNormIdx + normContent.length;
         while (endNormPos < normEnd && endOrigPos < fullText.length) {
-            if (/\s/.test(fullText[endOrigPos])) {
-                while (endOrigPos < fullText.length && /\s/.test(fullText[endOrigPos])) endOrigPos++;
-                endNormPos++;
+            if (isSkippable(fullText[endOrigPos])) {
+                if (isWS(fullText[endOrigPos])) {
+                    while (endOrigPos < fullText.length && isWS(fullText[endOrigPos])) endOrigPos++;
+                    endNormPos++;
+                } else {
+                    endOrigPos++;
+                }
             } else {
                 endOrigPos++;
                 endNormPos++;
@@ -1166,7 +1177,7 @@ export class TraceManager implements vscode.Disposable {
         if (anchorWords.length === 0) return null;
         const lowerAnchorWords = anchorWords.map(w => w.toLowerCase());
 
-        const allFiles = await vscode.workspace.findFiles(searchPattern, null, 500, token);
+        const allFiles = await vscode.workspace.findFiles(searchPattern, null, undefined, token);
 
         for (const fileUri of allFiles) {
             if (token?.isCancellationRequested) return null;
@@ -1202,8 +1213,22 @@ export class TraceManager implements vscode.Disposable {
         precomputedTargetTokens?: { text: string; offset: number; type: string }[]
     ): [number, number] | null {
         const buffer = Math.max(100, Math.floor(cleanContent.length * 0.5));
-        const searchStart = Math.max(0, tokenBounds[0] - buffer);
-        const searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
+        let searchStart = Math.max(0, tokenBounds[0] - buffer);
+        let searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
+
+        // Guard: cap the search window so S * T stays within ~200k DP ops.
+        // avgCharsPerToken ≈ 6 is conservative across C/JS/Python/TS.
+        const T_est = (precomputedTargetTokens ?? []).length || Math.max(1, Math.floor(cleanContent.length / 6));
+        const MAX_DP_OPS = 200_000;
+        const AVG_CHARS_PER_TOKEN = 6;
+        const budgetChars = Math.floor(MAX_DP_OPS / T_est) * AVG_CHARS_PER_TOKEN;
+        if (searchEnd - searchStart > budgetChars) {
+            const mid = Math.floor((searchStart + searchEnd) / 2);
+            const half = Math.floor(budgetChars / 2);
+            searchStart = Math.max(0, mid - half);
+            searchEnd = Math.min(fullText.length, mid + half);
+        }
+
         const localArea = fullText.substring(searchStart, searchEnd);
 
         const targetTokens = precomputedTargetTokens ?? this.tokenize(cleanContent)
@@ -1378,7 +1403,7 @@ export class TraceManager implements vscode.Disposable {
     private extractAnchorWordsFromTokens(tokens: Token[], limit: number): string[] {
         const forbidden = TraceManager.ANCHOR_FORBIDDEN;
         const texts = tokens
-            .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
+            .filter(t => t.type === 'code' && t.text.length >= 5 && !forbidden.has(t.text))
             .map(t => t.text);
         const unique = Array.from(new Set(texts));
         unique.sort((a, b) => b.length - a.length);
