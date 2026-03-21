@@ -1403,7 +1403,7 @@ export class TraceManager implements vscode.Disposable {
     private extractAnchorWordsFromTokens(tokens: Token[], limit: number): string[] {
         const forbidden = TraceManager.ANCHOR_FORBIDDEN;
         const texts = tokens
-            .filter(t => t.type === 'code' && t.text.length >= 5 && !forbidden.has(t.text))
+            .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
             .map(t => t.text);
         const unique = Array.from(new Set(texts));
         unique.sort((a, b) => b.length - a.length);
