@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { postMessage } from '../utils/messaging';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -34,6 +34,31 @@ interface TraceCardProps {
     showEnterGroup: boolean;
 }
 
+const HighlightedCode = React.memo<{
+    content: string;
+    lang: string;
+    syntaxStyle: Record<string, React.CSSProperties>;
+}>(({ content, lang, syntaxStyle }) => (
+    <SyntaxHighlighter
+        language={lang}
+        style={syntaxStyle}
+        customStyle={{
+            margin: 0,
+            padding: '12px',
+            fontSize: 'var(--vscode-editor-font-size, 12px)',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            lineHeight: '1.5',
+            borderRadius: '0 0 4px 4px',
+            background: 'var(--vscode-editor-background)',
+            border: '1px solid var(--vscode-panel-border)',
+        }}
+        wrapLongLines
+    >
+        {content}
+    </SyntaxHighlighter>
+));
+HighlightedCode.displayName = 'HighlightedCode';
+
 /** Map common VS Code languageIds to Prism language names */
 function mapLanguage(lang: string): string {
     const map: Record<string, string> = {
@@ -54,6 +79,15 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
     const [editing, setEditing] = useState(false);
     const [isRelocating, setIsRelocating] = useState(false);
     const [noteValue, setNoteValue] = useState(trace.note);
+
+    // Sync noteValue when trace.note changes externally (e.g., syncWorkspace),
+    // but only when not actively editing to avoid discarding in-progress text.
+    useEffect(() => {
+        if (!editing) {
+            setNoteValue(trace.note);
+        }
+    }, [trace.note]);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const borderSumRef = useRef(0);
 
@@ -225,23 +259,11 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 {/* Code block */}
                 {trace.content && (
                     <div className="card-code">
-                        <SyntaxHighlighter
-                            language={mapLanguage(trace.lang)}
-                            style={syntaxStyle}
-                            customStyle={{
-                                margin: 0,
-                                padding: '12px',
-                                fontSize: 'var(--vscode-editor-font-size, 12px)',
-                                fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                                lineHeight: '1.5',
-                                borderRadius: '0 0 4px 4px',
-                                background: 'var(--vscode-editor-background)',
-                                border: '1px solid var(--vscode-panel-border)',
-                            }}
-                            wrapLongLines
-                        >
-                            {trace.content}
-                        </SyntaxHighlighter>
+                        <HighlightedCode
+                            content={trace.content}
+                            lang={mapLanguage(trace.lang)}
+                            syntaxStyle={syntaxStyle}
+                        />
                     </div>
                 )}
 

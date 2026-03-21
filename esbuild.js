@@ -12,6 +12,7 @@ const extensionConfig = {
     platform: 'node',
     target: 'node18',
     sourcemap: true,
+    minify: true,
 };
 
 /** Webview React bundle (browser / IIFE) */

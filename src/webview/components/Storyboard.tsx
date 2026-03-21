@@ -167,7 +167,7 @@ const SortableTraceCard: React.FC<{
     onRelocate: (id: string) => void;
     onEnterGroup: (id: string) => void;
     showEnterGroup: boolean;
-}> = ({ trace, index, isFocused, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
+}> = React.memo(({ trace, index, isFocused, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: trace.id,
     });
@@ -228,7 +228,7 @@ const SortableTraceCard: React.FC<{
             </div>
         </div>
     );
-};
+});
 
 import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon } from './icons';
 import { TreeList } from './TreeList';
