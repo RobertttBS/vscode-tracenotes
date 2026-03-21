@@ -1405,6 +1405,20 @@ export class TraceManager implements vscode.Disposable {
         const texts = tokens
             .filter(t => t.type === 'code' && t.text.length >= 3 && !forbidden.has(t.text))
             .map(t => t.text);
+
+        // If code tokens yield no anchors, fall back to identifiers inside comments.
+        // This recovers cases like `else { // !trace.rangeOffset` where the comment
+        // contains the only distinctive text.
+        if (texts.length === 0) {
+            for (const token of tokens) {
+                if (token.type !== 'comment') continue;
+                const words = token.text.match(/[a-zA-Z_$][a-zA-Z0-9_$]*/g) ?? [];
+                for (const word of words) {
+                    if (word.length >= 3 && !forbidden.has(word)) texts.push(word);
+                }
+            }
+        }
+
         const unique = Array.from(new Set(texts));
         unique.sort((a, b) => b.length - a.length);
         return unique.slice(0, limit);
