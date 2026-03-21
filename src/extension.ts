@@ -148,8 +148,10 @@ export function activate(context: vscode.ExtensionContext) {
                 }
 
                 // Delay focus to allow view to render/settle
-                setTimeout(() => {
+                if (focusCardTimer) { clearTimeout(focusCardTimer); }
+                focusCardTimer = setTimeout(() => {
                     provider.postMessage({ type: 'focusCard', id: trace.id });
+                    focusCardTimer = undefined;
                 }, 300);
 
                 vscode.window.showInformationMessage('TraceNotes: Trace collected!');

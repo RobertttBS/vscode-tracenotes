@@ -5,6 +5,8 @@ import { saveState, loadState } from '../utils/messaging';
 let stateCache: Record<string, any> = loadState<Record<string, any>>() ?? {};
 let timeout: ReturnType<typeof setTimeout> | undefined;
 
+const MAX_CACHE_KEYS = 50;
+
 /**
  * Enhanced useWebviewState
  * Synchronously hydrates from cache, avoids race conditions via a shared memory cache.
@@ -26,6 +28,9 @@ export function useWebviewState<T>(
                 : value;
             
             // Sync to module-level cache immediately so other hooks see it
+            if (!(key in stateCache) && Object.keys(stateCache).length >= MAX_CACHE_KEYS) {
+                delete stateCache[Object.keys(stateCache)[0]];
+            }
             stateCache[key] = nextValue;
             
             // Schedule a single debounced write to the VS Code API

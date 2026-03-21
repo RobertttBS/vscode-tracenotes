@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { TrashIcon } from './icons';
 
 interface TreeItem {
@@ -20,6 +20,13 @@ export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, o
     const [isCreating, setIsCreating] = useState(false);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
+    const deleteConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    useEffect(() => {
+        return () => {
+            if (deleteConfirmTimerRef.current) { clearTimeout(deleteConfirmTimerRef.current); }
+        };
+    }, []);
 
     const handleCreate = useCallback(() => {
         if (!newName.trim()) return;
@@ -65,7 +72,9 @@ export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, o
                                 } else {
                                     setDeleteConfirmId(tree.id);
                                     // Auto-reset after 3 seconds
-                                    setTimeout(() => {
+                                    if (deleteConfirmTimerRef.current) { clearTimeout(deleteConfirmTimerRef.current); }
+                                    deleteConfirmTimerRef.current = setTimeout(() => {
+                                        deleteConfirmTimerRef.current = undefined;
                                         setDeleteConfirmId(prev => prev === tree.id ? null : prev);
                                     }, 3000);
                                 }

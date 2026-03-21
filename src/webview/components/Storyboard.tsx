@@ -326,6 +326,8 @@ const Storyboard: React.FC = () => {
     const activeIndex = activeId ? visibleTraces.findIndex(item => item.id === activeId) : null;
     const activeTrace = activeId ? visibleTraces.find(item => item.id === activeId) : null;
 
+    const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
     // Listen for messages from the extension
     useEffect(() => {
         const unsubscribe = onMessage((message) => {
@@ -348,7 +350,9 @@ const Storyboard: React.FC = () => {
                     const cardId = (message as { type: string; id: string | null }).id;
                     setFocusedId(cardId ?? undefined);
                     if (cardId) {
-                        setTimeout(() => {
+                        if (scrollTimerRef.current) { clearTimeout(scrollTimerRef.current); }
+                        scrollTimerRef.current = setTimeout(() => {
+                            scrollTimerRef.current = undefined;
                             const el = document.getElementById(`trace-card-${cardId}`);
                             if (el) {
                                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -359,7 +363,10 @@ const Storyboard: React.FC = () => {
                 }
             }
         });
-        return unsubscribe;
+        return () => {
+            unsubscribe();
+            if (scrollTimerRef.current) { clearTimeout(scrollTimerRef.current); }
+        };
     }, []);
 
     // Tell the extension we're ready to receive data and get the initial tree list
