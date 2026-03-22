@@ -75,6 +75,14 @@ src/
 
 ---
 
+## Support
+
+If you find this extension helpful, consider buying me a coffee!
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-Donate-orange.svg?style=flat-square&logo=buy-me-a-coffee)](https://buymeacoffee.com/robertttbs)
+
+---
+
 ## License
 
 Distributed under the **MIT License**.
