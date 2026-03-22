@@ -30,26 +30,6 @@ TraceNotes is an extension for navigating and documenting code logic. It allows 
 
 ---
 
-## Usage
-
-### Collecting Traces
-
-Select code in the editor and press **`Opt + C`** (macOS) or **`Alt + C`** (Windows). The snippet is added as a card in the sidebar storyboard.
-
-### Markdown Export & Import
-
-- **Export**: Click the **Export** icon in the sidebar header to generate a `.md` file.
-- **Import**: Use the import command to restore a trace tree from a previously exported file.
-
-### Organization & Management
-
-- **Nesting**: Click **"+ Childs"** on a card to enter a nested level. Traces added here become children of that card.
-- **Navigation**: Click a card to jump to its location. Use breadcrumbs to move between levels.
-- **Reorder**: Drag and drop cards to change the sequence within the current level.
-- **Update**: Use the context menu on a card to **Relocate** it to a new selection or assign a **Highlight** color.
-
----
-
 ## Commands & Shortcuts
 
 | Action            | Shortcut (macOS) | Shortcut (Win/Linux) | Command                            |
@@ -58,20 +38,6 @@ Select code in the editor and press **`Opt + C`** (macOS) or **`Alt + C`** (Wind
 | **Export MD**     | —                | —                    | `TraceNotes: Export to Markdown`   |
 | **Import MD**     | —                | —                    | `TraceNotes: Import from Markdown` |
 | **Clear Current** | —                | —                    | `TraceNotes: Clear All Traces`     |
-
----
-
-## Project Structure
-
-```text
-src/
-├── extension.ts        # Entry point and command routing
-├── traceManager.ts     # State management and recovery logic
-├── collector.ts        # Snippet extraction and indentation handling
-├── decorationManager.ts# Editor visual sync
-├── exporter.ts         # Markdown generation
-└── webview/            # Sidebar UI
-```
 
 ---
 
