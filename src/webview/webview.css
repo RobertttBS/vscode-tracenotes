@@ -869,3 +869,106 @@ body.vscode-high-contrast .trace-card {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── Float Overview Overlay ──────────────────────────────────────────────── */
+
+.float-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--vscode-editor-background);
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.float-overlay.dragging {
+  cursor: grabbing;
+}
+
+.float-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1001;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.float-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  padding: 24px;
+}
+
+.float-trace-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.float-children {
+  margin-left: 32px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-widget-border);
+}
+
+/* ─── Float Cards ─────────────────────────────────────────────────────────── */
+
+.float-card {
+  width: 380px;
+  margin-bottom: 12px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: var(--vscode-editor-background);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.float-card:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.float-card-filename {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.float-card-code {
+  margin: 0;
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--vscode-editor-foreground);
+  line-height: 1.4;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.float-card-note {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Active Level Highlighting ───────────────────────────────────────────── */
+
+.float-card--active-group {
+  border: 2px solid var(--vscode-focusBorder);
+  background: var(--vscode-editor-selectionHighlightBackground);
+}
+
+.float-card--active-level {
+  border-color: var(--vscode-textLink-foreground);
+}

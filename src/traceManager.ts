@@ -769,6 +769,14 @@ export class TraceManager implements vscode.Disposable {
         return this.activeGroupId;
     }
 
+    public jumpToGroup(id: string | null): boolean {
+        if (id !== null && !this.findTraceById(id)) { return false; }
+        this.activeGroupId = id;
+        this.persistActiveGroup();
+        this._onDidChangeTraces.fire();
+        return true;
+    }
+
     private findParentTraceId(id: string): string | null {
         return this.parentIdMap.get(id) ?? null;
     }
