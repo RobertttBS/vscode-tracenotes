@@ -102,35 +102,36 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         }
     }, []);
 
-    // Center on the current group after first render
+    // Center on the current level after first render
     useEffect(() => {
         applyTransform();
 
-        if (!currentGroupId) { return; }
+        if (!currentGroupId || !overlayRef.current) { return; }
 
-        // Use rAF to ensure layout is complete before measuring
+        // rAF ensures the browser has painted the scaled canvas before we measure
         requestAnimationFrame(() => {
-            const target = document.getElementById(`float-card-${currentGroupId}`);
-            if (!target || !overlayRef.current) { return; }
+            if (!overlayRef.current) { return; }
 
-            const vw = overlayRef.current.clientWidth;
-            const vh = overlayRef.current.clientHeight;
-            // offsetLeft/offsetTop give unscaled position within the canvas
-            const el = target as HTMLElement;
-            let offsetLeft = el.offsetLeft;
-            let offsetTop = el.offsetTop;
-            let parent = el.offsetParent as HTMLElement | null;
-            while (parent && parent !== canvasRef.current) {
-                offsetLeft += parent.offsetLeft;
-                offsetTop += parent.offsetTop;
-                parent = parent.offsetParent as HTMLElement | null;
-            }
+            // Find the parent card, then its .float-children container (= the active level)
+            const parentCard = document.getElementById(`float-card-${currentGroupId}`);
+            if (!parentCard) { return; }
+            const groupDiv = parentCard.parentElement;
+            const childrenContainer = groupDiv?.querySelector(':scope > .float-children') as HTMLElement | null;
+            const target = childrenContainer ?? parentCard;
 
-            const s = scaleRef.current;
-            panRef.current = {
-                x: vw / 2 - offsetLeft * s - (el.offsetWidth * s) / 2,
-                y: vh / 2 - offsetTop * s - (el.offsetHeight * s) / 2,
-            };
+            // Use getBoundingClientRect for accurate post-transform positions
+            const overlayRect = overlayRef.current.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+
+            const vw = overlayRect.width;
+            const vh = overlayRect.height;
+
+            // Shift pan so target center lands at overlay center
+            const targetCenterX = targetRect.left - overlayRect.left + targetRect.width / 2;
+            const targetCenterY = targetRect.top - overlayRect.top + targetRect.height / 2;
+
+            panRef.current.x += vw / 2 - targetCenterX;
+            panRef.current.y += vh / 2 - targetCenterY;
             applyTransform();
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,7 +223,6 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                 <FloatTree
                     traces={traces}
                     parentId={null}
-                    currentGroupId={currentGroupId}
                     onNavigate={onNavigate}
                 />
             </div>
