@@ -976,22 +976,22 @@ body.vscode-high-contrast .trace-card {
 /* ─── Float Card Highlight Colors (mirrors trace-card highlight rules) ─────── */
 
 .float-card.red {
-  border: 3px solid #f14c4c;
-  box-shadow: 0 0 8px rgba(241, 76, 76, 0.5);
+  border: 2px solid #f14c4c;
+  background: rgba(241, 76, 76, 0.18);
 }
 .float-card.blue {
-  border: 3px solid #3794ff;
-  box-shadow: 0 0 8px rgba(55, 148, 255, 0.5);
+  border: 2px solid #3794ff;
+  background: rgba(55, 148, 255, 0.18);
 }
 .float-card.green {
-  border: 3px solid #3ad900;
-  box-shadow: 0 0 8px rgba(58, 217, 0, 0.5);
+  border: 2px solid #3ad900;
+  background: rgba(58, 217, 0, 0.18);
 }
 .float-card.orange {
-  border: 3px solid #ff8800;
-  box-shadow: 0 0 8px rgba(255, 136, 0, 0.5);
+  border: 2px solid #ff8800;
+  background: rgba(255, 136, 0, 0.18);
 }
 .float-card.purple {
-  border: 3px solid #9d00ff;
-  box-shadow: 0 0 8px rgba(157, 0, 255, 0.5);
+  border: 2px solid #9d00ff;
+  background: rgba(157, 0, 255, 0.18);
 }
