@@ -962,17 +962,6 @@ body.vscode-high-contrast .trace-card {
   word-break: break-word;
 }
 
-/* ─── Active Level Highlighting ───────────────────────────────────────────── */
-
-.float-card--active-group {
-  border: 2px solid var(--vscode-focusBorder);
-  background: var(--vscode-editor-selectionHighlightBackground);
-}
-
-.float-card--active-level {
-  border-color: var(--vscode-textLink-foreground);
-}
-
 /* ─── Float Card Highlight Colors (mirrors trace-card highlight rules) ─────── */
 
 .float-card.red {

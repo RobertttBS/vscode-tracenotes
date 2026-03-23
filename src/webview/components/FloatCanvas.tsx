@@ -17,19 +17,15 @@ interface FloatCanvasProps {
 interface FloatCardProps {
     trace: TracePoint;
     parentId: string | null;
-    isActiveGroup: boolean;
-    isActiveLevel: boolean;
     onNavigate: (groupId: string | null, focusId: string) => void;
 }
 
-const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, isActiveGroup, isActiveLevel, onNavigate }) => {
+const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, onNavigate }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
         'float-card',
         trace.highlight ?? '',
-        isActiveGroup ? 'float-card--active-group' : '',
-        isActiveLevel ? 'float-card--active-level' : '',
     ].filter(Boolean).join(' ');
 
     return (
@@ -59,25 +55,18 @@ const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, isActiveGroup, i
 interface FloatTreeProps {
     traces: TracePoint[];
     parentId: string | null;
-    currentGroupId: string | null;
     onNavigate: (groupId: string | null, focusId: string) => void;
 }
 
-const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, currentGroupId, onNavigate }) => {
+const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, onNavigate }) => {
     return (
         <>
             {traces.map((trace) => {
-                // Only apply active styling when a specific group is open (not at root)
-                const isActiveGroup = currentGroupId !== null && trace.id === currentGroupId;
-                const isActiveLevel = currentGroupId !== null && parentId === currentGroupId;
-
                 return (
                     <div key={trace.id} className="float-trace-group">
                         <FloatCard
                             trace={trace}
                             parentId={parentId}
-                            isActiveGroup={isActiveGroup}
-                            isActiveLevel={isActiveLevel}
                             onNavigate={onNavigate}
                         />
                         {trace.children && trace.children.length > 0 && (
@@ -85,7 +74,6 @@ const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, currentGroupId,
                                 <FloatTree
                                     traces={trace.children}
                                     parentId={trace.id}
-                                    currentGroupId={currentGroupId}
                                     onNavigate={onNavigate}
                                 />
                             </div>
