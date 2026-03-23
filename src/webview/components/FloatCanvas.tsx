@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { TracePoint } from '../../types';
 
-const INITIAL_SCALE = 0.45;
+const INITIAL_SCALE = 0.6;
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 1.5;
 
@@ -27,6 +27,7 @@ const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, isActiveGroup, i
 
     const classNames = [
         'float-card',
+        trace.highlight ?? '',
         isActiveGroup ? 'float-card--active-group' : '',
         isActiveLevel ? 'float-card--active-level' : '',
     ].filter(Boolean).join(' ');
@@ -162,7 +163,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         if (e.ctrlKey || e.metaKey) {
             // Zoom toward cursor position
             const oldScale = scaleRef.current;
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const delta = e.deltaY > 0 ? 0.97 : 1.03;
             const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * delta));
             const ratio = newScale / oldScale;
             panRef.current.x = e.clientX - (e.clientX - panRef.current.x) * ratio;

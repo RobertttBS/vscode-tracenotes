@@ -972,3 +972,26 @@ body.vscode-high-contrast .trace-card {
 .float-card--active-level {
   border-color: var(--vscode-textLink-foreground);
 }
+
+/* ─── Float Card Highlight Colors (mirrors trace-card highlight rules) ─────── */
+
+.float-card.red {
+  border-color: #f14c4c;
+  box-shadow: 0 0 4px rgba(241, 76, 76, 0.2);
+}
+.float-card.blue {
+  border-color: #3794ff;
+  box-shadow: 0 0 4px rgba(55, 148, 255, 0.2);
+}
+.float-card.green {
+  border-color: #3ad900;
+  box-shadow: 0 0 4px rgba(58, 217, 0, 0.2);
+}
+.float-card.orange {
+  border-color: #ff8800;
+  box-shadow: 0 0 4px rgba(255, 136, 0, 0.2);
+}
+.float-card.purple {
+  border-color: #9d00ff;
+  box-shadow: 0 0 4px rgba(157, 0, 255, 0.2);
+}
