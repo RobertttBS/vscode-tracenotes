@@ -67,10 +67,9 @@ const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, currentGroupId,
     return (
         <>
             {traces.map((trace) => {
-                const isActiveGroup = trace.id === currentGroupId;
-                // A trace is at the "active level" if its parent is the current group
-                // (i.e., it's one of the traces visible in normal mode)
-                const isActiveLevel = parentId === currentGroupId && !isActiveGroup;
+                // Only apply active styling when a specific group is open (not at root)
+                const isActiveGroup = currentGroupId !== null && trace.id === currentGroupId;
+                const isActiveLevel = currentGroupId !== null && parentId === currentGroupId;
 
                 return (
                     <div key={trace.id} className="float-trace-group">
