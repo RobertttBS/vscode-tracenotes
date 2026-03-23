@@ -869,3 +869,118 @@ body.vscode-high-contrast .trace-card {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── Float Overview Overlay ──────────────────────────────────────────────── */
+
+.float-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--vscode-editor-background);
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.float-overlay.dragging {
+  cursor: grabbing;
+}
+
+.float-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1001;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.float-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  padding: 24px;
+}
+
+.float-trace-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.float-children {
+  margin-left: 32px;
+  padding-left: 12px;
+  border-left: 1px solid var(--vscode-widget-border);
+}
+
+/* ─── Float Cards ─────────────────────────────────────────────────────────── */
+
+.float-card {
+  width: 380px;
+  margin-bottom: 12px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: var(--vscode-editor-background);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.float-card:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+.float-card-filename {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.float-card-code {
+  margin: 0;
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--vscode-editor-foreground);
+  line-height: 1.4;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.float-card-note {
+  font-size: 12px;
+  color: var(--vscode-editor-foreground);
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Float Card Highlight Colors (mirrors trace-card highlight rules) ─────── */
+
+.float-card.red {
+  border: 2px solid #f14c4c;
+  background: rgba(241, 76, 76, 0.18);
+}
+.float-card.blue {
+  border: 2px solid #3794ff;
+  background: rgba(55, 148, 255, 0.18);
+}
+.float-card.green {
+  border: 2px solid #3ad900;
+  background: rgba(58, 217, 0, 0.18);
+}
+.float-card.orange {
+  border: 2px solid #ff8800;
+  background: rgba(255, 136, 0, 0.18);
+}
+.float-card.purple {
+  border: 2px solid #9d00ff;
+  background: rgba(157, 0, 255, 0.18);
+}

@@ -83,6 +83,17 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     break;
                 }
+                case 'jumpToGroup': {
+                    traceManager.jumpToGroup(msg.groupId);
+                    if (msg.focusId) {
+                        if (focusCardTimer) { clearTimeout(focusCardTimer); }
+                        focusCardTimer = setTimeout(() => {
+                            provider.postMessage({ type: 'focusCard', id: msg.focusId });
+                            focusCardTimer = undefined;
+                        }, 100);
+                    }
+                    break;
+                }
                 case 'clearCurrentLevel':
                     traceManager.clearActiveChildren();
                     break;

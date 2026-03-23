@@ -230,8 +230,9 @@ const SortableTraceCard: React.FC<{
     );
 });
 
-import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, FloatIcon } from './icons';
 import { TreeList } from './TreeList';
+import FloatCanvas from './FloatCanvas';
 
 const BackButtonDropZone: React.FC<{ onExitGroup: () => void }> = ({ onExitGroup }) => {
     const { setNodeRef, isOver } = useDroppable({
@@ -296,6 +297,7 @@ const Storyboard: React.FC = () => {
     const [titleInputValue, setTitleInputValue] = useState('');
     const [viewMode, setViewMode] = useState<'trace' | 'list'>('trace');
     const [activeId, setActiveId] = useState<string | null>(null);
+    const [isFloating, setIsFloating] = useState(false);
 
     // Fix race condition in saveTitle
     const isEditingRef = useRef(false);
@@ -497,6 +499,11 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'exitGroup' });
     }, []);
 
+    const handleFloatNavigate = useCallback((groupId: string | null, focusId: string) => {
+        setIsFloating(false);
+        postMessage({ command: 'jumpToGroup', groupId, focusId });
+    }, []);
+
     const handleClearAll = useCallback(() => {
         postMessage({ command: 'clearCurrentLevel' });
     }, []);
@@ -615,6 +622,14 @@ const Storyboard: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
 
                 <button
+                    className="toolbar-btn float-btn"
+                    onClick={() => setIsFloating(true)}
+                    data-tooltip="Float Overview"
+                    data-tooltip-pos="bottom-right"
+                >
+                    <FloatIcon />
+                </button>
+                <button
                     className="toolbar-btn add-btn"
                     onClick={handleAddTrace}
                     data-tooltip="Add Empty Note"
@@ -656,6 +671,14 @@ const Storyboard: React.FC = () => {
                         </p>
                     </div>
                 </DndContext>
+                {isFloating && (
+                    <FloatCanvas
+                        traces={traces}
+                        currentGroupId={currentGroupId}
+                        onNavigate={handleFloatNavigate}
+                        onClose={() => setIsFloating(false)}
+                    />
+                )}
             </div>
         );
     }
@@ -685,7 +708,7 @@ const Storyboard: React.FC = () => {
                     re-rendered list takes over without a positional race condition. */}
                 <DragOverlay dropAnimation={null}>
                     {activeId && activeTrace ? (
-                        <div className="drag-overlay-active" style={{ 
+                        <div className="drag-overlay-active" style={{
                             opacity: 0.7, // 降低透明度，讓下方的 Drop Zone 可見
                             cursor: 'grabbing',
                             transform: 'scale(1.02)', // 稍微放大讓它有浮起來的感覺
@@ -699,6 +722,14 @@ const Storyboard: React.FC = () => {
                     ) : null}
                 </DragOverlay>
             </DndContext>
+            {isFloating && (
+                <FloatCanvas
+                    traces={traces}
+                    currentGroupId={currentGroupId}
+                    onNavigate={handleFloatNavigate}
+                    onClose={() => setIsFloating(false)}
+                />
+            )}
         </div>
     );
 };

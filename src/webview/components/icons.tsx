@@ -47,3 +47,12 @@ export const BackIcon = () => (
         <path d="M20 4v7a4 4 0 0 1-4 4H4"></path>
     </svg>
 );
+
+export const FloatIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="#9ca3af" stroke="#000000" strokeWidth="1">
+        <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
+        <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
+        <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
+        <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+    </svg>
+);
