@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { TracePoint } from '../../types';
 
-const SCALE = 0.45;
+const INITIAL_SCALE = 0.45;
+const MIN_SCALE = 0.15;
+const MAX_SCALE = 1.5;
 
 interface FloatCanvasProps {
     traces: TracePoint[];
@@ -101,13 +103,14 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const overlayRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const panRef = useRef({ x: 20, y: 20 });
+    const scaleRef = useRef(INITIAL_SCALE);
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
     const applyTransform = useCallback(() => {
         if (canvasRef.current) {
             canvasRef.current.style.transform =
-                `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${SCALE})`;
+                `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${scaleRef.current})`;
         }
     }, []);
 
@@ -135,9 +138,10 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                 parent = parent.offsetParent as HTMLElement | null;
             }
 
+            const s = scaleRef.current;
             panRef.current = {
-                x: vw / 2 - offsetLeft * SCALE - (el.offsetWidth * SCALE) / 2,
-                y: vh / 2 - offsetTop * SCALE - (el.offsetHeight * SCALE) / 2,
+                x: vw / 2 - offsetLeft * s - (el.offsetWidth * s) / 2,
+                y: vh / 2 - offsetTop * s - (el.offsetHeight * s) / 2,
             };
             applyTransform();
         });
@@ -155,8 +159,19 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
-        panRef.current.x -= e.deltaX;
-        panRef.current.y -= e.deltaY;
+        if (e.ctrlKey || e.metaKey) {
+            // Zoom toward cursor position
+            const oldScale = scaleRef.current;
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * delta));
+            const ratio = newScale / oldScale;
+            panRef.current.x = e.clientX - (e.clientX - panRef.current.x) * ratio;
+            panRef.current.y = e.clientY - (e.clientY - panRef.current.y) * ratio;
+            scaleRef.current = newScale;
+        } else {
+            panRef.current.x -= e.deltaX;
+            panRef.current.y -= e.deltaY;
+        }
         applyTransform();
     }, [applyTransform]);
 
@@ -214,7 +229,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             <div
                 ref={canvasRef}
                 className="float-canvas"
-                style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${SCALE})` }}
+                style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${INITIAL_SCALE})` }}
             >
                 <FloatTree
                     traces={traces}
