@@ -272,6 +272,9 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             panRef.current.x = e.clientX - (e.clientX - panRef.current.x) * ratio;
             panRef.current.y = e.clientY - (e.clientY - panRef.current.y) * ratio;
             scaleRef.current = newScale;
+        } else if (e.shiftKey && e.deltaX === 0) {
+            // Windows does not remap shift+scroll to horizontal; do it manually
+            panRef.current.x -= e.deltaY;
         } else {
             panRef.current.x -= e.deltaX;
             panRef.current.y -= e.deltaY;
