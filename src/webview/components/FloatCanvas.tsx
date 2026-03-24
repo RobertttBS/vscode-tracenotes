@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { TracePoint } from '../../types';
 
 const INITIAL_SCALE = 0.6;
@@ -86,6 +86,21 @@ const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNa
     );
 });
 
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+function flattenTraces(traces: TracePoint[]): TracePoint[] {
+    const result: TracePoint[] = [];
+    const stack = [...traces];
+    while (stack.length > 0) {
+        const node = stack.pop()!;
+        result.push(node);
+        if (node.children && node.children.length > 0) {
+            stack.push(...node.children);
+        }
+    }
+    return result;
+}
+
 // ─── FloatCanvas ──────────────────────────────────────────────────────────────
 
 const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNavigate, onClose }) => {
@@ -97,6 +112,17 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
     const dimCacheRef = useRef({ vw: 0, vh: 0, canvasW: 0, canvasH: 0 });
     const rafIdRef = useRef<number | null>(null);
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
+    const filteredCards = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) { return null; }
+        return flattenTraces(traces).filter((tp) =>
+            tp.note.toLowerCase().includes(q) || tp.content.toLowerCase().includes(q)
+        );
+    }, [searchQuery, traces]);
 
     const applyTransform = useCallback(() => {
         if (canvasRef.current) {
@@ -181,14 +207,25 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         return () => { if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); } };
     }, []);
 
-    // Escape key to close
+    // Escape key: first clear search, then close
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { onClose(); }
+            if (e.key === 'Escape') {
+                if (searchQuery) {
+                    setSearchQuery('');
+                } else {
+                    onClose();
+                }
+            }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [onClose]);
+    }, [onClose, searchQuery]);
+
+    // Auto-focus search input on mount
+    useEffect(() => {
+        searchInputRef.current?.focus();
+    }, []);
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
@@ -259,17 +296,47 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                 ✕
             </button>
 
-            <div
-                ref={canvasRef}
-                className="float-canvas"
-                style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${INITIAL_SCALE})` }}
-            >
-                <FloatTree
-                    traces={traces}
-                    parentId={null}
-                    onNavigate={onNavigate}
+            <div className="float-search-bar">
+                <input
+                    ref={searchInputRef}
+                    className="float-search-input"
+                    type="text"
+                    placeholder="Search notes and code…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                 />
+                {searchQuery && (
+                    <button
+                        className="toolbar-btn float-search-clear"
+                        onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                        aria-label="Clear search"
+                    >
+                        ✕
+                    </button>
+                )}
             </div>
+
+            {filteredCards === null ? (
+                <div
+                    ref={canvasRef}
+                    className="float-canvas"
+                    style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${INITIAL_SCALE})` }}
+                >
+                    <FloatTree traces={traces} parentId={null} onNavigate={onNavigate} />
+                </div>
+            ) : filteredCards.length === 0 ? (
+                <div className="float-search-empty">
+                    No results for &ldquo;{searchQuery}&rdquo;
+                </div>
+            ) : (
+                <div className="float-search-results">
+                    {filteredCards.map((trace) => (
+                        <FloatCard key={trace.id} trace={trace} parentId={null} onNavigate={onNavigate} />
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
