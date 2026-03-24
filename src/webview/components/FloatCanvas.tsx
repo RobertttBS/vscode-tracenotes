@@ -95,6 +95,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const scaleRef = useRef(INITIAL_SCALE);
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+    const dimCacheRef = useRef({ vw: 0, vh: 0, canvasW: 0, canvasH: 0 });
 
     const applyTransform = useCallback(() => {
         if (canvasRef.current) {
@@ -103,12 +104,20 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         }
     }, []);
 
-    const clampPan = useCallback(() => {
+    const updateDimCache = useCallback(() => {
         if (!overlayRef.current || !canvasRef.current) { return; }
-        const vw = overlayRef.current.offsetWidth;
-        const vh = overlayRef.current.offsetHeight;
-        const cw = canvasRef.current.offsetWidth * scaleRef.current;
-        const ch = canvasRef.current.offsetHeight * scaleRef.current;
+        dimCacheRef.current = {
+            vw: overlayRef.current.offsetWidth,
+            vh: overlayRef.current.offsetHeight,
+            canvasW: canvasRef.current.offsetWidth,
+            canvasH: canvasRef.current.offsetHeight,
+        };
+    }, []);
+
+    const clampPan = useCallback(() => {
+        const { vw, vh, canvasW, canvasH } = dimCacheRef.current;
+        const cw = canvasW * scaleRef.current;
+        const ch = canvasH * scaleRef.current;
         panRef.current.x = Math.min(vw - PAN_MARGIN, Math.max(PAN_MARGIN - cw, panRef.current.x));
         panRef.current.y = Math.min(vh - PAN_MARGIN, Math.max(PAN_MARGIN - ch, panRef.current.y));
     }, []);
@@ -117,11 +126,12 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     useEffect(() => {
         applyTransform();
 
-        if (!currentGroupId || !overlayRef.current) { return; }
-
         // rAF ensures the browser has painted the scaled canvas before we measure
         requestAnimationFrame(() => {
-            if (!overlayRef.current) { return; }
+            // Populate dimension cache once the canvas is fully laid out
+            updateDimCache();
+
+            if (!currentGroupId || !overlayRef.current) { return; }
 
             // Find the parent card, then its .float-children container (= the active level)
             const parentCard = document.getElementById(`float-card-${currentGroupId}`);
@@ -147,6 +157,12 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Keep dimension cache fresh on viewport resize
+    useEffect(() => {
+        window.addEventListener('resize', updateDimCache);
+        return () => window.removeEventListener('resize', updateDimCache);
+    }, [updateDimCache]);
 
     // Escape key to close
     useEffect(() => {
