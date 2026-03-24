@@ -329,9 +329,9 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             <button
                 className="toolbar-btn float-close-btn"
                 onClick={onClose}
-                data-tooltip="Close Overview (Esc)"
+                data-tooltip="Close (Esc)"
                 data-tooltip-pos="bottom-right"
-                aria-label="Close Minimap"
+                aria-label="Close"
             >
                 ✕
             </button>

@@ -29,7 +29,7 @@ export const ListIcon = () => (
 );
 
 export const PlusIcon = () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="#9ca3af">
         <path d="M14 7H9V2H7v5H2v2h5v5h2V9h5V7z" />
     </svg>
 );
@@ -48,11 +48,9 @@ export const BackIcon = () => (
     </svg>
 );
 
-export const FloatIcon = () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="#9ca3af" stroke="#000000" strokeWidth="1">
-        <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
-        <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
-        <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
-        <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+export const SearchIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="7" cy="7" r="5" />
+        <line x1="11" y1="11" x2="14.5" y2="14.5" />
     </svg>
 );

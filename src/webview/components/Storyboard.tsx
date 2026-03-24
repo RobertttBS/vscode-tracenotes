@@ -230,7 +230,7 @@ const SortableTraceCard: React.FC<{
     );
 });
 
-import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, FloatIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, SearchIcon } from './icons';
 import { TreeList } from './TreeList';
 import FloatCanvas from './FloatCanvas';
 
@@ -624,10 +624,10 @@ const Storyboard: React.FC = () => {
                 <button
                     className="toolbar-btn float-btn"
                     onClick={() => setIsFloating(true)}
-                    data-tooltip="Minimap"
+                    data-tooltip="Search"
                     data-tooltip-pos="bottom-right"
                 >
-                    <FloatIcon />
+                    <SearchIcon />
                 </button>
                 <button
                     className="toolbar-btn add-btn"
