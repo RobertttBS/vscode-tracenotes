@@ -896,6 +896,12 @@ body.vscode-high-contrast .trace-card {
   padding: 4px 8px;
 }
 
+.toolbar-btn.float-close-btn {
+  background: #d4d4d4;
+  border-color: #000000;
+  color: #000000;
+}
+
 .float-canvas {
   position: absolute;
   top: 0;
