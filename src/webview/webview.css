@@ -1035,8 +1035,8 @@ body.vscode-high-contrast .trace-card {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-widget-border);
+  background: #d4d4d4;
+  border: 1px solid #000000;
   border-radius: 6px;
   padding: 2px 2px 2px 8px;
   width: 320px;
@@ -1049,7 +1049,7 @@ body.vscode-high-contrast .trace-card {
   background: none;
   border: none;
   outline: none;
-  color: var(--vscode-input-foreground, #cccccc);
+  color: #000000;
   font-size: 13px;
   font-family: var(--vscode-font-family, inherit);
   padding: 4px 0;
@@ -1058,14 +1058,14 @@ body.vscode-high-contrast .trace-card {
 }
 
 .float-search-input::placeholder {
-  color: var(--vscode-input-placeholderForeground, rgba(204, 204, 204, 0.4));
+  color: rgba(0, 0, 0, 0.45);
 }
 
 .float-search-clear {
   flex-shrink: 0;
   font-size: 12px;
   padding: 4px 6px;
-  color: var(--vscode-descriptionForeground);
+  color: #000000;
 }
 
 /* ─── Float Search Results ────────────────────────────────────────────────── */
