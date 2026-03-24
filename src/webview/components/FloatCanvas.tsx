@@ -331,7 +331,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                 onClick={onClose}
                 data-tooltip="Close Overview (Esc)"
                 data-tooltip-pos="bottom-right"
-                aria-label="Close float overview"
+                aria-label="Close Minimap"
             >
                 ✕
             </button>

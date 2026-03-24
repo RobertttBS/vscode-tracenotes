@@ -624,7 +624,7 @@ const Storyboard: React.FC = () => {
                 <button
                     className="toolbar-btn float-btn"
                     onClick={() => setIsFloating(true)}
-                    data-tooltip="Float Overview"
+                    data-tooltip="Minimap"
                     data-tooltip-pos="bottom-right"
                 >
                     <FloatIcon />

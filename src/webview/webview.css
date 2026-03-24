@@ -870,7 +870,7 @@ body.vscode-high-contrast .trace-card {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ─── Float Overview Overlay ──────────────────────────────────────────────── */
+/* ─── Minimap Overlay ─────────────────────────────────────────────────────── */
 
 .float-overlay {
   position: fixed;
