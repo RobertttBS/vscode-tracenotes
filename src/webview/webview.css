@@ -956,10 +956,14 @@ body.vscode-high-contrast .trace-card {
 
 .float-card-note {
   font-size: 12px;
-  color: var(--vscode-editor-foreground);
+  color: #9ebeffff;
   margin-top: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--vscode-widget-border, #4e4e4eff);
+  border-radius: 3px;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.4;
 }
 
 /* ─── Float Card Highlight Colors (mirrors trace-card highlight rules) ─────── */
