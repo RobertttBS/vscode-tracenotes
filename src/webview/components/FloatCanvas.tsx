@@ -286,6 +286,8 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         // Only initiate drag on the overlay background, not on cards or search UI
         if (filteredCards !== null) { return; }
         if ((e.target as HTMLElement).closest('.float-card')) { return; }
+        // Suppress Windows browser auto-scroll mode triggered by middle mouse button
+        if (e.button === 1) { e.preventDefault(); }
         isDraggingRef.current = true;
         dragStartRef.current = {
             x: e.clientX,
