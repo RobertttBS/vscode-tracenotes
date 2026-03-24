@@ -88,14 +88,14 @@ const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNa
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-function flattenTraces(traces: TracePoint[]): TracePoint[] {
-    const result: TracePoint[] = [];
-    const stack = [...traces];
+function flattenTraces(traces: TracePoint[]): { trace: TracePoint; parentId: string | null }[] {
+    const result: { trace: TracePoint; parentId: string | null }[] = [];
+    const stack: { trace: TracePoint; parentId: string | null }[] = traces.map(t => ({ trace: t, parentId: null }));
     while (stack.length > 0) {
-        const node = stack.pop()!;
-        result.push(node);
-        if (node.children && node.children.length > 0) {
-            stack.push(...node.children);
+        const item = stack.pop()!;
+        result.push(item);
+        if (item.trace.children && item.trace.children.length > 0) {
+            stack.push(...item.trace.children.map(c => ({ trace: c, parentId: item.trace.id })));
         }
     }
     return result;
@@ -119,8 +119,8 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const filteredCards = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
         if (!q) { return null; }
-        return flattenTraces(traces).filter((tp) =>
-            tp.note.toLowerCase().includes(q) || tp.content.toLowerCase().includes(q)
+        return flattenTraces(traces).filter(({ trace }) =>
+            trace.note.toLowerCase().includes(q) || trace.content.toLowerCase().includes(q)
         );
     }, [searchQuery, traces]);
 
@@ -332,8 +332,8 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                 </div>
             ) : (
                 <div className="float-search-results">
-                    {filteredCards.map((trace) => (
-                        <FloatCard key={trace.id} trace={trace} parentId={null} onNavigate={onNavigate} />
+                    {filteredCards.map(({ trace, parentId }) => (
+                        <FloatCard key={trace.id} trace={trace} parentId={parentId} onNavigate={onNavigate} />
                     ))}
                 </div>
             )}
