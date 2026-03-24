@@ -4,6 +4,7 @@ import { TracePoint } from '../../types';
 const INITIAL_SCALE = 0.6;
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 1.5;
+const PAN_MARGIN = 100; // px of canvas content always kept within the viewport
 
 interface FloatCanvasProps {
     traces: TracePoint[];
@@ -102,6 +103,16 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         }
     }, []);
 
+    const clampPan = useCallback(() => {
+        if (!overlayRef.current || !canvasRef.current) { return; }
+        const vw = overlayRef.current.offsetWidth;
+        const vh = overlayRef.current.offsetHeight;
+        const cw = canvasRef.current.offsetWidth * scaleRef.current;
+        const ch = canvasRef.current.offsetHeight * scaleRef.current;
+        panRef.current.x = Math.min(vw - PAN_MARGIN, Math.max(PAN_MARGIN - cw, panRef.current.x));
+        panRef.current.y = Math.min(vh - PAN_MARGIN, Math.max(PAN_MARGIN - ch, panRef.current.y));
+    }, []);
+
     // Center on the current level after first render
     useEffect(() => {
         applyTransform();
@@ -161,8 +172,9 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             panRef.current.x -= e.deltaX;
             panRef.current.y -= e.deltaY;
         }
+        clampPan();
         applyTransform();
-    }, [applyTransform]);
+    }, [clampPan, applyTransform]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // Only initiate drag on the overlay background, not on cards
@@ -185,8 +197,9 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         const dy = e.clientY - dragStartRef.current.y;
         panRef.current.x = dragStartRef.current.panX + dx;
         panRef.current.y = dragStartRef.current.panY + dy;
+        clampPan();
         applyTransform();
-    }, [applyTransform]);
+    }, [clampPan, applyTransform]);
 
     const stopDrag = useCallback(() => {
         isDraggingRef.current = false;
