@@ -21,7 +21,7 @@ interface FloatCardProps {
     onNavigate: (groupId: string | null, focusId: string) => void;
 }
 
-const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, onNavigate }) => {
+const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
@@ -49,7 +49,7 @@ const FloatCard: React.FC<FloatCardProps> = ({ trace, parentId, onNavigate }) =>
             )}
         </div>
     );
-};
+});
 
 // ─── FloatTree ────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ interface FloatTreeProps {
     onNavigate: (groupId: string | null, focusId: string) => void;
 }
 
-const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, onNavigate }) => {
+const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNavigate }) => {
     return (
         <>
             {traces.map((trace) => {
@@ -84,7 +84,7 @@ const FloatTree: React.FC<FloatTreeProps> = ({ traces, parentId, onNavigate }) =
             })}
         </>
     );
-};
+});
 
 // ─── FloatCanvas ──────────────────────────────────────────────────────────────
 
@@ -96,6 +96,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
     const dimCacheRef = useRef({ vw: 0, vh: 0, canvasW: 0, canvasH: 0 });
+    const rafIdRef = useRef<number | null>(null);
 
     const applyTransform = useCallback(() => {
         if (canvasRef.current) {
@@ -121,6 +122,15 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         panRef.current.x = Math.min(vw - PAN_MARGIN, Math.max(PAN_MARGIN - cw, panRef.current.x));
         panRef.current.y = Math.min(vh - PAN_MARGIN, Math.max(PAN_MARGIN - ch, panRef.current.y));
     }, []);
+
+    const scheduleDraw = useCallback(() => {
+        if (rafIdRef.current !== null) { return; }
+        rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = null;
+            clampPan();
+            applyTransform();
+        });
+    }, [clampPan, applyTransform]);
 
     // Center on the current level after first render
     useEffect(() => {
@@ -158,11 +168,18 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Keep dimension cache fresh on viewport resize
+    // Keep dimension cache fresh on viewport resize (debounced — resize fires continuously)
     useEffect(() => {
-        window.addEventListener('resize', updateDimCache);
-        return () => window.removeEventListener('resize', updateDimCache);
+        let t: ReturnType<typeof setTimeout>;
+        const onResize = () => { clearTimeout(t); t = setTimeout(updateDimCache, 100); };
+        window.addEventListener('resize', onResize);
+        return () => { window.removeEventListener('resize', onResize); clearTimeout(t); };
     }, [updateDimCache]);
+
+    // Cancel any pending rAF on unmount
+    useEffect(() => {
+        return () => { if (rafIdRef.current !== null) { cancelAnimationFrame(rafIdRef.current); } };
+    }, []);
 
     // Escape key to close
     useEffect(() => {
@@ -188,9 +205,8 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             panRef.current.x -= e.deltaX;
             panRef.current.y -= e.deltaY;
         }
-        clampPan();
-        applyTransform();
-    }, [clampPan, applyTransform]);
+        scheduleDraw();
+    }, [scheduleDraw]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // Only initiate drag on the overlay background, not on cards
@@ -213,9 +229,8 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         const dy = e.clientY - dragStartRef.current.y;
         panRef.current.x = dragStartRef.current.panX + dx;
         panRef.current.y = dragStartRef.current.panY + dy;
-        clampPan();
-        applyTransform();
-    }, [clampPan, applyTransform]);
+        scheduleDraw();
+    }, [scheduleDraw]);
 
     const stopDrag = useCallback(() => {
         isDraggingRef.current = false;
