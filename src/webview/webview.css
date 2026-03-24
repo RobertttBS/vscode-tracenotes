@@ -1040,7 +1040,7 @@ body.vscode-high-contrast .trace-card {
   border-radius: 6px;
   padding: 2px 2px 2px 8px;
   width: 320px;
-  max-width: calc(100% - 56px);
+  max-width: calc(100% - 110px); /* Avoid overlap with absolute Close button at narrow widths */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
