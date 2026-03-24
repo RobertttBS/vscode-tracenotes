@@ -19,9 +19,10 @@ interface FloatCardProps {
     trace: TracePoint;
     parentId: string | null;
     onNavigate: (groupId: string | null, focusId: string) => void;
+    highlightQuery?: string;
 }
 
-const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate }) => {
+const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightQuery }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
@@ -42,10 +43,14 @@ const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNav
                 <div className="float-card-filename">{fileName}</div>
             )}
             {trace.content && (
-                <pre className="float-card-code"><code>{trace.content}</code></pre>
+                <pre className="float-card-code"><code>
+                    {highlightQuery ? highlightMatch(trace.content, highlightQuery) : trace.content}
+                </code></pre>
             )}
             {trace.note && (
-                <div className="float-card-note">{trace.note}</div>
+                <div className="float-card-note">
+                    {highlightQuery ? highlightMatch(trace.note, highlightQuery) : trace.note}
+                </div>
             )}
         </div>
     );
@@ -90,15 +95,36 @@ const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNa
 
 function flattenTraces(traces: TracePoint[]): { trace: TracePoint; parentId: string | null }[] {
     const result: { trace: TracePoint; parentId: string | null }[] = [];
-    const stack: { trace: TracePoint; parentId: string | null }[] = traces.map(t => ({ trace: t, parentId: null }));
+    // Reverse root array so first root ends up on top of the stack (pre-order DFS)
+    const stack: { trace: TracePoint; parentId: string | null }[] =
+        [...traces].reverse().map(t => ({ trace: t, parentId: null }));
     while (stack.length > 0) {
         const item = stack.pop()!;
         result.push(item);
         if (item.trace.children && item.trace.children.length > 0) {
-            stack.push(...item.trace.children.map(c => ({ trace: c, parentId: item.trace.id })));
+            // Push children in reverse so first child is processed first
+            for (let i = item.trace.children.length - 1; i >= 0; i--) {
+                stack.push({ trace: item.trace.children[i], parentId: item.trace.id });
+            }
         }
     }
     return result;
+}
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+    const q = query.toLowerCase();
+    const lower = text.toLowerCase();
+    const parts: React.ReactNode[] = [];
+    let last = 0;
+    let idx = lower.indexOf(q);
+    while (idx !== -1) {
+        if (idx > last) { parts.push(text.slice(last, idx)); }
+        parts.push(<mark key={idx} className="float-search-highlight">{text.slice(idx, idx + q.length)}</mark>);
+        last = idx + q.length;
+        idx = lower.indexOf(q, last);
+    }
+    if (last < text.length) { parts.push(text.slice(last)); }
+    return parts;
 }
 
 // ─── FloatCanvas ──────────────────────────────────────────────────────────────
@@ -120,7 +146,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         const q = searchQuery.trim().toLowerCase();
         if (!q) { return null; }
         return flattenTraces(traces).filter(({ trace }) =>
-            trace.note.toLowerCase().includes(q) || trace.content.toLowerCase().includes(q)
+            (trace.note ?? '').toLowerCase().includes(q) || (trace.content ?? '').toLowerCase().includes(q)
         );
     }, [searchQuery, traces]);
 
@@ -227,7 +253,15 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
         searchInputRef.current?.focus();
     }, []);
 
+    // Refresh dimension cache when returning from search mode (canvas remounts)
+    useEffect(() => {
+        if (filteredCards === null) {
+            requestAnimationFrame(() => updateDimCache());
+        }
+    }, [filteredCards, updateDimCache]);
+
     const handleWheel = useCallback((e: React.WheelEvent) => {
+        if (filteredCards !== null) { return; }
         e.preventDefault();
         if (e.ctrlKey || e.metaKey) {
             // Zoom toward cursor position
@@ -243,10 +277,11 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
             panRef.current.y -= e.deltaY;
         }
         scheduleDraw();
-    }, [scheduleDraw]);
+    }, [scheduleDraw, filteredCards]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        // Only initiate drag on the overlay background, not on cards
+        // Only initiate drag on the overlay background, not on cards or search UI
+        if (filteredCards !== null) { return; }
         if ((e.target as HTMLElement).closest('.float-card')) { return; }
         isDraggingRef.current = true;
         dragStartRef.current = {
@@ -261,13 +296,13 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     }, []);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        if (!isDraggingRef.current) { return; }
+        if (!isDraggingRef.current || filteredCards !== null) { return; }
         const dx = e.clientX - dragStartRef.current.x;
         const dy = e.clientY - dragStartRef.current.y;
         panRef.current.x = dragStartRef.current.panX + dx;
         panRef.current.y = dragStartRef.current.panY + dy;
         scheduleDraw();
-    }, [scheduleDraw]);
+    }, [scheduleDraw, filteredCards]);
 
     const stopDrag = useCallback(() => {
         isDraggingRef.current = false;
@@ -311,6 +346,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                     <button
                         className="toolbar-btn float-search-clear"
                         onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         aria-label="Clear search"
                     >
                         ✕
@@ -331,9 +367,12 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                     No results for &ldquo;{searchQuery}&rdquo;
                 </div>
             ) : (
-                <div className="float-search-results">
+                <div
+                    className="float-search-results"
+                    onWheel={(e) => e.stopPropagation()}
+                >
                     {filteredCards.map(({ trace, parentId }) => (
-                        <FloatCard key={trace.id} trace={trace} parentId={parentId} onNavigate={onNavigate} />
+                        <FloatCard key={trace.id} trace={trace} parentId={parentId} onNavigate={onNavigate} highlightQuery={searchQuery} />
                     ))}
                 </div>
             )}

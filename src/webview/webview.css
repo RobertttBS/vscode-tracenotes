@@ -985,7 +985,7 @@ body.vscode-high-contrast .trace-card {
 
 .float-card-note {
   font-size: 12px;
-  color: #9ebeffff;
+  color: var(--vscode-editor-foreground);
   margin-top: 6px;
   padding: 4px 6px;
   border: 1px solid var(--vscode-widget-border, #4e4e4eff);
@@ -1034,6 +1034,7 @@ body.vscode-high-contrast .trace-card {
   border-radius: 6px;
   padding: 2px 2px 2px 8px;
   width: 320px;
+  max-width: calc(100% - 56px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -1080,6 +1081,18 @@ body.vscode-high-contrast .trace-card {
   width: 100%;
   max-width: 600px;
   align-self: center;
+}
+
+.float-search-results .float-card-code,
+.float-search-results .float-card-note {
+  user-select: text;
+}
+
+.float-search-highlight {
+  background: rgba(255, 200, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .float-search-empty {
