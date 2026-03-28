@@ -554,6 +554,45 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], padding.length, "Should find content at correct offset");
     });
 
+    // --- DIGIT TOLERANCE TESTS ---
+
+    await test("Digit change same offset: contentMatches survives digit-only edit (1 → 0)", async () => {
+        // Tracepoint on "#define _EN_EXAMPLE (1)", file updated to "(0)"
+        // contentMatches must return true so no recovery is triggered and trace isn't orphaned.
+        const storedContent = "#define _EN_EXAMPLE (1)";
+        const fileContent = "#define _EN_EXAMPLE (0)";
+        const doc = new MockDocument(fileContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.ok(res !== null, "Trace should survive a digit-only change");
+        assert.strictEqual(res!.offset[0], 0, "Should find at offset 0");
+    });
+
+    await test("Digit change + offset shift: findNormalized recovers arr[123] → arr[1] at new position", async () => {
+        // Stored content uses arr[123], file has arr[1] at a shifted offset
+        const storedContent = "arr[123]";
+        const padding = "// some preamble\n".repeat(5); // shifts offset
+        const fileContent = padding + "arr[1]";
+        const doc = new MockDocument(fileContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.ok(res !== null, "Should recover arr[123] matched against arr[1] at a new offset");
+        assert.strictEqual(res!.offset[0], padding.length, "Should find at the shifted offset");
+    });
+
+    await test("Regression: non-digit difference still fails (arr[1] vs foo[1])", async () => {
+        // Digit normalization must not create false positives between structurally different lines
+        const storedContent = "arr[1]";
+        const fileContent = "foo[1]";
+        const doc = new MockDocument(fileContent);
+        const uri = mockVscode.Uri.file('/workspace/src/file.c');
+
+        const res = await recoverTracePoints(doc, storedContent, 0, uri);
+        assert.strictEqual(res, null, "Should NOT recover when a key identifier differs");
+    });
+
     await test("Same-file: whitespace-normalized match (stored with extra spaces, file has single spaces)", async () => {
         const storedContent = "void bgdClnCacheblkProc()    // BYTE uCaller)";
         const fileContent = "void bgdClnCacheblkProc() // BYTE uCaller)"; // fewer spaces before comment

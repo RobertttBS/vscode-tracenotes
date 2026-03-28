@@ -1105,8 +1105,8 @@ export class TraceManager implements vscode.Disposable {
         preferredOffset: number
     ): [number, number] | null {
         const ZW_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
-        const normContent = cleanContent.replace(ZW_RE, '').replace(/\s+/g, ' ');
-        const normText = fullText.replace(ZW_RE, '').replace(/\s+/g, ' ');
+        const normContent = cleanContent.replace(ZW_RE, '').replace(/\s+/g, ' ').replace(/\d+/g, '#');
+        const normText = fullText.replace(ZW_RE, '').replace(/\s+/g, ' ').replace(/\d+/g, '#');
 
         let bestNormIdx = -1;
         let bestDist = Infinity;
@@ -1134,6 +1134,10 @@ export class TraceManager implements vscode.Disposable {
                     // zero-width char: skip in original, no normPos advance (was stripped)
                     origPos++;
                 }
+            } else if (/\d/.test(fullText[origPos])) {
+                // consume the entire digit run in original; normalized has a single '#'
+                while (origPos < fullText.length && /\d/.test(fullText[origPos])) origPos++;
+                normPos++; // one '#' in normalized
             } else {
                 origPos++;
                 normPos++;
@@ -1153,6 +1157,10 @@ export class TraceManager implements vscode.Disposable {
                 } else {
                     endOrigPos++;
                 }
+            } else if (/\d/.test(fullText[endOrigPos])) {
+                // consume the entire digit run in original; normalized has a single '#'
+                while (endOrigPos < fullText.length && /\d/.test(fullText[endOrigPos])) endOrigPos++;
+                endNormPos++; // one '#' in normalized
             } else {
                 endOrigPos++;
                 endNormPos++;
@@ -1438,9 +1446,8 @@ export class TraceManager implements vscode.Disposable {
 
 
     private contentMatches(docContent: string, storedContent: string): boolean {
-        const normDoc = docContent.replace(/\s+/g, ' ').trim();
-        const normStored = storedContent.replace(/\s+/g, ' ').trim();
-        return normDoc === normStored;
+        const norm = (s: string) => s.replace(/\s+/g, ' ').replace(/\d+/g, '#').trim();
+        return norm(docContent) === norm(storedContent);
     }
 
     private rebuildTraceIndex(): void {
