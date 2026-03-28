@@ -580,6 +580,7 @@ async function runTests() {
         const res = await recoverTracePoints(doc, storedContent, 0, uri);
         assert.ok(res !== null, "Should recover arr[123] matched against arr[1] at a new offset");
         assert.strictEqual(res!.offset[0], padding.length, "Should find at the shifted offset");
+        assert.strictEqual(res!.offset[1], padding.length + "arr[1]".length, "End offset should span arr[1]");
     });
 
     await test("Regression: non-digit difference still fails (arr[1] vs foo[1])", async () => {
