@@ -119,10 +119,8 @@ const LazyRender: React.FC<{ height?: number; forceVisible?: boolean; children: 
     const [visible, setVisible] = useState(false);
 
     useEffect(() => {
-        if (forceVisible) {
-            setVisible(true);
-            return;
-        }
+        // forceVisible is handled directly in render; skip observer when forced
+        if (forceVisible) { return; }
         const el = ref.current;
         if (!el) { return; }
 
@@ -139,7 +137,7 @@ const LazyRender: React.FC<{ height?: number; forceVisible?: boolean; children: 
         return () => observer.disconnect();
     }, [forceVisible]);
 
-    if (!visible) {
+    if (!visible && !forceVisible) {
         return (
             <div
                 ref={ref}
@@ -330,6 +328,16 @@ const Storyboard: React.FC = () => {
 
     const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+    const scrollToCard = useCallback((id: string) => {
+        const el = document.getElementById(`trace-card-${id}`);
+        if (!el) { return; }
+        const dist = Math.abs(el.getBoundingClientRect().top);
+        el.scrollIntoView({
+            behavior: dist > 1500 ? 'instant' : 'smooth',
+            block: 'center',
+        });
+    }, []);
+
     // Listen for messages from the extension
     useEffect(() => {
         const unsubscribe = onMessage((message) => {
@@ -355,11 +363,10 @@ const Storyboard: React.FC = () => {
                         if (scrollTimerRef.current) { clearTimeout(scrollTimerRef.current); }
                         scrollTimerRef.current = setTimeout(() => {
                             scrollTimerRef.current = undefined;
-                            const el = document.getElementById(`trace-card-${cardId}`);
-                            if (el) {
-                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }, 50);
+                            requestAnimationFrame(() => {
+                                requestAnimationFrame(() => { scrollToCard(cardId); });
+                            });
+                        }, 200);
                     }
                     break;
                 }
@@ -379,17 +386,15 @@ const Storyboard: React.FC = () => {
     // Scroll to a newly created card
     useEffect(() => {
         if (!pendingFocusId) { return; }
-        
-        // The DOM is already flushed by the time useEffect runs.
-        const el = document.getElementById(`trace-card-${pendingFocusId}`);
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        
-        // Clear it so it doesn't re-run if visibleTraces changes for another reason
-        setPendingFocusId(null); 
-        
-    }, [pendingFocusId]);
+        setPendingFocusId(null);
+        if (scrollTimerRef.current) { clearTimeout(scrollTimerRef.current); }
+        scrollTimerRef.current = setTimeout(() => {
+            scrollTimerRef.current = undefined;
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => { scrollToCard(pendingFocusId); });
+            });
+        }, 200);
+    }, [pendingFocusId, scrollToCard]);
 
     const handleDragStart = useCallback((event: DragStartEvent) => {
         setActiveId(event.active.id as string);
