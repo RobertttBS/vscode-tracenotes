@@ -183,7 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
             const md = generateMarkdown(traces);
 
             const treeData = traceManager.getActiveTreeData();
-            const fileName = treeData ? `${treeData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md` : 'tracenotes.md';
+            const fileName = treeData ? `${treeData.name.replace(/[^\p{L}\p{N}\s\-]/gu, '_').replace(/\s+/g, ' ').trim()}.md` : 'tracenotes.md';
 
             const uri = await vscode.window.showSaveDialog({
                 defaultUri: vscode.Uri.file(fileName),
