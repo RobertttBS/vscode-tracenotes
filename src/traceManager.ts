@@ -688,6 +688,38 @@ export class TraceManager implements vscode.Disposable {
         return [...this.getActiveRootTraces()];
     }
 
+    public getAllTrees(): TraceTree[] {
+        return JSON.parse(JSON.stringify(this.trees));
+    }
+
+    public async importAllTrees(incoming: TraceTree[]): Promise<void> {
+        if (incoming.length === 0) { return; }
+        const existingIds = new Set(this.trees.map(t => t.id));
+        let firstImportedId: string | null = null;
+        for (const tree of incoming) {
+            if (existingIds.has(tree.id)) {
+                const newId = generateIsomorphicUUID();
+                this.trees.push({ ...tree, id: newId });
+                existingIds.add(newId);
+                firstImportedId ??= newId;
+            } else {
+                this.trees.push(tree);
+                existingIds.add(tree.id);
+                firstImportedId ??= tree.id;
+            }
+        }
+        if (firstImportedId) {
+            this.activeTreeId = firstImportedId;
+            this.activeGroupId = null;
+            this.persistActiveTree();
+            this.persistActiveGroup();
+        }
+        this.rebuildTraceIndex();
+        this.isDirty = true;
+        await this.flush();
+        this._onDidChangeTraces.fire();
+    }
+
     public getWorkspaceSyncPayload(): any {
         const active = this.getActiveTree();
         const basicPayload = active

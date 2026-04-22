@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
 import { TraceManager } from './traceManager';
 import { EditorTracker } from './utils/EditorTracker';
 import { StoryboardProvider } from './webviewProvider';
@@ -103,6 +105,9 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'importTrace':
                     vscode.commands.executeCommand('tracenotes.importTrace');
                     break;
+                case 'exportAllData':
+                    vscode.commands.executeCommand('tracenotes.exportData');
+                    break;
                 case 'renameTree':
                     traceManager.renameActiveTree(msg.name);
                     break;
@@ -197,35 +202,68 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    // Command: Import Trace
+    // Command: Import Trace (Markdown or data.json)
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.importTrace', async () => {
             await traceManager.ensureReady();
 
-            const options: vscode.OpenDialogOptions = {
-                canSelectMany: false, // User can only select one file
+            const fileUris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
                 openLabel: 'Import',
                 filters: {
+                    'TraceNotes Files': ['md', 'json'],
                     'Markdown Files': ['md'],
-                    'All Files': ['*']
+                    'JSON Files': ['json'],
                 }
-            };
+            });
 
-            const fileUri = await vscode.window.showOpenDialog(options);
+            if (!fileUris || !fileUris[0]) { return; }
 
-            if (fileUri && fileUri[0]) {
-                try {
-                    const fileData = await vscode.workspace.fs.readFile(fileUri[0]);
-                    const markdown = new TextDecoder().decode(fileData);
+            try {
+                const fileData = await vscode.workspace.fs.readFile(fileUris[0]);
+                const text = new TextDecoder().decode(fileData);
+                const filePath = fileUris[0].path;
 
-                    // Extract filename without extension
-                    const fileName = fileUri[0].path.split('/').pop()?.replace(/\.md$/i, '') || 'Imported Trace';
-
-                    await traceManager.importTraceTree(markdown, fileName);
+                if (filePath.toLowerCase().endsWith('.json')) {
+                    const parsed = JSON.parse(text);
+                    if (!Array.isArray(parsed) || !parsed.every((t: unknown) => typeof (t as any).id === 'string' && Array.isArray((t as any).traces))) {
+                        throw new Error('Invalid format: expected an array of trace trees with string IDs and traces arrays.');
+                    }
+                    await traceManager.importAllTrees(parsed);
+                    vscode.window.showInformationMessage(`TraceNotes: Imported ${parsed.length} tree(s) from JSON.`);
+                } else {
+                    const fileName = filePath.split('/').pop()?.replace(/\.md$/i, '') || 'Imported Trace';
+                    await traceManager.importTraceTree(text, fileName);
                     vscode.window.showInformationMessage('TraceNotes: Trace tree imported successfully!');
-                } catch (e) {
-                    vscode.window.showErrorMessage(`TraceNotes: Failed to import trace tree. ${e}`);
                 }
+            } catch (e) {
+                vscode.window.showErrorMessage(`TraceNotes: Failed to import. ${e}`);
+            }
+        }),
+    );
+
+    // Command: Export all trace trees to data.json
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tracenotes.exportData', async () => {
+            await traceManager.ensureReady();
+
+            const trees = traceManager.getAllTrees();
+            if (trees.length === 0) {
+                vscode.window.showWarningMessage('TraceNotes: No trace trees to export.');
+                return;
+            }
+
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: workspaceRoot
+                    ? vscode.Uri.joinPath(workspaceRoot, 'tracenotes-data.json')
+                    : vscode.Uri.file(path.join(os.homedir(), 'tracenotes-data.json')),
+                filters: { 'JSON': ['json'] }
+            });
+
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(trees, null, 2)));
+                vscode.window.showInformationMessage(`TraceNotes: Exported ${trees.length} tree(s) to ${uri.fsPath.split('/').pop()}.`);
             }
         }),
     );

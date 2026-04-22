@@ -568,6 +568,10 @@ const Storyboard: React.FC = () => {
         setViewMode('trace');
     }, []);
 
+    const handleExportAllData = useCallback(() => {
+        postMessage({ command: 'exportAllData' });
+    }, []);
+
     if (viewMode === 'list') {
         return (
             <TreeList
@@ -576,6 +580,7 @@ const Storyboard: React.FC = () => {
                 onCreate={handleCreateTree}
                 onDelete={handleDeleteTree}
                 onImport={handleImportTrace}
+                onExport={handleExportAllData}
                 onClose={() => setViewMode('trace')}
             />
         );

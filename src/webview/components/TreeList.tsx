@@ -13,10 +13,11 @@ interface TreeListProps {
     onCreate: (name: string) => void;
     onDelete: (id: string) => void;
     onImport: () => void;
+    onExport: () => void;
     onClose: () => void;
 }
 
-export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, onDelete, onImport, onClose }) => {
+export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, onDelete, onImport, onExport, onClose }) => {
     const [isCreating, setIsCreating] = useState(false);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
@@ -105,13 +106,18 @@ export const TreeList: React.FC<TreeListProps> = ({ trees, onSelect, onCreate, o
                     <button className="create-tree-cancel" onClick={() => setIsCreating(false)}>Cancel</button>
                 </div>
             ) : (
-                <div style={{ display: 'flex', gap: '8px', padding: '0 12px 12px 12px' }}>
-                    <button className="create-tree-btn" style={{ flex: 1 }} onClick={() => setIsCreating(true)}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 12px 12px 12px' }}>
+                    <button className="create-tree-btn" onClick={() => setIsCreating(true)}>
                         + New Trace
                     </button>
-                    <button className="create-tree-btn" style={{ flex: 1 }} onClick={onImport} data-tooltip="Import Trace from Markdown" data-tooltip-pos="top">
-                        Import Trace
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="create-tree-btn" style={{ flex: 1 }} onClick={onImport} data-tooltip="Import from Markdown or data.json" data-tooltip-pos="top">
+                            Import
+                        </button>
+                        <button className="create-tree-btn" style={{ flex: 1 }} onClick={onExport} data-tooltip="Export all trees to data.json" data-tooltip-pos="top">
+                            Export
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

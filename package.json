@@ -29,11 +29,15 @@
       },
       {
         "command": "tracenotes.importTrace",
-        "title": "TraceNotes: Import from Markdown"
+        "title": "TraceNotes: Import Trace"
       },
       {
         "command": "tracenotes.clearAll",
         "title": "TraceNotes: Clear All Traces"
+      },
+      {
+        "command": "tracenotes.exportData",
+        "title": "TraceNotes: Export All Data to JSON"
       }
     ],
     "viewsContainers": {

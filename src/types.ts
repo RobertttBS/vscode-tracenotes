@@ -71,4 +71,5 @@ export type WebviewToExtensionMessage =
     | { command: 'moveToChild'; traceId: string; targetId: string }
     | { command: 'moveToParent'; traceId: string }
     | { command: 'addEmptyTrace' }
-    | { command: 'jumpToGroup'; groupId: string | null; focusId: string };
+    | { command: 'jumpToGroup'; groupId: string | null; focusId: string }
+    | { command: 'exportAllData' };
