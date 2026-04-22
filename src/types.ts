@@ -33,6 +33,23 @@ export interface TraceTree {
     traces: TracePoint[];
 }
 
+/** Slim trace projection used by the cross-tree search view. */
+export interface SearchableTrace {
+    id: string;
+    note: string;
+    content: string;
+    filePath: string;
+    lineRange?: [number, number];
+    highlight?: TracePoint['highlight'];
+    children?: SearchableTrace[];
+}
+
+export interface SearchableTree {
+    id: string;
+    name: string;
+    traces: SearchableTrace[];
+}
+
 /** Messages sent from Extension → Webview */
 export type ExtensionToWebviewMessage =
     | { type: 'focusCard'; id: string | null }
@@ -48,7 +65,8 @@ export type ExtensionToWebviewMessage =
             treeList: { id: string; name: string; active: boolean }[];
             focusId?: string;
         };
-    };
+    }
+    | { type: 'allTreesData'; payload: { trees: SearchableTree[] } };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =
@@ -72,4 +90,6 @@ export type WebviewToExtensionMessage =
     | { command: 'moveToParent'; traceId: string }
     | { command: 'addEmptyTrace' }
     | { command: 'jumpToGroup'; groupId: string | null; focusId: string }
-    | { command: 'exportAllData' };
+    | { command: 'exportAllData' }
+    | { command: 'navigateToTrace'; treeId: string; groupId: string | null; focusId: string }
+    | { command: 'requestAllTrees' };

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
 import { FileStorageManager } from './storage/FileStorageManager';
 
@@ -731,8 +731,27 @@ export class TraceManager implements vscode.Disposable {
             activeGroupId: this.activeGroupId,
             activeDepth: this.getActiveDepth(),
             breadcrumb: this.getActiveBreadcrumb(),
-            treeList: this.getTreeList()
+            treeList: this.getTreeList(),
         };
+    }
+
+    /** Slim projection of every tree, suitable for the cross-tree search view. */
+    public getSearchableTrees(): { id: string; name: string; traces: SearchableTrace[] }[] {
+        const project = (list: TracePoint[]): SearchableTrace[] =>
+            list.map(t => {
+                const slim: SearchableTrace = {
+                    id: t.id,
+                    note: t.note,
+                    content: t.content,
+                    filePath: t.filePath,
+                };
+                if (t.lineRange) { slim.lineRange = t.lineRange; }
+                if (t.highlight) { slim.highlight = t.highlight; }
+                if (t.children?.length) { slim.children = project(t.children); }
+                return slim;
+            });
+
+        return this.trees.map(t => ({ id: t.id, name: t.name, traces: project(t.traces) }));
     }
 
     public getAllFlat(list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] {

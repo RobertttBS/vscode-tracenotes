@@ -56,7 +56,7 @@ import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
 import { useWebviewState } from '../hooks/useWebviewState';
-import { TracePoint, MAX_DEPTH } from '../../types';
+import { TracePoint, MAX_DEPTH, SearchableTree } from '../../types';
 
 // Renders only static, non-heavy UI — no SyntaxHighlighter mount,
 // no local state — so drag initiation stays at 60 fps.
@@ -287,6 +287,7 @@ const Storyboard: React.FC = () => {
     const [currentDepth, setCurrentDepth] = useWebviewState<number>('currentDepth', 0);
     const [breadcrumb, setBreadcrumb] = useWebviewState<string>('breadcrumb', '');
     const [treeList, setTreeList] = useWebviewState<{ id: string; name: string; active: boolean }[]>('treeList', []);
+    const [allTrees, setAllTrees] = useState<SearchableTree[] | null>(null);
 
     // Ephemeral state (not worth caching across tab switches)
     const [focusedId, setFocusedId] = useState<string | undefined>();
@@ -368,6 +369,11 @@ const Storyboard: React.FC = () => {
                             });
                         }, 200);
                     }
+                    break;
+                }
+                case 'allTreesData': {
+                    const payload = (message as { type: string; payload: { trees: SearchableTree[] } }).payload;
+                    setAllTrees(payload.trees);
                     break;
                 }
             }
@@ -572,6 +578,16 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'exportAllData' });
     }, []);
 
+    const handleNavigateToTrace = useCallback((treeId: string, groupId: string | null, focusId: string) => {
+        postMessage({ command: 'navigateToTrace', treeId, groupId, focusId });
+        setViewMode('trace');
+    }, []);
+
+    const handleRequestAllTrees = useCallback(() => {
+        setAllTrees(null);
+        postMessage({ command: 'requestAllTrees' });
+    }, []);
+
     if (viewMode === 'list') {
         return (
             <TreeList
@@ -582,6 +598,9 @@ const Storyboard: React.FC = () => {
                 onImport={handleImportTrace}
                 onExport={handleExportAllData}
                 onClose={() => setViewMode('trace')}
+                allTreeData={allTrees}
+                onNavigateToTrace={handleNavigateToTrace}
+                onRequestAllTrees={handleRequestAllTrees}
             />
         );
     }

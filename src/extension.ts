@@ -129,6 +129,26 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'moveToParent':
                     traceManager.moveToParent(msg.traceId);
                     break;
+                case 'navigateToTrace': {
+                    traceManager.switchTree(msg.treeId);
+                    if (msg.groupId !== null) {
+                        traceManager.jumpToGroup(msg.groupId);
+                    }
+                    if (msg.focusId) {
+                        if (focusCardTimer) { clearTimeout(focusCardTimer); }
+                        focusCardTimer = setTimeout(() => {
+                            provider.postMessage({ type: 'focusCard', id: msg.focusId });
+                            focusCardTimer = undefined;
+                        }, 100);
+                    }
+                    break;
+                }
+                case 'requestAllTrees':
+                    provider.postMessage({
+                        type: 'allTreesData',
+                        payload: { trees: traceManager.getSearchableTrees() },
+                    });
+                    break;
             }
         },
     );

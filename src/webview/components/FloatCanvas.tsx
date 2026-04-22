@@ -15,14 +15,24 @@ interface FloatCanvasProps {
 
 // ─── FloatCard ────────────────────────────────────────────────────────────────
 
+export interface FloatCardTrace {
+    id: string;
+    filePath: string;
+    content: string;
+    note: string;
+    highlight?: TracePoint['highlight'];
+}
+
 interface FloatCardProps {
-    trace: TracePoint;
+    trace: FloatCardTrace;
     parentId: string | null;
     onNavigate: (groupId: string | null, focusId: string) => void;
     highlightQuery?: string;
+    idPrefix?: string;
+    headerSlot?: React.ReactNode;
 }
 
-const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightQuery }) => {
+export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightQuery, idPrefix = 'float-card', headerSlot }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
@@ -32,13 +42,14 @@ const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNav
 
     return (
         <div
-            id={`float-card-${trace.id}`}
+            id={`${idPrefix}-${trace.id}`}
             className={classNames}
             onClick={(e) => {
                 e.stopPropagation();
                 onNavigate(parentId, trace.id);
             }}
         >
+            {headerSlot}
             {fileName && (
                 <div className="float-card-filename">{fileName}</div>
             )}
@@ -111,7 +122,7 @@ function flattenTraces(traces: TracePoint[]): { trace: TracePoint; parentId: str
     return result;
 }
 
-function highlightMatch(text: string, query: string): React.ReactNode {
+export function highlightMatch(text: string, query: string): React.ReactNode {
     const q = query.toLowerCase();
     const lower = text.toLowerCase();
     const parts: React.ReactNode[] = [];
