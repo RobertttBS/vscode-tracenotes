@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { TrashIcon, SearchIcon } from './icons';
 import { SearchableTrace, SearchableTree } from '../../types';
 import { FloatCard } from './FloatCanvas';
+import { parseQuery, matchTrace, collectHighlightTargets } from '../utils/search';
 
 interface TreeItem {
     id: string;
@@ -106,9 +107,13 @@ export const TreeList: React.FC<TreeListProps> = ({
         }));
     }, [allTreeData]);
 
+    const parsedQuery = useMemo(() => {
+        const q = searchQuery.trim();
+        return q ? parseQuery(q) : null;
+    }, [searchQuery]);
+
     const filteredResults = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase();
-        if (!q || !flattenedTrees) { return null; }
+        if (!parsedQuery || !flattenedTrees) { return null; }
         const results: {
             treeId: string;
             treeName: string;
@@ -117,16 +122,18 @@ export const TreeList: React.FC<TreeListProps> = ({
         }[] = [];
         for (const { treeId, treeName, entries } of flattenedTrees) {
             for (const { trace, parentId } of entries) {
-                const matched =
-                    (trace.note ?? '').toLowerCase().includes(q) ||
-                    (trace.content ?? '').toLowerCase().includes(q);
-                if (matched) {
+                if (matchTrace(parsedQuery, (trace.note ?? '') + '\n' + (trace.content ?? ''))) {
                     results.push({ treeId, treeName, trace, parentId });
                 }
             }
         }
         return results;
-    }, [searchQuery, flattenedTrees]);
+    }, [parsedQuery, flattenedTrees]);
+
+    const highlightTargets = useMemo(() => {
+        if (!parsedQuery) return [];
+        return collectHighlightTargets(parsedQuery);
+    }, [parsedQuery]);
 
     if (isSearchMode) {
         return (
@@ -149,7 +156,7 @@ export const TreeList: React.FC<TreeListProps> = ({
                         <input
                             ref={searchInputRef}
                             className="float-search-input"
-                            placeholder="Search notes and code…"
+                            placeholder='Search notes and code… (try: foo AND bar, "exact phrase", -exclude)'
                             value={searchQuery}
                             onChange={e => setSearchQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
@@ -180,7 +187,7 @@ export const TreeList: React.FC<TreeListProps> = ({
                                 trace={trace}
                                 parentId={parentId}
                                 idPrefix={`tree-search-${treeId}`}
-                                highlightQuery={searchQuery.trim()}
+                                highlightTargets={highlightTargets}
                                 onNavigate={(groupId, focusId) => onNavigateToTrace(treeId, groupId, focusId)}
                                 headerSlot={<div className="tree-search-result-tree"><span className="tree-name-badge">{treeName}</span></div>}
                             />

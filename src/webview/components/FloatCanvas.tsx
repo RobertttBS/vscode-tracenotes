@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { TracePoint } from '../../types';
+import { parseQuery, matchTrace, collectHighlightTargets } from '../utils/search';
 
 const INITIAL_SCALE = 0.6;
 const MIN_SCALE = 0.15;
@@ -27,12 +28,12 @@ interface FloatCardProps {
     trace: FloatCardTrace;
     parentId: string | null;
     onNavigate: (groupId: string | null, focusId: string) => void;
-    highlightQuery?: string;
+    highlightTargets?: string[];
     idPrefix?: string;
     headerSlot?: React.ReactNode;
 }
 
-export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightQuery, idPrefix = 'float-card', headerSlot }) => {
+export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightTargets, idPrefix = 'float-card', headerSlot }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
@@ -55,12 +56,12 @@ export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId
             )}
             {trace.content && (
                 <pre className="float-card-code"><code>
-                    {highlightQuery ? highlightMatch(trace.content, highlightQuery) : trace.content}
+                    {highlightTargets?.length ? highlightMatches(trace.content, highlightTargets) : trace.content}
                 </code></pre>
             )}
             {trace.note && (
                 <div className="float-card-note">
-                    {highlightQuery ? highlightMatch(trace.note, highlightQuery) : trace.note}
+                    {highlightTargets?.length ? highlightMatches(trace.note, highlightTargets) : trace.note}
                 </div>
             )}
         </div>
@@ -122,19 +123,45 @@ function flattenTraces(traces: TracePoint[]): { trace: TracePoint; parentId: str
     return result;
 }
 
-export function highlightMatch(text: string, query: string): React.ReactNode {
-    const q = query.toLowerCase();
+export function highlightMatches(text: string, targets: string[]): React.ReactNode {
+    if (!targets.length || !text) return text;
+
     const lower = text.toLowerCase();
+    const spans: { start: number; end: number }[] = [];
+
+    for (const target of targets) {
+        if (!target) continue;
+        const t = target.toLowerCase();
+        let idx = 0;
+        while ((idx = lower.indexOf(t, idx)) !== -1) {
+            spans.push({ start: idx, end: idx + t.length });
+            idx++;
+        }
+    }
+
+    if (!spans.length) return text;
+
+    // sort by start position, prefer longer span on ties
+    spans.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+    // merge overlapping spans
+    const merged: { start: number; end: number }[] = [];
+    for (const s of spans) {
+        if (!merged.length || s.start >= merged[merged.length - 1].end) {
+            merged.push({ ...s });
+        } else {
+            merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, s.end);
+        }
+    }
+
     const parts: React.ReactNode[] = [];
     let last = 0;
-    let idx = lower.indexOf(q);
-    while (idx !== -1) {
-        if (idx > last) { parts.push(text.slice(last, idx)); }
-        parts.push(<mark key={idx} className="float-search-highlight">{text.slice(idx, idx + q.length)}</mark>);
-        last = idx + q.length;
-        idx = lower.indexOf(q, last);
+    for (const { start, end } of merged) {
+        if (start > last) parts.push(text.slice(last, start));
+        parts.push(<mark key={start} className="float-search-highlight">{text.slice(start, end)}</mark>);
+        last = end;
     }
-    if (last < text.length) { parts.push(text.slice(last)); }
+    if (last < text.length) parts.push(text.slice(last));
     return parts;
 }
 
@@ -153,13 +180,22 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
     const [searchQuery, setSearchQuery] = useState('');
     const searchInputRef = useRef<HTMLInputElement>(null);
 
+    const parsedQuery = useMemo(() => {
+        const q = searchQuery.trim();
+        return q ? parseQuery(q) : null;
+    }, [searchQuery]);
+
     const filteredCards = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase();
-        if (!q) { return null; }
+        if (!parsedQuery) { return null; }
         return flattenTraces(traces).filter(({ trace }) =>
-            (trace.note ?? '').toLowerCase().includes(q) || (trace.content ?? '').toLowerCase().includes(q)
+            matchTrace(parsedQuery, (trace.note ?? '') + '\n' + (trace.content ?? ''))
         );
-    }, [searchQuery, traces]);
+    }, [parsedQuery, traces]);
+
+    const highlightTargets = useMemo(() => {
+        if (!parsedQuery) return [];
+        return collectHighlightTargets(parsedQuery);
+    }, [parsedQuery]);
 
     const applyTransform = useCallback(() => {
         if (canvasRef.current) {
@@ -352,7 +388,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                     ref={searchInputRef}
                     className="float-search-input"
                     type="text"
-                    placeholder="Search notes and code…"
+                    placeholder='Search notes and code… (try: foo AND bar, "exact phrase", -exclude)'
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -388,7 +424,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                     onWheel={(e) => e.stopPropagation()}
                 >
                     {filteredCards.map(({ trace, parentId }) => (
-                        <FloatCard key={trace.id} trace={trace} parentId={parentId} onNavigate={onNavigate} highlightQuery={searchQuery} />
+                        <FloatCard key={trace.id} trace={trace} parentId={parentId} onNavigate={onNavigate} highlightTargets={highlightTargets} />
                     ))}
                 </div>
             )}

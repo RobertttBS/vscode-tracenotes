@@ -70,7 +70,8 @@
   "scripts": {
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "lint": "eslint src --ext ts,tsx"
+    "lint": "eslint src --ext ts,tsx",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -80,7 +81,8 @@
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.3",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
