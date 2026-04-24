@@ -597,7 +597,7 @@ export class TraceManager implements vscode.Disposable {
         }
     }
 
-    public updateHighlight(id: string, highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'indigo' | 'magenta' | 'yellow' | null): void {
+    public updateHighlight(id: string, highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'indigo' | 'brown' | 'yellow' | null): void {
         const trace = this.findTraceById(id);
         if (trace) {
             trace.highlight = highlight;

@@ -452,9 +452,9 @@ kbd {
   border-color: #818cf8;
   box-shadow: 0 0 4px rgba(129, 140, 248, 0.2);
 }
-.trace-card.magenta {
-  border-color: #ff00cc;
-  box-shadow: 0 0 4px rgba(255, 0, 204, 0.2);
+.trace-card.brown {
+  border-color: #c8864a;
+  box-shadow: 0 0 4px rgba(200, 134, 74, 0.2);
 }
 .trace-card.yellow {
   border-color: #ffcc00;
@@ -508,8 +508,8 @@ kbd {
 .color-option.indigo {
   background: #818cf8;
 }
-.color-option.magenta {
-  background: #ff00cc;
+.color-option.brown {
+  background: #c8864a;
 }
 .color-option.yellow {
   background: #ffcc00;
@@ -586,8 +586,8 @@ kbd {
 .highlight-active .trace-card.indigo {
   border-color: #818cf8 !important;
 }
-.highlight-active .trace-card.magenta {
-  border-color: #ff00cc !important;
+.highlight-active .trace-card.brown {
+  border-color: #c8864a !important;
 }
 .highlight-active .trace-card.yellow {
   border-color: #ffcc00 !important;
@@ -1067,9 +1067,9 @@ body.vscode-high-contrast .trace-card {
   border: 2px solid #818cf8;
   background: rgba(129, 140, 248, 0.18);
 }
-.float-card.magenta {
-  border: 2px solid #ff00cc;
-  background: rgba(255, 0, 204, 0.18);
+.float-card.brown {
+  border: 2px solid #c8864a;
+  background: rgba(200, 134, 74, 0.18);
 }
 .float-card.yellow {
   border: 2px solid #ffcc00;

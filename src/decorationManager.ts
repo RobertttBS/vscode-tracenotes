@@ -12,7 +12,7 @@ let greenDecorationType: vscode.TextEditorDecorationType;
 let orangeDecorationType: vscode.TextEditorDecorationType;
 let purpleDecorationType: vscode.TextEditorDecorationType;
 let indigoDecorationType: vscode.TextEditorDecorationType;
-let magentaDecorationType: vscode.TextEditorDecorationType;
+let brownDecorationType: vscode.TextEditorDecorationType;
 let yellowDecorationType: vscode.TextEditorDecorationType;
 
 /** Generate a data URI for the gutter icon with the specified color */
@@ -85,11 +85,11 @@ export function initDecorations(context: vscode.ExtensionContext): void {
         backgroundColor: 'rgba(129, 140, 248, 0.05)',
     });
 
-    magentaDecorationType = vscode.window.createTextEditorDecorationType({
-        gutterIconPath: getGutterIconUri('#FF00CC'),
+    brownDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: getGutterIconUri('#C8864A'),
         gutterIconSize: 'contain',
         isWholeLine: true,
-        backgroundColor: 'rgba(255, 0, 204, 0.05)',
+        backgroundColor: 'rgba(200, 134, 74, 0.05)',
     });
 
     yellowDecorationType = vscode.window.createTextEditorDecorationType({
@@ -108,7 +108,7 @@ export function initDecorations(context: vscode.ExtensionContext): void {
     context.subscriptions.push(orangeDecorationType);
     context.subscriptions.push(purpleDecorationType);
     context.subscriptions.push(indigoDecorationType);
-    context.subscriptions.push(magentaDecorationType);
+    context.subscriptions.push(brownDecorationType);
     context.subscriptions.push(yellowDecorationType);
 }
 
@@ -159,7 +159,7 @@ export function updateDecorations(
     const orangeActive = relevantActive.filter(t => t.highlight === 'orange');
     const purpleActive = relevantActive.filter(t => t.highlight === 'purple');
     const indigoActive = relevantActive.filter(t => t.highlight === 'indigo');
-    const magentaActive = relevantActive.filter(t => t.highlight === 'magenta');
+    const brownActive = relevantActive.filter(t => t.highlight === 'brown');
     const yellowActive = relevantActive.filter(t => t.highlight === 'yellow');
 
     // --- Collect the set of line numbers already covered by active traces ---
@@ -256,7 +256,7 @@ export function updateDecorations(
     editor.setDecorations(orangeDecorationType, getDecorationOptions(orangeActive));
     editor.setDecorations(purpleDecorationType, getDecorationOptions(purpleActive));
     editor.setDecorations(indigoDecorationType, getDecorationOptions(indigoActive));
-    editor.setDecorations(magentaDecorationType, getDecorationOptions(magentaActive));
+    editor.setDecorations(brownDecorationType, getDecorationOptions(brownActive));
     editor.setDecorations(yellowDecorationType, getDecorationOptions(yellowActive));
     editor.setDecorations(fadedDecorationType, fadedDecorations);
 }
