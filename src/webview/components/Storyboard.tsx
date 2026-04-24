@@ -509,8 +509,6 @@ const Storyboard: React.FC = () => {
     }), [activeTreeId, currentGroupId, focusedId]);
 
     const executeHistoryNav = useCallback((entry: NavigationHistoryEntry) => {
-        const treeExists = treeList.some(t => t.id === entry.treeId);
-        if (!treeExists) return;
         postMessage({
             command: 'navigateToTrace',
             treeId: entry.treeId,
@@ -518,17 +516,22 @@ const Storyboard: React.FC = () => {
             focusId: entry.focusId ?? '',
         });
         setViewMode('trace');
-    }, [treeList]);
+    }, []);
+
+    const treeIsValid = useCallback(
+        (entry: NavigationHistoryEntry) => treeList.some(t => t.id === entry.treeId),
+        [treeList],
+    );
 
     const handleGoBack = useCallback(() => {
-        const target = goBack(currentNavEntry());
+        const target = goBack(currentNavEntry(), treeIsValid);
         if (target) executeHistoryNav(target);
-    }, [goBack, currentNavEntry, executeHistoryNav]);
+    }, [goBack, currentNavEntry, treeIsValid, executeHistoryNav]);
 
     const handleGoForward = useCallback(() => {
-        const target = goForward(currentNavEntry());
+        const target = goForward(currentNavEntry(), treeIsValid);
         if (target) executeHistoryNav(target);
-    }, [goForward, currentNavEntry, executeHistoryNav]);
+    }, [goForward, currentNavEntry, treeIsValid, executeHistoryNav]);
 
     const handleEnterGroup = useCallback((id: string) => {
         pushNavigation(currentNavEntry());
