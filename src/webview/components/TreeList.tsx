@@ -94,9 +94,8 @@ export const TreeList: React.FC<TreeListProps> = ({
             setIsSearchMode(false);
         } else {
             setIsSearchMode(true);
-            onRequestAllTrees();
         }
-    }, [isSearchMode, onRequestAllTrees]);
+    }, [isSearchMode]);
 
     const flattenedTrees = useMemo(() => {
         if (!allTreeData) { return null; }
