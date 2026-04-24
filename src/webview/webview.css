@@ -448,13 +448,13 @@ kbd {
   border-color: #9d00ff;
   box-shadow: 0 0 4px rgba(157, 0, 255, 0.2);
 }
-.trace-card.cyan {
-  border-color: #00d4d4;
-  box-shadow: 0 0 4px rgba(0, 212, 212, 0.2);
+.trace-card.indigo {
+  border-color: #818cf8;
+  box-shadow: 0 0 4px rgba(129, 140, 248, 0.2);
 }
-.trace-card.pink {
-  border-color: #ff3399;
-  box-shadow: 0 0 4px rgba(255, 51, 153, 0.2);
+.trace-card.magenta {
+  border-color: #ff00cc;
+  box-shadow: 0 0 4px rgba(255, 0, 204, 0.2);
 }
 .trace-card.yellow {
   border-color: #ffcc00;
@@ -505,11 +505,11 @@ kbd {
 .color-option.purple {
   background: #9d00ff;
 }
-.color-option.cyan {
-  background: #00d4d4;
+.color-option.indigo {
+  background: #818cf8;
 }
-.color-option.pink {
-  background: #ff3399;
+.color-option.magenta {
+  background: #ff00cc;
 }
 .color-option.yellow {
   background: #ffcc00;
@@ -583,11 +583,11 @@ kbd {
 .highlight-active .trace-card.purple {
   border-color: #9d00ff !important;
 }
-.highlight-active .trace-card.cyan {
-  border-color: #00d4d4 !important;
+.highlight-active .trace-card.indigo {
+  border-color: #818cf8 !important;
 }
-.highlight-active .trace-card.pink {
-  border-color: #ff3399 !important;
+.highlight-active .trace-card.magenta {
+  border-color: #ff00cc !important;
 }
 .highlight-active .trace-card.yellow {
   border-color: #ffcc00 !important;
@@ -1063,13 +1063,13 @@ body.vscode-high-contrast .trace-card {
   border: 2px solid #9d00ff;
   background: rgba(157, 0, 255, 0.18);
 }
-.float-card.cyan {
-  border: 2px solid #00d4d4;
-  background: rgba(0, 212, 212, 0.18);
+.float-card.indigo {
+  border: 2px solid #818cf8;
+  background: rgba(129, 140, 248, 0.18);
 }
-.float-card.pink {
-  border: 2px solid #ff3399;
-  background: rgba(255, 51, 153, 0.18);
+.float-card.magenta {
+  border: 2px solid #ff00cc;
+  background: rgba(255, 0, 204, 0.18);
 }
 .float-card.yellow {
   border: 2px solid #ffcc00;
