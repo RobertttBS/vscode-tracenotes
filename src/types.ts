@@ -16,7 +16,7 @@ export interface TracePoint {
     lang: string;                // language id for syntax highlighting
     note: string;
     timestamp: number;
-    highlight?: 'red' | 'blue' | 'green' | 'orange' | 'purple' | null;
+    highlight?: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'cyan' | 'pink' | 'yellow' | null;
     orphaned?: boolean;
     children?: TracePoint[];     // sub-traces (max 10 levels deep)
 }
@@ -28,6 +28,9 @@ export const HIGHLIGHT_TO_TAG: Record<NonNullable<TracePoint['highlight']>, stri
     blue:   'Note',
     green:  'Tip',
     purple: 'Remark',
+    cyan:   'Info',
+    pink:   'Warning',
+    yellow: 'Todo',
 };
 
 /** Root level container for a tree of traces */
@@ -84,7 +87,7 @@ export type WebviewToExtensionMessage =
     | { command: 'enterGroup'; id: string }
     | { command: 'exitGroup' }
     | { command: 'clearCurrentLevel' }
-    | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | null }
+    | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'cyan' | 'pink' | 'yellow' | null }
     | { command: 'exportToMarkdown' }
     | { command: 'renameTree'; name: string }
     | { command: 'createTree'; name: string }

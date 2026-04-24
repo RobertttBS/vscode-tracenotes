@@ -11,6 +11,9 @@ let blueDecorationType: vscode.TextEditorDecorationType;
 let greenDecorationType: vscode.TextEditorDecorationType;
 let orangeDecorationType: vscode.TextEditorDecorationType;
 let purpleDecorationType: vscode.TextEditorDecorationType;
+let cyanDecorationType: vscode.TextEditorDecorationType;
+let pinkDecorationType: vscode.TextEditorDecorationType;
+let yellowDecorationType: vscode.TextEditorDecorationType;
 
 /** Generate a data URI for the gutter icon with the specified color */
 function getGutterIconUri(color: string): vscode.Uri {
@@ -75,6 +78,27 @@ export function initDecorations(context: vscode.ExtensionContext): void {
         backgroundColor: 'rgba(157, 0, 255, 0.05)',
     });
 
+    cyanDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: getGutterIconUri('#00D4D4'),
+        gutterIconSize: 'contain',
+        isWholeLine: true,
+        backgroundColor: 'rgba(0, 212, 212, 0.05)',
+    });
+
+    pinkDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: getGutterIconUri('#FF3399'),
+        gutterIconSize: 'contain',
+        isWholeLine: true,
+        backgroundColor: 'rgba(255, 51, 153, 0.05)',
+    });
+
+    yellowDecorationType = vscode.window.createTextEditorDecorationType({
+        gutterIconPath: getGutterIconUri('#FFCC00'),
+        gutterIconSize: 'contain',
+        isWholeLine: true,
+        backgroundColor: 'rgba(255, 204, 0, 0.05)',
+    });
+
     context.subscriptions.push(traceDecorationType);
     context.subscriptions.push(fadedDecorationType);
     context.subscriptions.push(flashDecorationType);
@@ -83,6 +107,9 @@ export function initDecorations(context: vscode.ExtensionContext): void {
     context.subscriptions.push(greenDecorationType);
     context.subscriptions.push(orangeDecorationType);
     context.subscriptions.push(purpleDecorationType);
+    context.subscriptions.push(cyanDecorationType);
+    context.subscriptions.push(pinkDecorationType);
+    context.subscriptions.push(yellowDecorationType);
 }
 
 /**
@@ -131,6 +158,9 @@ export function updateDecorations(
     const greenActive = relevantActive.filter(t => t.highlight === 'green');
     const orangeActive = relevantActive.filter(t => t.highlight === 'orange');
     const purpleActive = relevantActive.filter(t => t.highlight === 'purple');
+    const cyanActive = relevantActive.filter(t => t.highlight === 'cyan');
+    const pinkActive = relevantActive.filter(t => t.highlight === 'pink');
+    const yellowActive = relevantActive.filter(t => t.highlight === 'yellow');
 
     // --- Collect the set of line numbers already covered by active traces ---
     // We use this to carve active lines out of faded ranges so gutter icons never
@@ -225,5 +255,8 @@ export function updateDecorations(
     editor.setDecorations(greenDecorationType, getDecorationOptions(greenActive));
     editor.setDecorations(orangeDecorationType, getDecorationOptions(orangeActive));
     editor.setDecorations(purpleDecorationType, getDecorationOptions(purpleActive));
+    editor.setDecorations(cyanDecorationType, getDecorationOptions(cyanActive));
+    editor.setDecorations(pinkDecorationType, getDecorationOptions(pinkActive));
+    editor.setDecorations(yellowDecorationType, getDecorationOptions(yellowActive));
     editor.setDecorations(fadedDecorationType, fadedDecorations);
 }

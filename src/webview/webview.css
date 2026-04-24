@@ -448,6 +448,18 @@ kbd {
   border-color: #9d00ff;
   box-shadow: 0 0 4px rgba(157, 0, 255, 0.2);
 }
+.trace-card.cyan {
+  border-color: #00d4d4;
+  box-shadow: 0 0 4px rgba(0, 212, 212, 0.2);
+}
+.trace-card.pink {
+  border-color: #ff3399;
+  box-shadow: 0 0 4px rgba(255, 51, 153, 0.2);
+}
+.trace-card.yellow {
+  border-color: #ffcc00;
+  box-shadow: 0 0 4px rgba(255, 204, 0, 0.2);
+}
 
 /* ---- Context Menu ---- */
 .context-menu {
@@ -492,6 +504,15 @@ kbd {
 }
 .color-option.purple {
   background: #9d00ff;
+}
+.color-option.cyan {
+  background: #00d4d4;
+}
+.color-option.pink {
+  background: #ff3399;
+}
+.color-option.yellow {
+  background: #ffcc00;
 }
 
 .color-option.none {
@@ -561,6 +582,15 @@ kbd {
 }
 .highlight-active .trace-card.purple {
   border-color: #9d00ff !important;
+}
+.highlight-active .trace-card.cyan {
+  border-color: #00d4d4 !important;
+}
+.highlight-active .trace-card.pink {
+  border-color: #ff3399 !important;
+}
+.highlight-active .trace-card.yellow {
+  border-color: #ffcc00 !important;
 }
 /* ---- Tree Title ---- */
 .tree-title-container {
@@ -1032,6 +1062,18 @@ body.vscode-high-contrast .trace-card {
 .float-card.purple {
   border: 2px solid #9d00ff;
   background: rgba(157, 0, 255, 0.18);
+}
+.float-card.cyan {
+  border: 2px solid #00d4d4;
+  background: rgba(0, 212, 212, 0.18);
+}
+.float-card.pink {
+  border: 2px solid #ff3399;
+  background: rgba(255, 51, 153, 0.18);
+}
+.float-card.yellow {
+  border: 2px solid #ffcc00;
+  background: rgba(255, 204, 0, 0.18);
 }
 
 /* ─── Float Search Bar ────────────────────────────────────────────────────── */
