@@ -402,6 +402,16 @@ kbd {
   opacity: 1;
 }
 
+/* ---- Navigation Back/Forward Buttons ---- */
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-btn:disabled:hover {
+  background: none;
+}
+
 /* ---- Clear All Button ---- */
 .clear-all-btn {
   color: #ff4d4d;

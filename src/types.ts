@@ -1,5 +1,11 @@
 export const MAX_DEPTH = 10;
 
+export interface NavigationHistoryEntry {
+    treeId: string;
+    groupId: string | null;
+    focusId: string | null;
+}
+
 
 export interface TracePoint {
     id: string;

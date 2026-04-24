@@ -228,44 +228,38 @@ const SortableTraceCard: React.FC<{
     );
 });
 
-import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, SearchIcon } from './icons';
+import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, BackArrowIcon, ForwardArrowIcon, SearchIcon } from './icons';
 import { TreeList } from './TreeList';
 import FloatCanvas from './FloatCanvas';
+import { useNavigationHistory } from '../hooks/useNavigationHistory';
+import { NavigationHistoryEntry } from '../../types';
 
-const BackButtonDropZone: React.FC<{ onExitGroup: () => void }> = ({ onExitGroup }) => {
+const ToParentButton: React.FC<{ onToParent: () => void }> = ({ onToParent }) => {
     const { setNodeRef, isOver } = useDroppable({
         id: 'back-button-drop-target',
         data: { type: 'back-button' }
     });
 
-    // 取得當前是否有東西在被拖拽
     const { active } = useDndContext();
     const isDraggingAny = !!active;
-    
+
     return (
-        <button 
-            ref={setNodeRef} 
+        <button
+            ref={setNodeRef}
             className={`back-button ${isDraggingAny ? 'drop-active' : ''} ${isOver ? 'drop-over' : ''}`}
-            onClick={onExitGroup}
-            style={{ 
-                // 關鍵：拖拽時提高 z-index 確保它在 DragOverlay 之上（或至少更顯眼）
+            onClick={onToParent}
+            style={{
                 zIndex: isDraggingAny ? 1000 : 1,
                 position: 'relative',
-                
-                // 基礎樣式與動態反饋
                 padding: '4px 12px',
                 borderRadius: '4px',
                 transition: 'all 0.2s ease',
-                
-                // 當有東西在拖拽時，按鈕變成「準備接收」狀態
-                border: isDraggingAny 
-                    ? `2px dashed ${isOver ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-background)'}` 
+                border: isDraggingAny
+                    ? `2px dashed ${isOver ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-background)'}`
                     : '1px solid transparent',
-                
-                // 當懸停在上方時，放大並改變背景
                 transform: isOver ? 'scale(1.1)' : 'scale(1)',
-                background: isOver 
-                    ? 'var(--vscode-button-background)' 
+                background: isOver
+                    ? 'var(--vscode-button-background)'
                     : isDraggingAny ? 'var(--vscode-input-background)' : undefined,
                 color: isOver ? 'var(--vscode-button-foreground)' : undefined,
                 boxShadow: isOver ? '0 0 15px rgba(0,0,0,0.5)' : 'none',
@@ -273,7 +267,7 @@ const BackButtonDropZone: React.FC<{ onExitGroup: () => void }> = ({ onExitGroup
         >
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 {isOver ? '📥' : <BackIcon />}
-                <span>{isOver ? 'Drop to Move to Parent Level' : 'Back'}</span>
+                <span>{isOver ? 'Drop to Move to Parent Level' : 'To Parent'}</span>
             </span>
         </button>
     );
@@ -288,6 +282,9 @@ const Storyboard: React.FC = () => {
     const [breadcrumb, setBreadcrumb] = useWebviewState<string>('breadcrumb', '');
     const [treeList, setTreeList] = useWebviewState<{ id: string; name: string; active: boolean }[]>('treeList', []);
     const [allTrees, setAllTrees] = useState<SearchableTree[] | null>(null);
+    const [activeTreeId, setActiveTreeId] = useWebviewState<string>('activeTreeId', '');
+
+    const { canGoBack, canGoForward, pushNavigation, goBack, goForward } = useNavigationHistory();
 
     // Ephemeral state (not worth caching across tab switches)
     const [focusedId, setFocusedId] = useState<string | undefined>();
@@ -351,6 +348,9 @@ const Storyboard: React.FC = () => {
                     setCurrentDepth(payload.activeDepth);
                     setBreadcrumb(payload.breadcrumb);
                     setTreeList(payload.treeList);
+                    if (payload.treeId) {
+                        setActiveTreeId(payload.treeId);
+                    }
                     if (payload.focusId) {
                         setFocusedId(payload.focusId);
                         setPendingFocusId(payload.focusId);
@@ -502,18 +502,49 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'relocateTrace', id });
     }, []);
 
-    const handleEnterGroup = useCallback((id: string) => {
-        postMessage({ command: 'enterGroup', id });
-    }, []);
+    const currentNavEntry = useCallback((): NavigationHistoryEntry => ({
+        treeId: activeTreeId,
+        groupId: currentGroupId,
+        focusId: focusedId ?? null,
+    }), [activeTreeId, currentGroupId, focusedId]);
 
-    const handleExitGroup = useCallback(() => {
+    const executeHistoryNav = useCallback((entry: NavigationHistoryEntry) => {
+        const treeExists = treeList.some(t => t.id === entry.treeId);
+        if (!treeExists) return;
+        postMessage({
+            command: 'navigateToTrace',
+            treeId: entry.treeId,
+            groupId: entry.groupId,
+            focusId: entry.focusId ?? '',
+        });
+        setViewMode('trace');
+    }, [treeList]);
+
+    const handleGoBack = useCallback(() => {
+        const target = goBack(currentNavEntry());
+        if (target) executeHistoryNav(target);
+    }, [goBack, currentNavEntry, executeHistoryNav]);
+
+    const handleGoForward = useCallback(() => {
+        const target = goForward(currentNavEntry());
+        if (target) executeHistoryNav(target);
+    }, [goForward, currentNavEntry, executeHistoryNav]);
+
+    const handleEnterGroup = useCallback((id: string) => {
+        pushNavigation(currentNavEntry());
+        postMessage({ command: 'enterGroup', id });
+    }, [pushNavigation, currentNavEntry]);
+
+    const handleToParent = useCallback(() => {
+        pushNavigation(currentNavEntry());
         postMessage({ command: 'exitGroup' });
-    }, []);
+    }, [pushNavigation, currentNavEntry]);
 
     const handleFloatNavigate = useCallback((groupId: string | null, focusId: string) => {
+        pushNavigation(currentNavEntry());
         setIsFloating(false);
         postMessage({ command: 'jumpToGroup', groupId, focusId });
-    }, []);
+    }, [pushNavigation, currentNavEntry]);
 
     const handleClearAll = useCallback(() => {
         postMessage({ command: 'clearCurrentLevel' });
@@ -556,9 +587,10 @@ const Storyboard: React.FC = () => {
 
     // Tree Management Handlers
     const handleSwitchTree = useCallback((id: string) => {
+        pushNavigation(currentNavEntry());
         postMessage({ command: 'switchTree', id });
         setViewMode('trace');
-    }, []);
+    }, [pushNavigation, currentNavEntry]);
 
     const handleDeleteTree = useCallback((id: string) => {
         postMessage({ command: 'deleteTree', id });
@@ -579,9 +611,10 @@ const Storyboard: React.FC = () => {
     }, []);
 
     const handleNavigateToTrace = useCallback((treeId: string, groupId: string | null, focusId: string) => {
+        pushNavigation(currentNavEntry());
         postMessage({ command: 'navigateToTrace', treeId, groupId, focusId });
         setViewMode('trace');
-    }, []);
+    }, [pushNavigation, currentNavEntry]);
 
     const handleRequestAllTrees = useCallback(() => {
         setAllTrees(null);
@@ -607,8 +640,8 @@ const Storyboard: React.FC = () => {
 
     const header = (
         <div className="storyboard-header">
-            <button 
-                className="toolbar-btn list-btn" 
+            <button
+                className="toolbar-btn list-btn"
                 onClick={() => setViewMode('list')}
                 data-tooltip="Manage Traces"
                 data-tooltip-pos="bottom-left"
@@ -617,10 +650,30 @@ const Storyboard: React.FC = () => {
                 <ListIcon />
             </button>
 
+            {/* Temporal navigation — always visible */}
+            <button
+                className="toolbar-btn nav-btn"
+                onClick={handleGoBack}
+                disabled={!canGoBack}
+                data-tooltip="Go Back"
+                data-tooltip-pos="bottom-left"
+            >
+                <BackArrowIcon />
+            </button>
+            <button
+                className="toolbar-btn nav-btn"
+                onClick={handleGoForward}
+                disabled={!canGoForward}
+                data-tooltip="Go Forward"
+                data-tooltip-pos="bottom-left"
+            >
+                <ForwardArrowIcon />
+            </button>
+
             {currentGroupId ? (
                 // Group Navigation Header
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                    <BackButtonDropZone onExitGroup={handleExitGroup} />
+                    <ToParentButton onToParent={handleToParent} />
                     {breadcrumb && <span className="breadcrumb-label">📍 {breadcrumb}</span>}
                 </div>
             ) : (
@@ -636,8 +689,8 @@ const Storyboard: React.FC = () => {
                             autoFocus
                         />
                     ) : (
-                        <div 
-                            className="tree-title" 
+                        <div
+                            className="tree-title"
                             onClick={startEditingTitle}
                             data-tooltip="Click to rename trace"
                             data-tooltip-pos="bottom-right"

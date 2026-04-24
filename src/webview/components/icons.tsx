@@ -48,6 +48,20 @@ export const BackIcon = () => (
     </svg>
 );
 
+export const BackArrowIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M9.5 3L5 8l4.5 5" stroke="rgba(0,0,0,0.5)" strokeWidth="3.5" strokeLinecap="round"/>
+        <path d="M9.5 3L5 8l4.5 5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+);
+
+export const ForwardArrowIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M6.5 3L11 8l-4.5 5" stroke="rgba(0,0,0,0.5)" strokeWidth="3.5" strokeLinecap="round"/>
+        <path d="M6.5 3L11 8l-4.5 5" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+);
+
 export const SearchIcon = () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="7" cy="7" r="5" />
