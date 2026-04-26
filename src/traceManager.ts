@@ -697,7 +697,7 @@ export class TraceManager implements vscode.Disposable {
     }
 
     public getAllTrees(): TraceTree[] {
-        return JSON.parse(JSON.stringify(this.trees));
+        return structuredClone(this.trees);
     }
 
     public async importAllTrees(incoming: TraceTree[]): Promise<void> {
@@ -1241,6 +1241,10 @@ export class TraceManager implements vscode.Disposable {
         const anchorWords = this.extractAnchorWords(cleanContent, 5);
         if (anchorWords.length === 0) return null;
         const lowerAnchorWords = anchorWords.map(w => w.toLowerCase());
+        const required = Math.max(1, Math.ceil(anchorWords.length * 0.4));
+        const anchorRegexes = lowerAnchorWords.map(
+            w => new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+        );
 
         const allFiles = await vscode.workspace.findFiles(searchPattern, undefined, undefined, token);
 
@@ -1250,10 +1254,12 @@ export class TraceManager implements vscode.Disposable {
                 const bytes = await vscode.workspace.fs.readFile(fileUri);
                 const text = this.decodeFileContent(fileUri, bytes);
 
-                // Pre-filter: at least 40% of anchor words must be present
-                const lowerText = text.toLowerCase();
-                const matchCount = lowerAnchorWords.filter(w => lowerText.includes(w)).length;
-                const required = Math.max(1, Math.ceil(anchorWords.length * 0.4));
+                // Pre-filter: at least 40% of anchor words must be present; short-circuit early,
+                // no full lowercase clone — regex /i avoids the allocation.
+                let matchCount = 0;
+                for (const re of anchorRegexes) {
+                    if (re.test(text) && ++matchCount >= required) break;
+                }
                 if (matchCount < required) continue;
 
                 const found = this.searchInText(text, cleanContent, 0);

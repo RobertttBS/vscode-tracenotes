@@ -605,6 +605,150 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0);
     });
 
+    // ===== OPTIMIZATION VALIDATION TESTS =====
+
+    // --- getAllTrees: structuredClone isolation ---
+
+    await test("getAllTrees: array-level mutation does not affect internal trees (structuredClone)", async () => {
+        const saved = (manager as any).trees;
+        (manager as any).trees = [
+            { id: 'tree-1', name: 'TreeOne', createdAt: 0, updatedAt: 0, traces: [] },
+        ];
+
+        const result = manager.getAllTrees();
+        assert.strictEqual(result.length, 1, "getAllTrees should return 1 tree");
+
+        result.push({ id: 'injected', name: 'Injected', createdAt: 0, updatedAt: 0, traces: [] });
+        assert.strictEqual((manager as any).trees.length, 1, "Push to returned array must not grow internal trees");
+
+        (manager as any).trees = saved;
+    });
+
+    await test("getAllTrees: deep property mutation does not affect internal state (structuredClone)", async () => {
+        const saved = (manager as any).trees;
+        (manager as any).trees = [
+            {
+                id: 'tree-2', name: 'DeepTree', createdAt: 0, updatedAt: 0,
+                traces: [{ id: 't1', note: 'original', filePath: '', rangeOffset: [0, 1], content: '', lang: 'ts', timestamp: 0 }],
+            },
+        ];
+
+        const result = manager.getAllTrees();
+        result[0].name = 'Mutated';
+        (result[0].traces as any)[0].note = 'changed';
+
+        assert.strictEqual((manager as any).trees[0].name, 'DeepTree', "Mutating returned name must not affect internal name");
+        assert.strictEqual((manager as any).trees[0].traces[0].note, 'original', "Mutating returned trace note must not affect internal note");
+
+        (manager as any).trees = saved;
+    });
+
+    // --- Anchor-word pre-filter: cross-workspace Tier 3 ---
+
+    await test("Pre-filter: file without matching anchor words is excluded, returns null", async () => {
+        // 5 non-forbidden identifiers → required = ceil(5 * 0.4) = 2
+        // The only candidate file contains none of them → pre-filter must reject it
+        const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
+        const origFindFiles = mockVscode.workspace.findFiles;
+        const origReadFile = mockVscode.workspace.fs.readFile;
+
+        mockVscode.workspace.findFiles = async () => [
+            mockVscode.Uri.file('/workspace/src/unrelated.ts'),
+        ];
+        mockVscode.workspace.fs.readFile = async () =>
+            Buffer.from("function hello() { console.log('world'); }");
+
+        try {
+            const doc = new MockDocument("");
+            const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+            const res = await recoverTracePoints(doc, storedContent, 0, uri);
+            assert.strictEqual(res, null, "Pre-filter must exclude file whose text contains none of the anchor words");
+        } finally {
+            mockVscode.workspace.findFiles = origFindFiles;
+            mockVscode.workspace.fs.readFile = origReadFile;
+        }
+    });
+
+    await test("Pre-filter: file with exactly 'required' matching anchors passes the threshold", async () => {
+        // 5 anchors → required = 2. File contains exactly 2 of the 5 → must pass filter and be found.
+        const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
+        const origFindFiles = mockVscode.workspace.findFiles;
+        const origReadFile = mockVscode.workspace.fs.readFile;
+
+        mockVscode.workspace.findFiles = async () => [
+            mockVscode.Uri.file('/workspace/src/boundary.ts'),
+        ];
+        // File contains exactly 2 anchor words (handleRequest + requestId) — at the 40% threshold
+        mockVscode.workspace.fs.readFile = async () =>
+            Buffer.from("handleRequest(requestId, sessionToken, clientData, responseBuffer)");
+
+        try {
+            const doc = new MockDocument("");
+            const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+            const res = await recoverTracePoints(doc, storedContent, 0, uri);
+            assert.ok(res !== null, "File with enough anchor matches must pass the pre-filter and be returned");
+            assert.strictEqual(res!.uri.fsPath, '/workspace/src/boundary.ts');
+        } finally {
+            mockVscode.workspace.findFiles = origFindFiles;
+            mockVscode.workspace.fs.readFile = origReadFile;
+        }
+    });
+
+    await test("Pre-filter: short-circuit skips excluded file and finds correct file", async () => {
+        // File A comes first but lacks anchors → pre-filter rejects it
+        // File B has the content → must still be found (short-circuit must not skip File B)
+        const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
+        const origFindFiles = mockVscode.workspace.findFiles;
+        const origReadFile = mockVscode.workspace.fs.readFile;
+
+        mockVscode.workspace.findFiles = async () => [
+            mockVscode.Uri.file('/workspace/src/rejected.ts'),
+            mockVscode.Uri.file('/workspace/src/target.ts'),
+        ];
+        mockVscode.workspace.fs.readFile = async (uri: any) => {
+            if (uri.fsPath.endsWith('rejected.ts')) {
+                return Buffer.from("function hello() { return world; }"); // no anchor words
+            }
+            return Buffer.from("handleRequest(requestId, sessionToken, clientData, responseBuffer)");
+        };
+
+        try {
+            const doc = new MockDocument("");
+            const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+            const res = await recoverTracePoints(doc, storedContent, 0, uri);
+            assert.ok(res !== null, "Should find target file after skipping rejected file");
+            assert.strictEqual(res!.uri.fsPath, '/workspace/src/target.ts', "Must reach target.ts after pre-filter skips rejected.ts");
+        } finally {
+            mockVscode.workspace.findFiles = origFindFiles;
+            mockVscode.workspace.fs.readFile = origReadFile;
+        }
+    });
+
+    await test("Pre-filter: case-insensitive matching — anchor words from mixed-case content match all-lowercase file", async () => {
+        // Anchor extracted from stored: "calculateTotal" → lowercased → "calculatetotal"
+        // File has: "calculatetotal" (all lowercase) — regex /calculatetotal/i must match it
+        // (This validates the /i flag preserves the case-insensitive behaviour of the old text.toLowerCase() approach)
+        const storedContent = "function calculateTotal() { return finalValue; }";
+        const origFindFiles = mockVscode.workspace.findFiles;
+        const origReadFile = mockVscode.workspace.fs.readFile;
+
+        mockVscode.workspace.findFiles = async () => [
+            mockVscode.Uri.file('/workspace/src/lower.ts'),
+        ];
+        mockVscode.workspace.fs.readFile = async () =>
+            Buffer.from("function calculatetotal() { return finalvalue; }");
+
+        try {
+            const doc = new MockDocument("");
+            const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+            const res = await recoverTracePoints(doc, storedContent, 0, uri);
+            assert.ok(res !== null, "/i flag must allow lowercase-pattern to match mixed-case file content");
+        } finally {
+            mockVscode.workspace.findFiles = origFindFiles;
+            mockVscode.workspace.fs.readFile = origReadFile;
+        }
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
 
     if (failed > 0) {
