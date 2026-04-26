@@ -228,7 +228,7 @@ const SortableTraceCard: React.FC<{
     );
 });
 
-import { ExportIcon, TrashIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, BackArrowIcon, ForwardArrowIcon, SearchIcon } from './icons';
+import { ExportIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, BackArrowIcon, ForwardArrowIcon, SearchIcon } from './icons';
 import { TreeList } from './TreeList';
 import FloatCanvas from './FloatCanvas';
 import { useNavigationHistory } from '../hooks/useNavigationHistory';
@@ -564,10 +564,6 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'jumpToGroup', groupId, focusId });
     }, [pushNavigation, currentNavEntry]);
 
-    const handleClearAll = useCallback(() => {
-        postMessage({ command: 'clearCurrentLevel' });
-    }, []);
-
     const handleExport = useCallback(() => {
         postMessage({ command: 'exportToMarkdown' });
     }, []);
@@ -575,14 +571,13 @@ const Storyboard: React.FC = () => {
     const handleAddTrace = useCallback(() => {
         postMessage({ command: 'addEmptyTrace' });
     }, []);
-    
+
     // Title Editing
     const startEditingTitle = useCallback(() => {
         setTitleInputValue(treeName);
         isEditingRef.current = true;
         setIsEditingTitle(true);
     }, [treeName]);
-
     const saveTitle = useCallback(() => {
         if (!isEditingRef.current) return;
         isEditingRef.current = false;
@@ -744,14 +739,6 @@ const Storyboard: React.FC = () => {
                     data-tooltip-pos="bottom-right"
                 >
                     <ExportIcon />
-                </button>
-                <button
-                    className="toolbar-btn clear-all-btn"
-                    onClick={handleClearAll}
-                    data-tooltip="Clear Notes in Current Level"
-                    data-tooltip-pos="bottom-right"
-                >
-                    <TrashIcon />
                 </button>
             </div>
         </div>

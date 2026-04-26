@@ -96,9 +96,6 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     break;
                 }
-                case 'clearCurrentLevel':
-                    traceManager.clearActiveChildren();
-                    break;
                 case 'exportToMarkdown':
                     vscode.commands.executeCommand('tracenotes.exportMarkdown');
                     break;

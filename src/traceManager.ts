@@ -783,19 +783,6 @@ export class TraceManager implements vscode.Disposable {
         this._onDidChangeTraces.fire();
     }
 
-    public clearActiveChildren(): void {
-        const children = this.getActiveChildren();
-        const idsToRemove = children.map(c => c.id);
-        children.length = 0;
-
-        for (const id of idsToRemove) {
-            this.removeTraceFromIndex(id);
-        }
-
-        this.persist();
-        this._onDidChangeTraces.fire();
-    }
-
     // ── Public: Navigation ───────────────────────────────────────
 
     public enterGroup(id: string): boolean {

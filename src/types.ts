@@ -87,7 +87,6 @@ export type WebviewToExtensionMessage =
     | { command: 'ready' }
     | { command: 'enterGroup'; id: string }
     | { command: 'exitGroup' }
-    | { command: 'clearCurrentLevel' }
     | { command: 'updateHighlight'; id: string; highlight: 'red' | 'blue' | 'green' | 'orange' | 'purple' | 'indigo' | 'brown' | 'yellow' | null }
     | { command: 'exportToMarkdown' }
     | { command: 'renameTree'; name: string }
