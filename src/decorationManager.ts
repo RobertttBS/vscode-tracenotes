@@ -2,6 +2,14 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TracePoint } from './types';
 
+function isOverlapping(t1: TracePoint, t2: TracePoint): boolean {
+    if (t1.rangeOffset && t2.rangeOffset)
+        return t1.rangeOffset[0] < t2.rangeOffset[1] && t2.rangeOffset[0] < t1.rangeOffset[1];
+    if (t1.lineRange && t2.lineRange)
+        return t1.lineRange[0] <= t2.lineRange[1] && t2.lineRange[0] <= t1.lineRange[1];
+    return false;
+}
+
 let traceDecorationType: vscode.TextEditorDecorationType;
 let fadedDecorationType: vscode.TextEditorDecorationType;
 export let flashDecorationType: vscode.TextEditorDecorationType;
@@ -143,12 +151,28 @@ export function updateDecorations(
                 return null;
             }
             
-            return {
-                range,
-                hoverMessage: new vscode.MarkdownString(
-                    `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
-                ),
-            };
+            const hoverMessage = new vscode.MarkdownString(
+                `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
+            );
+
+            // Add other traces that overlap with this line but are not in the current level
+            const overlaps = allTraces.filter(other => 
+                other.id !== trace.id && 
+                !activeIds.has(other.id) &&
+                other.filePath === currentFilePath &&
+                isOverlapping(trace, other)
+            );
+
+            if (overlaps.length > 0) {
+                for (const other of overlaps) {
+                    const noteText = other.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0';
+                    const args = encodeURIComponent(JSON.stringify([other.id]));
+                    hoverMessage.appendMarkdown(`\n\n---\n**[Note]:** ${noteText}${other.orphaned ? ' **(Orphaned)**' : ''}  [\u00A0↗ Jump to card](command:tracenotes.jumpToFadedTrace?${args})`);
+                }
+                hoverMessage.isTrusted = { enabledCommands: ['tracenotes.jumpToFadedTrace'] };
+            }
+
+            return { range, hoverMessage };
         }).filter(d => d !== null) as vscode.DecorationOptions[];
     };
 
@@ -237,7 +261,7 @@ export function updateDecorations(
             return [];
         }
 
-        const noteText = trace.note || '\u00A0\u00A0*(Empty)*\u00A0\u00A0';
+        const noteText = trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0';
         const orphanSuffix = trace.orphaned ? ' **(Orphaned)**' : '';
         const args = encodeURIComponent(JSON.stringify([trace.id]));
         const hoverMessage = new vscode.MarkdownString(
