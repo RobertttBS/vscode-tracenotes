@@ -133,37 +133,86 @@ export function updateDecorations(
 
     const currentFilePath = editor.document.uri.fsPath;
 
-    // --- Active decorations (current level) ---
+    // Filter active traces to those in this file and build a fast-lookup set
     const relevantActive = activeTraces.filter(t => t.filePath === currentFilePath);
     const activeIds = new Set(relevantActive.map(t => t.id));
 
-    const getDecorationOptions = (traces: TracePoint[]): vscode.DecorationOptions[] => {
-        return traces.map(trace => {
-            let range: vscode.Range;
-            if (trace.rangeOffset) {
-                const startPos = editor.document.positionAt(trace.rangeOffset[0]);
-                const endPos = editor.document.positionAt(trace.rangeOffset[1]);
-                range = new vscode.Range(startPos, endPos);
-            } else if (trace.lineRange) {
-                // Fallback for migration
-                range = new vscode.Range(trace.lineRange[0], 0, trace.lineRange[1], 0);
-            } else {
-                return null;
+    // Pre-compute vscode.Range for every relevant trace once
+    // (positionAt is relatively expensive; share the result across all uses below)
+    type TraceWithRange = { trace: TracePoint; range: vscode.Range };
+
+    const toRange = (trace: TracePoint): vscode.Range | null => {
+        if (trace.rangeOffset) {
+            return new vscode.Range(
+                editor.document.positionAt(trace.rangeOffset[0]),
+                editor.document.positionAt(trace.rangeOffset[1]),
+            );
+        }
+        if (trace.lineRange) {
+            return new vscode.Range(trace.lineRange[0], 0, trace.lineRange[1], 0);
+        }
+        return null;
+    };
+
+    const activeWithRanges: TraceWithRange[] = [];
+    for (const trace of relevantActive) {
+        const range = toRange(trace);
+        if (range) { activeWithRanges.push({ trace, range }); }
+    }
+
+    // allTraces is already scoped to this file (from getTracesForFile); no extra filePath check needed
+    const fadedWithRanges: TraceWithRange[] = [];
+    for (const trace of allTraces) {
+        if (!activeIds.has(trace.id)) {
+            const range = toRange(trace);
+            if (range) { fadedWithRanges.push({ trace, range }); }
+        }
+    }
+
+    // Collect active line numbers from pre-computed ranges — no extra positionAt calls
+    // We use this to carve active lines out of faded ranges so gutter icons never
+    // physically overlap — the only reliable way to guarantee active icons win.
+    const activeLineNumbers = new Set<number>();
+    for (const { range } of activeWithRanges) {
+        for (let ln = range.start.line; ln <= range.end.line; ln++) {
+            activeLineNumbers.add(ln);
+        }
+    }
+
+    // Pre-compute overlaps once: active trace id → faded traces that overlap it
+    // Avoids the O(N²) per-trace scan that the old inline allTraces.filter() caused
+    const overlapsMap = new Map<string, TracePoint[]>();
+    if (fadedWithRanges.length > 0) {
+        for (const { trace: activeTrace } of activeWithRanges) {
+            const overlaps: TracePoint[] = [];
+            for (const { trace: fadedTrace } of fadedWithRanges) {
+                if (isOverlapping(activeTrace, fadedTrace)) {
+                    overlaps.push(fadedTrace);
+                }
             }
-            
+            if (overlaps.length > 0) {
+                overlapsMap.set(activeTrace.id, overlaps);
+            }
+        }
+    }
+
+    // Group active traces by highlight color — single pass instead of 9 separate filter calls
+    const byColor = new Map<TracePoint['highlight'] | 'default', TraceWithRange[]>();
+    for (const item of activeWithRanges) {
+        const key = item.trace.highlight ?? 'default';
+        let arr = byColor.get(key);
+        if (!arr) { arr = []; byColor.set(key, arr); }
+        arr.push(item);
+    }
+
+    // Build decoration options for a pre-grouped color bucket
+    const makeOptions = (items: TraceWithRange[]): vscode.DecorationOptions[] =>
+        items.map(({ trace, range }) => {
             const hoverMessage = new vscode.MarkdownString(
                 `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
             );
-
-            // Add other traces that overlap with this line but are not in the current level
-            const overlaps = allTraces.filter(other => 
-                other.id !== trace.id && 
-                !activeIds.has(other.id) &&
-                other.filePath === currentFilePath &&
-                isOverlapping(trace, other)
-            );
-
-            if (overlaps.length > 0) {
+            const overlaps = overlapsMap.get(trace.id);
+            if (overlaps?.length) {
                 for (const other of overlaps) {
                     const noteText = other.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0';
                     const args = encodeURIComponent(JSON.stringify([other.id]));
@@ -171,41 +220,8 @@ export function updateDecorations(
                 }
                 hoverMessage.isTrusted = { enabledCommands: ['tracenotes.jumpToFadedTrace'] };
             }
-
             return { range, hoverMessage };
-        }).filter(d => d !== null) as vscode.DecorationOptions[];
-    };
-
-    const defaultActive = relevantActive.filter(t => !t.highlight);
-    const redActive = relevantActive.filter(t => t.highlight === 'red');
-    const blueActive = relevantActive.filter(t => t.highlight === 'blue');
-    const greenActive = relevantActive.filter(t => t.highlight === 'green');
-    const orangeActive = relevantActive.filter(t => t.highlight === 'orange');
-    const purpleActive = relevantActive.filter(t => t.highlight === 'purple');
-    const indigoActive = relevantActive.filter(t => t.highlight === 'indigo');
-    const brownActive = relevantActive.filter(t => t.highlight === 'brown');
-    const yellowActive = relevantActive.filter(t => t.highlight === 'yellow');
-
-    // --- Collect the set of line numbers already covered by active traces ---
-    // We use this to carve active lines out of faded ranges so gutter icons never
-    // physically overlap — the only reliable way to guarantee active icons win.
-    const activeLineNumbers = new Set<number>();
-    for (const trace of relevantActive) {
-        let startLine: number;
-        let endLine: number;
-        if (trace.rangeOffset) {
-            startLine = editor.document.positionAt(trace.rangeOffset[0]).line;
-            endLine   = editor.document.positionAt(trace.rangeOffset[1]).line;
-        } else if (trace.lineRange) {
-            startLine = trace.lineRange[0];
-            endLine   = trace.lineRange[1];
-        } else {
-            continue;
-        }
-        for (let ln = startLine; ln <= endLine; ln++) {
-            activeLineNumbers.add(ln);
-        }
-    }
+        });
 
     /**
      * Split a range into sub-ranges that skip any line in `activeLineNumbers`.
@@ -245,22 +261,7 @@ export function updateDecorations(
     }
 
     // --- Faded decorations (all other traces, with active lines carved out) ---
-    const relevantFaded = allTraces.filter(
-        t => t.filePath === currentFilePath && !activeIds.has(t.id),
-    );
-
-    const fadedDecorations: vscode.DecorationOptions[] = relevantFaded.flatMap(trace => {
-        let range: vscode.Range;
-        if (trace.rangeOffset) {
-            const startPos = editor.document.positionAt(trace.rangeOffset[0]);
-            const endPos   = editor.document.positionAt(trace.rangeOffset[1]);
-            range = new vscode.Range(startPos, endPos);
-        } else if (trace.lineRange) {
-            range = new vscode.Range(trace.lineRange[0], 0, trace.lineRange[1], 0);
-        } else {
-            return [];
-        }
-
+    const fadedDecorations: vscode.DecorationOptions[] = fadedWithRanges.flatMap(({ trace, range }) => {
         const noteText = trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0';
         const orphanSuffix = trace.orphaned ? ' **(Orphaned)**' : '';
         const args = encodeURIComponent(JSON.stringify([trace.id]));
@@ -277,14 +278,16 @@ export function updateDecorations(
     // was called at activation time — that order is not configurable after the fact.
     // Gutter conflicts are avoided spatially above: active lines are carved out of faded
     // ranges so no two decoration types ever compete for the same gutter slot.
-    editor.setDecorations(traceDecorationType, getDecorationOptions(defaultActive));
-    editor.setDecorations(redDecorationType, getDecorationOptions(redActive));
-    editor.setDecorations(blueDecorationType, getDecorationOptions(blueActive));
-    editor.setDecorations(greenDecorationType, getDecorationOptions(greenActive));
-    editor.setDecorations(orangeDecorationType, getDecorationOptions(orangeActive));
-    editor.setDecorations(purpleDecorationType, getDecorationOptions(purpleActive));
-    editor.setDecorations(indigoDecorationType, getDecorationOptions(indigoActive));
-    editor.setDecorations(brownDecorationType, getDecorationOptions(brownActive));
-    editor.setDecorations(yellowDecorationType, getDecorationOptions(yellowActive));
-    editor.setDecorations(fadedDecorationType, fadedDecorations);
+    const get = (key: TracePoint['highlight'] | 'default') => makeOptions(byColor.get(key) ?? []);
+
+    editor.setDecorations(traceDecorationType,  get('default'));
+    editor.setDecorations(redDecorationType,    get('red'));
+    editor.setDecorations(blueDecorationType,   get('blue'));
+    editor.setDecorations(greenDecorationType,  get('green'));
+    editor.setDecorations(orangeDecorationType, get('orange'));
+    editor.setDecorations(purpleDecorationType, get('purple'));
+    editor.setDecorations(indigoDecorationType, get('indigo'));
+    editor.setDecorations(brownDecorationType,  get('brown'));
+    editor.setDecorations(yellowDecorationType, get('yellow'));
+    editor.setDecorations(fadedDecorationType,  fadedDecorations);
 }

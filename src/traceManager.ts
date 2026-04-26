@@ -4,6 +4,14 @@ import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace } f
 import { generateIsomorphicUUID } from './utils/uuid';
 import { FileStorageManager } from './storage/FileStorageManager';
 
+// Module-level regex constants — compiled once instead of per call on hot paths.
+const RE_ZERO_WIDTH  = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
+const RE_WHITESPACE  = /\s+/g;
+const RE_DIGIT_RUN   = /\d+/g;
+const RE_SKIPPABLE   = /[\s\u200B\u200C\u200D\u2060\uFEFF]/;
+const RE_WHITESPACE1 = /\s/;
+const RE_DIGIT1      = /\d/;
+
 export interface ITraceDocument {
     lineCount: number;
     offsetAt(position: vscode.Position): number;
@@ -1146,9 +1154,8 @@ export class TraceManager implements vscode.Disposable {
         cleanContent: string,
         preferredOffset: number
     ): [number, number] | null {
-        const ZW_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
-        const normContent = cleanContent.replace(ZW_RE, '').replace(/\s+/g, ' ').replace(/\d+/g, '#');
-        const normText = fullText.replace(ZW_RE, '').replace(/\s+/g, ' ').replace(/\d+/g, '#');
+        const normContent = cleanContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
+        const normText = fullText.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
 
         let bestNormIdx = -1;
         let bestDist = Infinity;
@@ -1162,8 +1169,8 @@ export class TraceManager implements vscode.Disposable {
 
         // Map normalized index back to original text offset.
         // Both strings collapse whitespace runs and strip zero-width chars identically.
-        const isSkippable = (ch: string) => /[\s\u200B\u200C\u200D\u2060\uFEFF]/.test(ch);
-        const isWS = (ch: string) => /\s/.test(ch);
+        const isSkippable = (ch: string) => RE_SKIPPABLE.test(ch);
+        const isWS = (ch: string) => RE_WHITESPACE1.test(ch);
         let origPos = 0;
         let normPos = 0;
         while (normPos < bestNormIdx && origPos < fullText.length) {
@@ -1176,9 +1183,9 @@ export class TraceManager implements vscode.Disposable {
                     // zero-width char: skip in original, no normPos advance (was stripped)
                     origPos++;
                 }
-            } else if (/\d/.test(fullText[origPos])) {
+            } else if (RE_DIGIT1.test(fullText[origPos])) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (origPos < fullText.length && /\d/.test(fullText[origPos])) origPos++;
+                while (origPos < fullText.length && RE_DIGIT1.test(fullText[origPos])) origPos++;
                 normPos++; // one '#' in normalized
             } else {
                 origPos++;
@@ -1199,9 +1206,9 @@ export class TraceManager implements vscode.Disposable {
                 } else {
                     endOrigPos++;
                 }
-            } else if (/\d/.test(fullText[endOrigPos])) {
+            } else if (RE_DIGIT1.test(fullText[endOrigPos])) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (endOrigPos < fullText.length && /\d/.test(fullText[endOrigPos])) endOrigPos++;
+                while (endOrigPos < fullText.length && RE_DIGIT1.test(fullText[endOrigPos])) endOrigPos++;
                 endNormPos++; // one '#' in normalized
             } else {
                 endOrigPos++;
@@ -1235,7 +1242,7 @@ export class TraceManager implements vscode.Disposable {
         if (anchorWords.length === 0) return null;
         const lowerAnchorWords = anchorWords.map(w => w.toLowerCase());
 
-        const allFiles = await vscode.workspace.findFiles(searchPattern, null, undefined, token);
+        const allFiles = await vscode.workspace.findFiles(searchPattern, undefined, undefined, token);
 
         for (const fileUri of allFiles) {
             if (token?.isCancellationRequested) return null;
@@ -1488,8 +1495,9 @@ export class TraceManager implements vscode.Disposable {
 
 
     private contentMatches(docContent: string, storedContent: string): boolean {
-        const norm = (s: string) => s.replace(/\s+/g, ' ').replace(/\d+/g, '#').trim();
-        return norm(docContent) === norm(storedContent);
+        const n1 = docContent.replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
+        const n2 = storedContent.replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
+        return n1 === n2;
     }
 
     private rebuildTraceIndex(): void {
