@@ -56,7 +56,7 @@ import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
 import { onMessage, postMessage } from '../utils/messaging';
 import { useWebviewState } from '../hooks/useWebviewState';
-import { TracePoint, MAX_DEPTH, SearchableTree } from '../../types';
+import { TracePoint, MAX_DEPTH, SearchableTree, ExtensionToWebviewMessage } from '../../types';
 
 // Renders only static, non-heavy UI — no SyntaxHighlighter mount,
 // no local state — so drag initiation stays at 60 fps.
@@ -286,6 +286,10 @@ const Storyboard: React.FC = () => {
 
     const { canGoBack, canGoForward, pushNavigation, goBack, goForward } = useNavigationHistory();
 
+    // Ref so the stable [] useEffect below always calls the latest pushNavigation/currentNavEntry
+    // without re-subscribing the message listener on every render.
+    const jumpToFadedTraceRef = useRef<((groupId: string | null, focusId: string) => void) | null>(null);
+
     // Ephemeral state (not worth caching across tab switches)
     const [focusedId, setFocusedId] = useState<string | undefined>();
     const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -374,6 +378,11 @@ const Storyboard: React.FC = () => {
                 case 'allTreesData': {
                     const payload = (message as { type: string; payload: { trees: SearchableTree[] } }).payload;
                     setAllTrees(payload.trees);
+                    break;
+                }
+                case 'jumpToFadedTrace': {
+                    const msg = message as Extract<ExtensionToWebviewMessage, { type: 'jumpToFadedTrace' }>;
+                    jumpToFadedTraceRef.current?.(msg.groupId, msg.focusId);
                     break;
                 }
             }
@@ -507,6 +516,12 @@ const Storyboard: React.FC = () => {
         groupId: currentGroupId,
         focusId: focusedId ?? null,
     }), [activeTreeId, currentGroupId, focusedId]);
+
+    // Keep the ref current so the [] useEffect captures the latest closure.
+    jumpToFadedTraceRef.current = (groupId, focusId) => {
+        pushNavigation(currentNavEntry());
+        postMessage({ command: 'jumpToGroup', groupId, focusId });
+    };
 
     const executeHistoryNav = useCallback((entry: NavigationHistoryEntry) => {
         postMessage({

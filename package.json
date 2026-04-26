@@ -38,6 +38,10 @@
       {
         "command": "tracenotes.exportData",
         "title": "TraceNotes: Export All Data to JSON"
+      },
+      {
+        "command": "tracenotes.jumpToFadedTrace",
+        "title": "Jump to Trace Card (Faded Decoration)"
       }
     ],
     "viewsContainers": {

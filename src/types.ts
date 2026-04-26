@@ -75,7 +75,8 @@ export type ExtensionToWebviewMessage =
             focusId?: string;
         };
     }
-    | { type: 'allTreesData'; payload: { trees: SearchableTree[] } };
+    | { type: 'allTreesData'; payload: { trees: SearchableTree[] } }
+    | { type: 'jumpToFadedTrace'; groupId: string | null; focusId: string };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =

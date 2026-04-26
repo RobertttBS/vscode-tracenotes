@@ -288,6 +288,18 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    // Command: Jump to Trace Card from Faded Gutter Decoration
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tracenotes.jumpToFadedTrace', (traceId: string) => {
+            const parentGroupId = traceManager.getParentGroupId(traceId);
+            provider.postMessage({
+                type: 'jumpToFadedTrace',
+                groupId: parentGroupId,
+                focusId: traceId,
+            });
+        })
+    );
+
     // Command: Clear All
     context.subscriptions.push(
         vscode.commands.registerCommand('tracenotes.clearAll', async () => {

@@ -832,6 +832,10 @@ export class TraceManager implements vscode.Disposable {
         return this.parentIdMap.get(id) ?? null;
     }
 
+    public getParentGroupId(traceId: string): string | null {
+        return this.findParentTraceId(traceId);
+    }
+
     public getActiveGroupId(): string | null {
         return this.activeGroupId;
     }

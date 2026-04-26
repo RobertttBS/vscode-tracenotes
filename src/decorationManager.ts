@@ -146,7 +146,7 @@ export function updateDecorations(
             return {
                 range,
                 hoverMessage: new vscode.MarkdownString(
-                    `**Note:** ${trace.note || '(No note)'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
+                    `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
                 ),
             };
         }).filter(d => d !== null) as vscode.DecorationOptions[];
@@ -237,9 +237,13 @@ export function updateDecorations(
             return [];
         }
 
+        const noteText = trace.note || '\u00A0\u00A0*(Empty)*\u00A0\u00A0';
+        const orphanSuffix = trace.orphaned ? ' **(Orphaned)**' : '';
+        const args = encodeURIComponent(JSON.stringify([trace.id]));
         const hoverMessage = new vscode.MarkdownString(
-            `*(Other level)* **Note:** ${trace.note || '(No note)'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
+            `**[Note]:** ${noteText}${orphanSuffix}  [\u00A0↗ Jump to card](command:tracenotes.jumpToFadedTrace?${args})`,
         );
+        hoverMessage.isTrusted = { enabledCommands: ['tracenotes.jumpToFadedTrace'] };
         return carveOutActiveLines(range, hoverMessage);
     });
 
