@@ -347,9 +347,17 @@ export function activate(context: vscode.ExtensionContext) {
                 const position = editor.selection.active;
                 const currentFilePath = editor.document.uri.fsPath;
 
-                const allTraces = traceManager.getActiveChildren();
-                const matched = allTraces.find(t => {
-                    if (t.filePath !== currentFilePath) { return false; }
+                const fileTraces = traceManager.getTracesForFile(currentFilePath);
+                if (fileTraces.length === 0) {
+                    if (lastFocusedTraceId !== undefined) {
+                        lastFocusedTraceId = undefined;
+                        provider._view?.webview.postMessage({ type: 'focusCard', id: null });
+                    }
+                    return;
+                }
+                const activeChildrenIds = new Set(traceManager.getActiveChildren().map(t => t.id));
+                const matched = fileTraces.find(t => {
+                    if (!activeChildrenIds.has(t.id)) { return false; }
                     if (t.rangeOffset) {
                         const offset = editor.document.offsetAt(position);
                         return offset >= t.rangeOffset[0] && offset <= t.rangeOffset[1];

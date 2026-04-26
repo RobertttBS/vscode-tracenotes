@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import {
     DndContext,
     closestCorners,
@@ -517,11 +517,13 @@ const Storyboard: React.FC = () => {
         focusId: focusedId ?? null,
     }), [activeTreeId, currentGroupId, focusedId]);
 
-    // Keep the ref current so the [] useEffect captures the latest closure.
-    jumpToFadedTraceRef.current = (groupId, focusId) => {
-        pushNavigation(currentNavEntry());
-        postMessage({ command: 'jumpToGroup', groupId, focusId });
-    };
+    // Keep the ref current so the [] useEffect always calls the latest closure.
+    useLayoutEffect(() => {
+        jumpToFadedTraceRef.current = (groupId, focusId) => {
+            pushNavigation(currentNavEntry());
+            postMessage({ command: 'jumpToGroup', groupId, focusId });
+        };
+    }, [pushNavigation, currentNavEntry]);
 
     const executeHistoryNav = useCallback((entry: NavigationHistoryEntry) => {
         postMessage({

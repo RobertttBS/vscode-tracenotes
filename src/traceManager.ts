@@ -38,6 +38,8 @@ export class TraceManager implements vscode.Disposable {
     private traceIdMap: Map<string, TracePoint> = new Map();
     private parentIdMap: Map<string, string | null> = new Map();
 
+    private searchableTreesCache: { id: string; name: string; traces: SearchableTrace[] }[] | null = null;
+
     private readonly storageKey = 'tracenotes.traces';
     private readonly activeGroupKey = 'tracenotes.activeGroupId';
     private readonly activeTreeKey = 'tracenotes.activeTreeId';
@@ -80,6 +82,8 @@ export class TraceManager implements vscode.Disposable {
                 this.pendingValidationDocs.delete(doc.uri.toString());
             })
         );
+
+        this.onDidChangeTraces(() => { this.searchableTreesCache = null; });
     }
 
     /**
@@ -745,6 +749,8 @@ export class TraceManager implements vscode.Disposable {
 
     /** Slim projection of every tree, suitable for the cross-tree search view. */
     public getSearchableTrees(): { id: string; name: string; traces: SearchableTrace[] }[] {
+        if (this.searchableTreesCache) { return this.searchableTreesCache; }
+
         const project = (list: TracePoint[]): SearchableTrace[] =>
             list.map(t => {
                 const slim: SearchableTrace = {
@@ -759,7 +765,8 @@ export class TraceManager implements vscode.Disposable {
                 return slim;
             });
 
-        return this.trees.map(t => ({ id: t.id, name: t.name, traces: project(t.traces) }));
+        this.searchableTreesCache = this.trees.map(t => ({ id: t.id, name: t.name, traces: project(t.traces) }));
+        return this.searchableTreesCache;
     }
 
     public getAllFlat(list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] {
