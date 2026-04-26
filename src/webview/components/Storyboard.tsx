@@ -765,6 +765,7 @@ const Storyboard: React.FC = () => {
                     <FloatCanvas
                         traces={traces}
                         currentGroupId={currentGroupId}
+                        focusedId={focusedId}
                         onNavigate={handleFloatNavigate}
                         onClose={() => setIsFloating(false)}
                     />
@@ -816,6 +817,7 @@ const Storyboard: React.FC = () => {
                 <FloatCanvas
                     traces={traces}
                     currentGroupId={currentGroupId}
+                    focusedId={focusedId}
                     onNavigate={handleFloatNavigate}
                     onClose={() => setIsFloating(false)}
                 />

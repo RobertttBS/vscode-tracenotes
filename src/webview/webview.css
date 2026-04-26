@@ -993,6 +993,7 @@ body.vscode-high-contrast .trace-card {
 /* ─── Float Cards ─────────────────────────────────────────────────────────── */
 
 .float-card {
+  position: relative;
   width: 380px;
   margin-bottom: 12px;
   border: 1px solid var(--vscode-widget-border);
@@ -1002,6 +1003,24 @@ body.vscode-high-contrast .trace-card {
   cursor: pointer;
   box-sizing: border-box;
   transition: border-color 0.15s;
+}
+
+.float-card-active-gutter {
+  position: absolute;
+  left: -56px;
+  top: 0;
+  bottom: 0;
+  width: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.float-card-active-arrow {
+  font-size: 40px;
+  color: var(--vscode-focusBorder);
+  line-height: 1;
 }
 
 .float-card:hover {

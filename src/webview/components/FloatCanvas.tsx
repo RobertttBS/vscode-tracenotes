@@ -10,6 +10,7 @@ const PAN_MARGIN = 100; // px of canvas content always kept within the viewport
 interface FloatCanvasProps {
     traces: TracePoint[];
     currentGroupId: string | null;
+    focusedId?: string;
     onNavigate: (groupId: string | null, focusId: string) => void;
     onClose: () => void;
 }
@@ -31,9 +32,10 @@ interface FloatCardProps {
     highlightTargets?: string[];
     idPrefix?: string;
     headerSlot?: React.ReactNode;
+    isActive?: boolean;
 }
 
-export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightTargets, idPrefix = 'float-card', headerSlot }) => {
+export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightTargets, idPrefix = 'float-card', headerSlot, isActive }) => {
     const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
@@ -50,6 +52,9 @@ export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId
                 onNavigate(parentId, trace.id);
             }}
         >
+            <div className="float-card-active-gutter">
+                {isActive && <span className="float-card-active-arrow">▶</span>}
+            </div>
             {headerSlot}
             {fileName && (
                 <div className="float-card-filename">{fileName}</div>
@@ -74,9 +79,10 @@ interface FloatTreeProps {
     traces: TracePoint[];
     parentId: string | null;
     onNavigate: (groupId: string | null, focusId: string) => void;
+    focusedId?: string;
 }
 
-const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNavigate }) => {
+const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNavigate, focusedId }) => {
     return (
         <>
             {traces.map((trace) => {
@@ -86,6 +92,7 @@ const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNa
                             trace={trace}
                             parentId={parentId}
                             onNavigate={onNavigate}
+                            isActive={trace.id === focusedId}
                         />
                         {trace.children && trace.children.length > 0 && (
                             <div className="float-children">
@@ -93,6 +100,7 @@ const FloatTree: React.FC<FloatTreeProps> = React.memo(({ traces, parentId, onNa
                                     traces={trace.children}
                                     parentId={trace.id}
                                     onNavigate={onNavigate}
+                                    focusedId={focusedId}
                                 />
                             </div>
                         )}
@@ -167,7 +175,7 @@ export function highlightMatches(text: string, targets: string[]): React.ReactNo
 
 // ─── FloatCanvas ──────────────────────────────────────────────────────────────
 
-const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNavigate, onClose }) => {
+const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, focusedId, onNavigate, onClose }) => {
     const overlayRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const panRef = useRef({ x: 20, y: 20 });
@@ -412,7 +420,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, onNav
                     className="float-canvas"
                     style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${INITIAL_SCALE})` }}
                 >
-                    <FloatTree traces={traces} parentId={null} onNavigate={onNavigate} />
+                    <FloatTree traces={traces} parentId={null} onNavigate={onNavigate} focusedId={focusedId} />
                 </div>
             ) : filteredCards.length === 0 ? (
                 <div className="float-search-empty">
