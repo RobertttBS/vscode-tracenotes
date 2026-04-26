@@ -26,6 +26,12 @@ export interface Token {
     type: 'code' | 'string' | 'comment';
 }
 
+interface AnchorCtx {
+    allTokens: Token[];
+    targetTokens: Token[];
+    anchors: string[];
+}
+
 export class TraceManager implements vscode.Disposable {
     private static readonly VALIDATION_BUDGET_MS = 15;
 
@@ -889,7 +895,12 @@ export class TraceManager implements vscode.Disposable {
         const tracesInFile = this.traceIndex.get(docUriStr);
         if (!tracesInFile || tracesInFile.size === 0) return;
 
-        let needsValidation = Array.from(tracesInFile).some(t => t.orphaned);
+        // Sort traces by offset once; enables early break and single right-side sweep per change
+        const tracesArr = Array.from(tracesInFile);
+        this.ensureOffsets(document, tracesArr);
+        tracesArr.sort((a, b) => (a.rangeOffset?.[0] ?? 0) - (b.rangeOffset?.[0] ?? 0));
+
+        let needsValidation = tracesArr.some(t => t.orphaned);
 
         const sortedChanges = [...event.contentChanges].sort(
             (a, b) => b.rangeOffset - a.rangeOffset,
@@ -899,21 +910,32 @@ export class TraceManager implements vscode.Disposable {
             const changeStart = change.rangeOffset;
             const changeEnd = changeStart + change.rangeLength;
             const delta = change.text.length - change.rangeLength;
+            // Binary search for first trace entirely to the right (start >= changeEnd)
+            let lo = 0, hi = tracesArr.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >>> 1;
+                if (tracesArr[mid].rangeOffset![0] < changeEnd) lo = mid + 1;
+                else hi = mid;
+            }
+            const firstRight = lo;
 
-            for (const trace of tracesInFile) {
-                if (!trace.rangeOffset) { this.ensureOffsets(document, [trace]); }
-                const [start, end] = trace.rangeOffset!;
+            // Scan only the [0, firstRight) segment for left/overlap traces
+            for (let i = 0; i < firstRight; i++) {
+                const [start, end] = tracesArr[i].rangeOffset!;
+                if (changeStart >= end) continue; // trace is entirely to the left
+                // Change overlaps trace — mark dirty; expand only if change is contained within the trace
+                needsValidation = true;
+                if (changeStart >= start && changeEnd <= end) {
+                    tracesArr[i].rangeOffset = [start, end + delta];
+                }
+            }
 
-                if (changeEnd <= start) {
-                    trace.rangeOffset = [start + delta, end + delta];
-                    needsValidation = true;
-                } else if (changeStart >= end) {
-                    continue;
-                } else {
-                    needsValidation = true;
-                    if (changeStart >= start && changeEnd <= end) {
-                        trace.rangeOffset = [start, end + delta];
-                    }
+            // Apply delta to all right-of-change traces in a single pass
+            if (firstRight < tracesArr.length) {
+                needsValidation = true;
+                for (let i = firstRight; i < tracesArr.length; i++) {
+                    const [s, e] = tracesArr[i].rangeOffset!;
+                    tracesArr[i].rangeOffset = [s + delta, e + delta];
                 }
             }
         }
@@ -1117,7 +1139,8 @@ export class TraceManager implements vscode.Disposable {
     private searchInText(
         fullText: string,
         cleanContent: string,
-        preferredOffset: number
+        preferredOffset: number,
+        anchorCtx?: AnchorCtx
     ): [number, number] | null {
         // Tier A: exact match across full text
         const exactResult = this.findClosestExact(fullText, cleanContent, preferredOffset);
@@ -1128,7 +1151,7 @@ export class TraceManager implements vscode.Disposable {
         if (normResult) return normResult;
 
         // Tier C: anchor-then-Sellers
-        return this.anchorThenSellers(fullText, cleanContent, preferredOffset);
+        return this.anchorThenSellers(fullText, cleanContent, preferredOffset, anchorCtx);
     }
 
     /**
@@ -1255,6 +1278,16 @@ export class TraceManager implements vscode.Disposable {
 
         const allFiles = await vscode.workspace.findFiles(searchPattern, undefined, undefined, token);
 
+        // Pre-compute tokenization/anchors once per trace — reused across all candidate files
+        const allTokens = this.tokenize(cleanContent);
+        const anchorCtx = {
+            allTokens,
+            anchors: this.extractAnchorWordsFromTokens(allTokens, 3),
+            targetTokens: allTokens
+                .filter(t => t.type !== 'comment')
+                .map(t => ({ ...t, text: t.text.toLowerCase() })),
+        };
+
         for (const fileUri of allFiles) {
             if (token?.isCancellationRequested) return null;
             try {
@@ -1269,7 +1302,7 @@ export class TraceManager implements vscode.Disposable {
                 }
                 if (matchCount < required) continue;
 
-                const found = this.searchInText(text, cleanContent, 0);
+                const found = this.searchInText(text, cleanContent, 0, anchorCtx);
                 if (found) return { offset: found, uri: fileUri };
             } catch {
                 // skip unreadable files silently
@@ -1428,11 +1461,15 @@ export class TraceManager implements vscode.Disposable {
      * Falls back to a full-text Sellers' pass when no anchor words are present
      * or none are found in the file.
      */
-    private anchorThenSellers(fullText: string, cleanContent: string, preferredOffset: number): [number, number] | null {
-        // Tokenize cleanContent once — reuse for both anchor extraction and Sellers' DP
-        const allTokens = this.tokenize(cleanContent);
-        const anchors = this.extractAnchorWordsFromTokens(allTokens, 3);
-        const targetTokens = allTokens
+    private anchorThenSellers(
+        fullText: string,
+        cleanContent: string,
+        preferredOffset: number,
+        anchorCtx?: AnchorCtx
+    ): [number, number] | null {
+        const allTokens = anchorCtx?.allTokens ?? this.tokenize(cleanContent);
+        const anchors = anchorCtx?.anchors ?? this.extractAnchorWordsFromTokens(allTokens, 3);
+        const targetTokens = anchorCtx?.targetTokens ?? allTokens
             .filter(t => t.type !== 'comment')
             .map(t => ({ ...t, text: t.text.toLowerCase() }));
 

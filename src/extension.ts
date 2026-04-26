@@ -389,9 +389,15 @@ export function activate(context: vscode.ExtensionContext) {
     // Listen for trace changes from validation/updates (UI Sync)
     context.subscriptions.push(
         traceManager.onDidChangeTraces((eventPayload) => {
-            for (const editor of vscode.window.visibleTextEditors) {
-                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
-            }
+            // Shares decorationDebounce with onDidChangeTextDocument (100 ms); this 50 ms
+            // timeout coalesces burst repaints from validation and takes precedence when both fire.
+            if (decorationDebounce) { clearTimeout(decorationDebounce); }
+            decorationDebounce = setTimeout(() => {
+                for (const editor of vscode.window.visibleTextEditors) {
+                    updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
+                }
+            }, 50);
+
             // Extract optional focusId carried by addEmptyTrace
             const focusId = (eventPayload && typeof eventPayload === 'object' && 'focusId' in eventPayload)
                 ? eventPayload.focusId
