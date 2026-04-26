@@ -484,6 +484,7 @@ const Storyboard: React.FC = () => {
         const updateNoteInTree = (list: TracePoint[]): TracePoint[] => {
             let changed = false;
             const result = list.map(t => {
+                if (changed) return t;
                 if (t.id === id) {
                     changed = true;
                     return { ...t, note };

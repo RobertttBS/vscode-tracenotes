@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { saveState, loadState } from '../utils/messaging';
 
-// Module-level cache to prevent race conditions between multiple hook instances
-let stateCache: Record<string, any> = loadState<Record<string, any>>() ?? {};
+// Module-level LRU cache (Map preserves insertion order; delete+reinsert = promote to MRU)
+const stateCache = new Map<string, any>(
+    Object.entries(loadState<Record<string, any>>() ?? {})
+);
 let timeout: ReturnType<typeof setTimeout> | undefined;
 
 const MAX_CACHE_KEYS = 50;
@@ -16,27 +18,28 @@ export function useWebviewState<T>(
     defaultValue: T,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
     const [state, setState] = useState<T>(() => {
-        const value = stateCache[key];
+        const value = stateCache.get(key);
         return value !== undefined ? (value as T) : defaultValue;
     });
 
     // Update the local React state AND the module cache immediately
     const setWebviewState: React.Dispatch<React.SetStateAction<T>> = (value) => {
         setState((prev) => {
-            const nextValue = typeof value === 'function' 
-                ? (value as (prev: T) => T)(prev) 
+            const nextValue = typeof value === 'function'
+                ? (value as (prev: T) => T)(prev)
                 : value;
-            
-            // Sync to module-level cache immediately so other hooks see it
-            if (!(key in stateCache) && Object.keys(stateCache).length >= MAX_CACHE_KEYS) {
-                delete stateCache[Object.keys(stateCache)[0]];
+
+            // Promote to MRU by reinserting; evict LRU entry when at capacity
+            stateCache.delete(key);
+            if (stateCache.size >= MAX_CACHE_KEYS) {
+                stateCache.delete(stateCache.keys().next().value);
             }
-            stateCache[key] = nextValue;
-            
+            stateCache.set(key, nextValue);
+
             // Schedule a single debounced write to the VS Code API
             if (timeout) clearTimeout(timeout);
             timeout = setTimeout(() => {
-                saveState(stateCache);
+                saveState(Object.fromEntries(stateCache));
             }, 500);
 
             return nextValue;
