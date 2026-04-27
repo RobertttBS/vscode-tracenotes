@@ -239,7 +239,7 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, focus
         });
     }, [clampPan, applyTransform]);
 
-    // Center on the current level after first render
+    // Center on the last focused card (or current level) after first render
     useEffect(() => {
         applyTransform();
 
@@ -248,14 +248,23 @@ const FloatCanvas: React.FC<FloatCanvasProps> = ({ traces, currentGroupId, focus
             // Populate dimension cache once the canvas is fully laid out
             updateDimCache();
 
-            if (!currentGroupId || !overlayRef.current) { return; }
+            if (!overlayRef.current) { return; }
 
-            // Find the parent card, then its .float-children container (= the active level)
-            const parentCard = document.getElementById(`float-card-${currentGroupId}`);
-            if (!parentCard) { return; }
-            const groupDiv = parentCard.parentElement;
-            const childrenContainer = groupDiv?.querySelector(':scope > .float-children') as HTMLElement | null;
-            const target = childrenContainer ?? parentCard;
+            // Prefer centering on the active (last focused) card; fall back to current group level
+            let target: HTMLElement | null = null;
+            if (focusedId) {
+                target = document.getElementById(`float-card-${focusedId}`);
+            }
+            if (!target && currentGroupId) {
+                // Find the parent card, then its .float-children container (= the active level)
+                const parentCard = document.getElementById(`float-card-${currentGroupId}`);
+                if (parentCard) {
+                    const groupDiv = parentCard.parentElement;
+                    const childrenContainer = groupDiv?.querySelector(':scope > .float-children') as HTMLElement | null;
+                    target = childrenContainer ?? parentCard;
+                }
+            }
+            if (!target) { return; }
 
             // Use getBoundingClientRect for accurate post-transform positions
             const overlayRect = overlayRef.current.getBoundingClientRect();

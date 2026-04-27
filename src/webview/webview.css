@@ -1019,7 +1019,8 @@ body.vscode-high-contrast .trace-card {
 
 .float-card-active-arrow {
   font-size: 40px;
-  color: var(--vscode-focusBorder);
+  color: var(--vscode-charts-orange, #ff8c00);
+  filter: drop-shadow(0 0 6px var(--vscode-charts-orange, #ff8c00));
   line-height: 1;
 }
 
