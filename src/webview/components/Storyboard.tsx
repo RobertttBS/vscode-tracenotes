@@ -160,12 +160,14 @@ const SortableTraceCard: React.FC<{
     trace: TracePoint;
     index: number;
     isFocused: boolean;
+    autoFocusNote: boolean;
+    onCardClick: (trace: TracePoint) => void;
     onUpdateNote: (id: string, note: string) => void;
     onRemove: (id: string) => void;
     onRelocate: (id: string) => void;
     onEnterGroup: (id: string) => void;
     showEnterGroup: boolean;
-}> = React.memo(({ trace, index, isFocused, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
+}> = React.memo(({ trace, index, isFocused, autoFocusNote, onCardClick, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: trace.id,
     });
@@ -199,6 +201,8 @@ const SortableTraceCard: React.FC<{
                     <TraceCard
                         trace={trace}
                         index={index}
+                        autoFocusNote={autoFocusNote}
+                        onCardClick={onCardClick}
                         onUpdateNote={onUpdateNote}
                         onRemove={onRemove}
                         onRelocate={onRelocate}
@@ -512,11 +516,24 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'relocateTrace', id });
     }, []);
 
-    const currentNavEntry = useCallback((): NavigationHistoryEntry => ({
-        treeId: activeTreeId,
-        groupId: currentGroupId,
-        focusId: focusedId ?? null,
-    }), [activeTreeId, currentGroupId, focusedId]);
+    // Stable currentNavEntry: reads through a ref so the callback identity is
+    // constant. This is the keystone of TraceCard memoization — handlers that
+    // depend on currentNavEntry (handleCardClick, handleEnterGroup, …) stay
+    // stable across focus changes, so SortableTraceCard's React.memo holds and
+    // unrelated cards don't re-render on every click.
+    const navStateRef = useRef({ activeTreeId, currentGroupId, focusedId });
+    useLayoutEffect(() => {
+        navStateRef.current = { activeTreeId, currentGroupId, focusedId };
+    }, [activeTreeId, currentGroupId, focusedId]);
+
+    const currentNavEntry = useCallback((): NavigationHistoryEntry => {
+        const s = navStateRef.current;
+        return {
+            treeId: s.activeTreeId,
+            groupId: s.currentGroupId,
+            focusId: s.focusedId ?? null,
+        };
+    }, []);
 
     // Keep the ref current so the [] useEffect always calls the latest closure.
     useLayoutEffect(() => {
@@ -527,6 +544,10 @@ const Storyboard: React.FC = () => {
     }, [pushNavigation, currentNavEntry]);
 
     const executeHistoryNav = useCallback((entry: NavigationHistoryEntry) => {
+        // Apply the target's focus locally so the highlight updates immediately,
+        // even when the extension wouldn't echo a focusCard back (e.g. focusId
+        // is null, or the no-op switchTree/jumpToGroup path fires no events).
+        setFocusedId(entry.focusId ?? undefined);
         postMessage({
             command: 'navigateToTrace',
             treeId: entry.treeId,
@@ -572,8 +593,27 @@ const Storyboard: React.FC = () => {
     }, []);
 
     const handleAddTrace = useCallback(() => {
+        // Capture the pre-creation focus so Back returns there after the new
+        // empty card becomes the live cursor (focusedId is set via syncWorkspace).
+        pushNavigation(currentNavEntry());
         postMessage({ command: 'addEmptyTrace' });
-    }, []);
+    }, [pushNavigation, currentNavEntry]);
+
+    // Unified card-click handler: every visit (empty card or code card) pushes
+    // the previous state to the back stack, so Back/Forward can navigate the
+    // sequence of visited cards. For code cards we also dispatch jumpToCode;
+    // for empty cards we just take focus.
+    const handleCardClick = useCallback((trace: TracePoint) => {
+        pushNavigation(currentNavEntry());
+        setFocusedId(trace.id);
+        if (trace.filePath) {
+            postMessage({
+                command: 'jumpToCode',
+                filePath: trace.filePath,
+                range: trace.lineRange,
+            });
+        }
+    }, [pushNavigation, currentNavEntry]);
 
     // Title Editing
     const startEditingTitle = useCallback(() => {
@@ -786,6 +826,13 @@ const Storyboard: React.FC = () => {
                                 trace={trace}
                                 index={index}
                                 isFocused={focusedId === trace.id}
+                                autoFocusNote={
+                                    pendingFocusId === trace.id
+                                    && !trace.filePath
+                                    && !trace.content
+                                    && !trace.note
+                                }
+                                onCardClick={handleCardClick}
                                 onUpdateNote={handleUpdateNote}
                                 onRemove={handleRemove}
                                 onRelocate={handleRelocate}

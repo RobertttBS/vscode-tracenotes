@@ -27,6 +27,8 @@ SyntaxHighlighter.registerLanguage('markdown', markdown);
 interface TraceCardProps {
     trace: TracePoint;
     index: number;
+    autoFocusNote?: boolean;
+    onCardClick: (trace: TracePoint) => void;
     onUpdateNote: (id: string, note: string) => void;
     onRemove: (id: string) => void;
     onRelocate: (id: string) => void;
@@ -70,13 +72,13 @@ function mapLanguage(lang: string): string {
     return map[lang] || lang;
 }
 
-const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
+const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCardClick, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
     const themeMode = useVSCodeTheme();
     const syntaxStyle = useMemo(() => {
         return themeMode === 'light' ? prism : vscDarkPlus;
     }, [themeMode]);
 
-    const [editing, setEditing] = useState(false);
+    const [editing, setEditing] = useState(!!autoFocusNote);
     const [isRelocating, setIsRelocating] = useState(false);
     const [noteValue, setNoteValue] = useState(trace.note);
 
@@ -115,17 +117,14 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
     }, [editing, noteValue, adjustHeight]);
 
     const fileName = useMemo(() => {
+        if (!trace.filePath) { return ''; }
         const parts = trace.filePath.replace(/\\/g, '/').split('/');
         return parts[parts.length - 1] || trace.filePath;
     }, [trace.filePath]);
 
-    const handleJump = useCallback(() => {
-        postMessage({
-            command: 'jumpToCode',
-            filePath: trace.filePath,
-            range: trace.lineRange,
-        });
-    }, [trace]);
+    const handleClick = useCallback(() => {
+        onCardClick(trace);
+    }, [trace, onCardClick]);
 
     const handleNoteSave = useCallback(() => {
         setEditing(false);
@@ -181,11 +180,11 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, onUpdateNote, onRem
                 <div className="connector-line" />
 
                 {/* Header */}
-                <div 
-                    className="card-header" 
-                    onClick={trace.filePath ? handleJump : undefined} 
-                    title={trace.filePath ? "Click to jump to code (Right-click for highlight)" : "Right-click for highlight"}
-                    style={{ cursor: trace.filePath ? 'pointer' : 'default' }}
+                <div
+                    className="card-header"
+                    onClick={handleClick}
+                    title={trace.filePath ? "Click to jump to code (Right-click for highlight)" : "Click to select (Right-click for highlight)"}
+                    style={{ cursor: 'pointer' }}
                 >
                     <span className="card-index">{index + 1}</span>
                     {trace.filePath && (

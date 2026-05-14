@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { saveState, loadState } from '../utils/messaging';
 
 // Module-level LRU cache (Map preserves insertion order; delete+reinsert = promote to MRU)
@@ -22,8 +22,11 @@ export function useWebviewState<T>(
         return value !== undefined ? (value as T) : defaultValue;
     });
 
-    // Update the local React state AND the module cache immediately
-    const setWebviewState: React.Dispatch<React.SetStateAction<T>> = (value) => {
+    // Update the local React state AND the module cache immediately.
+    // Memoized so consumers (e.g. useNavigationHistory) can rely on a stable
+    // setter identity — without this, every parent render created a new fn ref
+    // and cascaded through memoized children, defeating React.memo on TraceCards.
+    const setWebviewState = useCallback<React.Dispatch<React.SetStateAction<T>>>((value) => {
         setState((prev) => {
             const nextValue = typeof value === 'function'
                 ? (value as (prev: T) => T)(prev)
@@ -44,7 +47,7 @@ export function useWebviewState<T>(
 
             return nextValue;
         });
-    };
+    }, [key]);
 
     return [state, setWebviewState];
 }
