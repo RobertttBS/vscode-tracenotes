@@ -212,6 +212,10 @@ kbd {
   word-break: break-word;
 }
 
+body.vscode-light .note-display {
+  color: #1f3a8a;
+}
+
 .note-placeholder {
   opacity: 0.4;
   font-style: italic;
