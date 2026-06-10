@@ -181,13 +181,13 @@ export function updateDecorations(
 
     // Pre-compute overlaps once: active trace id → faded traces that overlap it
     // Avoids the O(N²) per-trace scan that the old inline allTraces.filter() caused
-    const overlapsMap = new Map<string, TracePoint[]>();
+    const overlapsMap = new Map<string, TraceWithRange[]>();
     if (fadedWithRanges.length > 0) {
         for (const { trace: activeTrace } of activeWithRanges) {
-            const overlaps: TracePoint[] = [];
-            for (const { trace: fadedTrace } of fadedWithRanges) {
-                if (isOverlapping(activeTrace, fadedTrace)) {
-                    overlaps.push(fadedTrace);
+            const overlaps: TraceWithRange[] = [];
+            for (const fadedItem of fadedWithRanges) {
+                if (isOverlapping(activeTrace, fadedItem.trace)) {
+                    overlaps.push(fadedItem);
                 }
             }
             if (overlaps.length > 0) {
@@ -205,22 +205,54 @@ export function updateDecorations(
         arr.push(item);
     }
 
-    // Build decoration options for a pre-grouped color bucket
+    // Build decoration options for a pre-grouped color bucket.
+    // Traces with overlapping faded traces are split into per-line segments so the
+    // hover on a given line only lists the faded traces that actually cover that line.
     const makeOptions = (items: TraceWithRange[]): vscode.DecorationOptions[] =>
-        items.map(({ trace, range }) => {
-            const hoverMessage = new vscode.MarkdownString(
-                `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`,
-            );
+        items.flatMap(({ trace, range }) => {
+            const ownNote = `**[Note]:** ${trace.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0'}${trace.orphaned ? ' **(Orphaned)**' : ''}`;
             const overlaps = overlapsMap.get(trace.id);
-            if (overlaps?.length) {
-                for (const other of overlaps) {
+            if (!overlaps?.length) {
+                return [{ range, hoverMessage: new vscode.MarkdownString(ownNote) }];
+            }
+
+            // Group consecutive lines that share the same set of covering overlaps.
+            type Segment = { start: number; end: number; covering: TraceWithRange[] };
+            const segments: Segment[] = [];
+            for (let ln = range.start.line; ln <= range.end.line; ln++) {
+                const covering = overlaps.filter(
+                    o => ln >= o.range.start.line && ln <= o.range.end.line,
+                );
+                const prev = segments[segments.length - 1];
+                if (
+                    prev &&
+                    prev.covering.length === covering.length &&
+                    prev.covering.every((o, i) => o.trace.id === covering[i].trace.id)
+                ) {
+                    prev.end = ln;
+                } else {
+                    segments.push({ start: ln, end: ln, covering });
+                }
+            }
+
+            return segments.map(seg => {
+                const hoverMessage = new vscode.MarkdownString(ownNote);
+                for (const { trace: other } of seg.covering) {
                     const noteText = other.note || '\u00A0\u00A0*(empty)*\u00A0\u00A0';
                     const args = encodeURIComponent(JSON.stringify([other.id]));
                     hoverMessage.appendMarkdown(`\n\n---\n**[Note]:** ${noteText}${other.orphaned ? ' **(Orphaned)**' : ''}  [\u00A0↗ Jump to card](command:tracenotes.jumpToFadedTrace?${args})`);
                 }
-                hoverMessage.isTrusted = { enabledCommands: ['tracenotes.jumpToFadedTrace'] };
-            }
-            return { range, hoverMessage };
+                if (seg.covering.length) {
+                    hoverMessage.isTrusted = { enabledCommands: ['tracenotes.jumpToFadedTrace'] };
+                }
+                return {
+                    range: new vscode.Range(
+                        seg.start === range.start.line ? range.start : new vscode.Position(seg.start, 0),
+                        seg.end === range.end.line ? range.end : new vscode.Position(seg.end, 0),
+                    ),
+                    hoverMessage,
+                };
+            });
         });
 
     /**
