@@ -8,9 +8,21 @@ import { FileStorageManager } from './storage/FileStorageManager';
 const RE_ZERO_WIDTH  = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
 const RE_WHITESPACE  = /\s+/g;
 const RE_DIGIT_RUN   = /\d+/g;
-const RE_SKIPPABLE   = /[\s\u200B\u200C\u200D\u2060\uFEFF]/;
 const RE_WHITESPACE1 = /\s/;
-const RE_DIGIT1      = /\d/;
+
+// Char-code classifiers for the hot offset-mapping loops in findNormalized \u2014
+// equivalent to /\s/, the zero-width set, and /\d/ but without a regex call per char.
+function isWSCode(code: number): boolean {
+    if (code === 32 || (code >= 9 && code <= 13)) { return true; }
+    if (code < 128) { return false; }
+    return RE_WHITESPACE1.test(String.fromCharCode(code));
+}
+function isZeroWidthCode(code: number): boolean {
+    return code === 0x200B || code === 0x200C || code === 0x200D || code === 0x2060 || code === 0xFEFF;
+}
+function isDigitCode(code: number): boolean {
+    return code >= 48 && code <= 57;
+}
 
 export interface ITraceDocument {
     lineCount: number;
@@ -45,6 +57,12 @@ export class TraceManager implements vscode.Disposable {
     private parentIdMap: Map<string, string | null> = new Map();
 
     private searchableTreesCache: { id: string; name: string; traces: SearchableTrace[] }[] | null = null;
+
+    // One-entry caches for full-document transforms. Validation loops call
+    // findNormalized/anchorThenSellers repeatedly with the same document text,
+    // so caching the last input avoids re-allocating full copies per trace.
+    private normTextCache: { source: string; normalized: string } | null = null;
+    private lowerTextCache: { source: string; lowered: string } | null = null;
 
     private readonly storageKey = 'tracenotes.traces';
     private readonly activeGroupKey = 'tracenotes.activeGroupId';
@@ -993,6 +1011,7 @@ export class TraceManager implements vscode.Disposable {
 
             const tracesInFile = this.traceIndex.get(document.uri.toString());
             if (tracesInFile) {
+                const docLength = document.getText().length;
                 for (const trace of tracesInFile) {
                     if (token.isCancellationRequested) return;
 
@@ -1005,7 +1024,7 @@ export class TraceManager implements vscode.Disposable {
 
                     const [startOffset, endOffset] = trace.rangeOffset;
 
-                    if (startOffset < 0 || endOffset > document.getText().length) {
+                    if (startOffset < 0 || endOffset > docLength) {
                         if (!trace.orphaned) {
                             trace.orphaned = true;
                             stateChanged = true;
@@ -1179,13 +1198,29 @@ export class TraceManager implements vscode.Disposable {
      * searches with indexOf, then maps the normalized position back to the
      * original text offset via a forward character scan.
      */
+    /** Whitespace/digit normalization of a full document, cached on the last input. */
+    private normalizeFullText(fullText: string): string {
+        if (this.normTextCache?.source === fullText) { return this.normTextCache.normalized; }
+        const normalized = fullText.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
+        this.normTextCache = { source: fullText, normalized };
+        return normalized;
+    }
+
+    /** Lowercase of a full document, cached on the last input. */
+    private lowerFullText(fullText: string): string {
+        if (this.lowerTextCache?.source === fullText) { return this.lowerTextCache.lowered; }
+        const lowered = fullText.toLowerCase();
+        this.lowerTextCache = { source: fullText, lowered };
+        return lowered;
+    }
+
     private findNormalized(
         fullText: string,
         cleanContent: string,
         preferredOffset: number
     ): [number, number] | null {
         const normContent = cleanContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
-        const normText = fullText.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
+        const normText = this.normalizeFullText(fullText);
 
         let bestNormIdx = -1;
         let bestDist = Infinity;
@@ -1199,23 +1234,21 @@ export class TraceManager implements vscode.Disposable {
 
         // Map normalized index back to original text offset.
         // Both strings collapse whitespace runs and strip zero-width chars identically.
-        const isSkippable = (ch: string) => RE_SKIPPABLE.test(ch);
-        const isWS = (ch: string) => RE_WHITESPACE1.test(ch);
+        const len = fullText.length;
         let origPos = 0;
         let normPos = 0;
-        while (normPos < bestNormIdx && origPos < fullText.length) {
-            if (isSkippable(fullText[origPos])) {
-                if (isWS(fullText[origPos])) {
-                    // skip the whole whitespace run in original
-                    while (origPos < fullText.length && isWS(fullText[origPos])) origPos++;
-                    normPos++; // one space in normalized
-                } else {
-                    // zero-width char: skip in original, no normPos advance (was stripped)
-                    origPos++;
-                }
-            } else if (RE_DIGIT1.test(fullText[origPos])) {
+        while (normPos < bestNormIdx && origPos < len) {
+            const code = fullText.charCodeAt(origPos);
+            if (isWSCode(code)) {
+                // skip the whole whitespace run in original
+                while (origPos < len && isWSCode(fullText.charCodeAt(origPos))) origPos++;
+                normPos++; // one space in normalized
+            } else if (isZeroWidthCode(code)) {
+                // zero-width char: skip in original, no normPos advance (was stripped)
+                origPos++;
+            } else if (isDigitCode(code)) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (origPos < fullText.length && RE_DIGIT1.test(fullText[origPos])) origPos++;
+                while (origPos < len && isDigitCode(fullText.charCodeAt(origPos))) origPos++;
                 normPos++; // one '#' in normalized
             } else {
                 origPos++;
@@ -1228,17 +1261,16 @@ export class TraceManager implements vscode.Disposable {
         let endNormPos = bestNormIdx;
         let endOrigPos = origPos;
         const normEnd = bestNormIdx + normContent.length;
-        while (endNormPos < normEnd && endOrigPos < fullText.length) {
-            if (isSkippable(fullText[endOrigPos])) {
-                if (isWS(fullText[endOrigPos])) {
-                    while (endOrigPos < fullText.length && isWS(fullText[endOrigPos])) endOrigPos++;
-                    endNormPos++;
-                } else {
-                    endOrigPos++;
-                }
-            } else if (RE_DIGIT1.test(fullText[endOrigPos])) {
+        while (endNormPos < normEnd && endOrigPos < len) {
+            const code = fullText.charCodeAt(endOrigPos);
+            if (isWSCode(code)) {
+                while (endOrigPos < len && isWSCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
+                endNormPos++;
+            } else if (isZeroWidthCode(code)) {
+                endOrigPos++;
+            } else if (isDigitCode(code)) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (endOrigPos < fullText.length && RE_DIGIT1.test(fullText[endOrigPos])) endOrigPos++;
+                while (endOrigPos < len && isDigitCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
                 endNormPos++; // one '#' in normalized
             } else {
                 endOrigPos++;
@@ -1355,12 +1387,14 @@ export class TraceManager implements vscode.Disposable {
         const T = targetTokens.length;
         const S = searchTokens.length;
 
-        // dp[i] represents the current column in our DP matrix
-        // We track both the edit distance (cost) and where this match started (startIdx)
-        let dp: { cost: number; startIdx: number }[] = Array.from({ length: T + 1 }, (_, i) => ({
-            cost: i,        // Cost of deleting i target tokens
-            startIdx: 0     // Will be consumed as previousDiagonal at j=1 → match starts at search[0]
-        }));
+        // Current column of the DP matrix as two flat arrays (cost + match start
+        // index) — avoids allocating an object per cell across the S×T sweep.
+        const dpCost = new Int32Array(T + 1);
+        const dpStart = new Int32Array(T + 1);
+        for (let i = 0; i <= T; i++) {
+            dpCost[i] = i;  // Cost of deleting i target tokens
+            dpStart[i] = 0; // Will be consumed as previousDiagonal at j=1 → match starts at search[0]
+        }
 
         let bestDistance = Infinity;
         let bestEndIdx = -1;
@@ -1369,42 +1403,46 @@ export class TraceManager implements vscode.Disposable {
         // O(N * T) Single-pass Dynamic Programming
         for (let j = 1; j <= S; j++) {
             const currentSearchToken = searchTokens[j - 1].text;
-            let previousDiagonal = dp[0];
+            let prevDiagCost = dpCost[0];
+            let prevDiagStart = dpStart[0];
 
             // A match can start at the current search token with 0 cost
             // startIdx is j (not j-1) because this dp[0] will be consumed as previousDiagonal
             // at column j+1, where a diagonal match corresponds to search token j (0-indexed).
-            dp[0] = { cost: 0, startIdx: j }; 
+            dpCost[0] = 0;
+            dpStart[0] = j;
 
             for (let i = 1; i <= T; i++) {
-                const temp = dp[i];
-                
+                const tempCost = dpCost[i];
+                const tempStart = dpStart[i];
+
                 if (targetTokens[i - 1].text === currentSearchToken) {
                     // Match: inherit cost and start index from the diagonal
-                    dp[i] = { ...previousDiagonal };
+                    dpCost[i] = prevDiagCost;
+                    dpStart[i] = prevDiagStart;
                 } else {
                     // Mismatch: find the cheapest operation
-                    const subCost = previousDiagonal.cost + 1; // Substitution
-                    const insCost = dp[i].cost + 1;            // Insertion
-                    const delCost = dp[i - 1].cost + 1;        // Deletion
+                    const subCost = prevDiagCost + 1;   // Substitution
+                    const insCost = tempCost + 1;       // Insertion
+                    const delCost = dpCost[i - 1] + 1;  // Deletion
 
-                    let minCost = Math.min(subCost, insCost, delCost);
-                    let inheritedStartIdx = 0;
+                    const minCost = Math.min(subCost, insCost, delCost);
 
-                    if (minCost === subCost) inheritedStartIdx = previousDiagonal.startIdx;
-                    else if (minCost === insCost) inheritedStartIdx = dp[i].startIdx;
-                    else inheritedStartIdx = dp[i - 1].startIdx;
+                    if (minCost === subCost) dpStart[i] = prevDiagStart;
+                    else if (minCost === insCost) dpStart[i] = tempStart;
+                    else dpStart[i] = dpStart[i - 1];
 
-                    dp[i] = { cost: minCost, startIdx: inheritedStartIdx };
+                    dpCost[i] = minCost;
                 }
-                previousDiagonal = temp;
+                prevDiagCost = tempCost;
+                prevDiagStart = tempStart;
             }
 
             // Check if the current end position provides a better full-target match
-            if (dp[T].cost < bestDistance) {
-                bestDistance = dp[T].cost;
+            if (dpCost[T] < bestDistance) {
+                bestDistance = dpCost[T];
                 bestEndIdx = j - 1; // 0-indexed token array
-                bestStartIdx = dp[T].startIdx; // Already 0-indexed
+                bestStartIdx = dpStart[T]; // Already 0-indexed
             }
         }
 
@@ -1476,7 +1514,7 @@ export class TraceManager implements vscode.Disposable {
         // Collect candidate center positions from all anchor occurrences
         const candidates: number[] = [];
         if (anchors.length > 0) {
-            const lowerText = fullText.toLowerCase();
+            const lowerText = this.lowerFullText(fullText);
             for (const anchor of anchors) {
                 const lowerAnchor = anchor.toLowerCase();
                 let idx = lowerText.indexOf(lowerAnchor);

@@ -356,11 +356,11 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
                 const activeChildrenIds = new Set(traceManager.getActiveChildren().map(t => t.id));
+                const cursorOffset = editor.document.offsetAt(position);
                 const matched = fileTraces.find(t => {
                     if (!activeChildrenIds.has(t.id)) { return false; }
                     if (t.rangeOffset) {
-                        const offset = editor.document.offsetAt(position);
-                        return offset >= t.rangeOffset[0] && offset <= t.rangeOffset[1];
+                        return cursorOffset >= t.rangeOffset[0] && cursorOffset <= t.rangeOffset[1];
                     }
                     if (t.lineRange) {
                         return position.line >= t.lineRange[0] && position.line <= t.lineRange[1];

@@ -35,7 +35,8 @@ export function useWebviewState<T>(
             // Promote to MRU by reinserting; evict LRU entry when at capacity
             stateCache.delete(key);
             if (stateCache.size >= MAX_CACHE_KEYS) {
-                stateCache.delete(stateCache.keys().next().value);
+                const lruKey = stateCache.keys().next().value;
+                if (lruKey !== undefined) { stateCache.delete(lruKey); }
             }
             stateCache.set(key, nextValue);
 

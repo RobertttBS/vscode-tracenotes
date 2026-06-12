@@ -51,8 +51,9 @@ export class FileStorageManager {
         const tempUri   = vscode.Uri.joinPath(storageDir, this.tempName);
 
         try {
-            // 1. Write new data to a TEMP file
-            const dataBytes = new TextEncoder().encode(JSON.stringify(trees, null, 2));
+            // 1. Write new data to a TEMP file (compact JSON — this file is
+            //    machine-read only; pretty-printing roughly doubles the bytes)
+            const dataBytes = new TextEncoder().encode(JSON.stringify(trees));
             await vscode.workspace.fs.writeFile(tempUri, dataBytes);
 
             // 2. Rotate old main → backup (if main exists)
