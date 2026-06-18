@@ -60,7 +60,7 @@ kbd {
 }
 
 .trace-card:hover {
-  border-color: var(--vscode-focusBorder, #007fd4);
+  border-color: #858585;
 }
 
 /* ---- Drag and Drop Visuals ---- */
@@ -546,8 +546,8 @@ body.vscode-light .note-display {
 /* Focus Highlight Animation */
 @keyframes trace-focus-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--vscode-focusBorder);
-    background-color: var(--vscode-editor-selectionBackground);
+    box-shadow: 0 0 0 0 #858585;
+    background-color: rgba(133, 133, 133, 0.3);
   }
   70% {
     box-shadow: 0 0 0 4px transparent;
@@ -565,7 +565,7 @@ body.vscode-light .note-display {
 }
 
 .highlight-active .trace-card {
-  border: 3px solid var(--vscode-focusBorder, #c1c1c1) !important;
+  border: 3px solid #858585 !important;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
