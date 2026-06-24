@@ -3,6 +3,7 @@ import { postMessage } from '../utils/messaging';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
+import MarkdownNote from './MarkdownNote';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -130,6 +131,12 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
         setEditing(false);
         onUpdateNote(trace.id, noteValue);
     }, [trace.id, noteValue, onUpdateNote]);
+
+    // Toggle a task-list checkbox without entering edit mode: persist + sync local state.
+    const handleToggleCheckbox = useCallback((newNote: string) => {
+        setNoteValue(newNote);
+        onUpdateNote(trace.id, newNote);
+    }, [trace.id, onUpdateNote]);
 
     const handleNoteKeyDown = useCallback((e: React.KeyboardEvent) => {
         // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
@@ -285,6 +292,12 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
                                 {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save · Esc to cancel
                             </div>
                         </>
+                    ) : trace.note ? (
+                        <MarkdownNote
+                            note={trace.note}
+                            onToggleCheckbox={handleToggleCheckbox}
+                            onClick={() => setEditing(true)}
+                        />
                     ) : (
                         <div
                             className="note-display"
@@ -292,7 +305,7 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
                             onPointerDown={(e) => e.stopPropagation()}
                             title="Click to edit note"
                         >
-                            {trace.note || <span className="note-placeholder">Click to add a note…</span>}
+                            <span className="note-placeholder">Click to add a note…</span>
                         </div>
                     )}
                 </div>
