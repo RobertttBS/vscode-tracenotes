@@ -1,6 +1,7 @@
-import React, { useRef, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
+import React, { useRef, useMemo } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { toggleCheckboxInMarkdown } from '../utils/toggleCheckboxInMarkdown';
 
 interface MarkdownNoteProps {
     note: string;
@@ -10,24 +11,8 @@ interface MarkdownNoteProps {
     onClick: () => void;
 }
 
-/**
- * Toggle the n-th GFM task-list checkbox (`- [ ]` / `- [x]`) in the raw
- * markdown. The index matches react-markdown's render order, which is the
- * document order of the source text.
- */
-function toggleCheckboxInMarkdown(text: string, index: number): string {
-    let count = 0;
-    return text.replace(
-        /^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]/gm,
-        (match, prefix: string, state: string) => {
-            if (count++ === index) {
-                const next = state === ' ' ? 'x' : ' ';
-                return `${prefix}[${next}]`;
-            }
-            return match;
-        }
-    );
-}
+// Stable across renders so react-markdown doesn't re-parse plugins each time.
+const REMARK_PLUGINS = [remarkGfm];
 
 const MarkdownNote: React.FC<MarkdownNoteProps> = ({ note, onToggleCheckbox, onClick }) => {
     // Reset every render: react-markdown renders checkboxes in document order,
@@ -35,9 +20,38 @@ const MarkdownNote: React.FC<MarkdownNoteProps> = ({ note, onToggleCheckbox, onC
     const checkboxIndex = useRef(0);
     checkboxIndex.current = 0;
 
-    const handleToggle = useCallback((i: number) => {
-        onToggleCheckbox(toggleCheckboxInMarkdown(note, i));
-    }, [note, onToggleCheckbox]);
+    // Hold the latest toggle in a ref so `components` can stay referentially
+    // stable. react-markdown uses each renderer as the element type, so a fresh
+    // object every render would remount the checkbox/link nodes on each update.
+    const toggleRef = useRef<(i: number) => void>(() => {});
+    toggleRef.current = (i: number) => onToggleCheckbox(toggleCheckboxInMarkdown(note, i));
+
+    const components = useMemo<Components>(() => ({
+        input: ({ node, ...props }) => {
+            if (props.type === 'checkbox') {
+                const i = checkboxIndex.current++;
+                return (
+                    <input
+                        type="checkbox"
+                        checked={!!props.checked}
+                        onChange={() => toggleRef.current(i)}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                );
+            }
+            return <input {...props} />;
+        },
+        // Let the link open (VS Code handles webview anchor clicks)
+        // without bubbling up and entering note edit mode.
+        a: ({ node, ...props }) => (
+            <a
+                {...props}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+            />
+        ),
+    }), []);
 
     return (
         <div
@@ -46,25 +60,7 @@ const MarkdownNote: React.FC<MarkdownNoteProps> = ({ note, onToggleCheckbox, onC
             onPointerDown={(e) => e.stopPropagation()}
             title="Click to edit note"
         >
-            <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                    input: ({ node, ...props }) => {
-                        if (props.type === 'checkbox') {
-                            const i = checkboxIndex.current++;
-                            return (
-                                <input
-                                    type="checkbox"
-                                    checked={!!props.checked}
-                                    onChange={() => handleToggle(i)}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            );
-                        }
-                        return <input {...props} />;
-                    },
-                }}
-            >
+            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
                 {note}
             </ReactMarkdown>
         </div>

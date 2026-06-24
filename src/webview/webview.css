@@ -269,8 +269,43 @@ body.vscode-light .note-display {
   border-radius: 3px;
 }
 
+.markdown-note pre {
+  background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.2));
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.markdown-note pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-note blockquote {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--vscode-widget-border, #4e4e4e);
+  opacity: 0.85;
+}
+
+.markdown-note table {
+  border-collapse: collapse;
+  margin: 4px 0;
+}
+
+.markdown-note th,
+.markdown-note td {
+  border: 1px solid var(--vscode-widget-border, #4e4e4e);
+  padding: 2px 6px;
+  text-align: left;
+}
+
+.markdown-note a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+}
+
 /* Task-list checkboxes */
-.markdown-note ul.contains-task-list {
+.markdown-note .contains-task-list {
   list-style: none;
   padding-left: 2px;
 }
