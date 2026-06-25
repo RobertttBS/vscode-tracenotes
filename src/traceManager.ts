@@ -919,6 +919,7 @@ export class TraceManager implements vscode.Disposable {
         tracesArr.sort((a, b) => (a.rangeOffset?.[0] ?? 0) - (b.rangeOffset?.[0] ?? 0));
 
         let needsValidation = tracesArr.some(t => t.orphaned);
+        const shiftedTraces = new Set<TracePoint>();
 
         const sortedChanges = [...event.contentChanges].sort(
             (a, b) => b.rangeOffset - a.rangeOffset,
@@ -945,6 +946,7 @@ export class TraceManager implements vscode.Disposable {
                 needsValidation = true;
                 if (changeStart >= start && changeEnd <= end) {
                     tracesArr[i].rangeOffset = [start, end + delta];
+                    shiftedTraces.add(tracesArr[i]);
                 }
             }
 
@@ -954,7 +956,23 @@ export class TraceManager implements vscode.Disposable {
                 for (let i = firstRight; i < tracesArr.length; i++) {
                     const [s, e] = tracesArr[i].rangeOffset!;
                     tracesArr[i].rangeOffset = [s + delta, e + delta];
+                    shiftedTraces.add(tracesArr[i]);
                 }
+            }
+        }
+
+        // Keep lineRange in sync with rangeOffset immediately so the webview never
+        // jumps using a stale line number while waiting for the debounced validation.
+        for (const trace of shiftedTraces) {
+            const [s, e] = trace.rangeOffset!;
+            try {
+                const newStartLine = document.positionAt(s).line;
+                const newEndLine = document.positionAt(e).line;
+                if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
+                    trace.lineRange = [newStartLine, newEndLine];
+                }
+            } catch {
+                // offset out of bounds — leave lineRange as-is, validation pass will mark orphaned
             }
         }
 
