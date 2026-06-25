@@ -749,6 +749,105 @@ async function runTests() {
         }
     });
 
+    // ===== VALIDATION QUEUE / ON-DEMAND VALIDATION TESTS =====
+    // These exercise the branch logic added for on-demand validation: the
+    // budget-trip resume path, the livelock fix (must terminate), the
+    // validateDocumentNow dedupe map, and orphan marking.
+
+    // Stub persist so these tests don't arm the 2s debounce timer / hit disk.
+    (manager as any).persist = () => {};
+
+    // A 5-line doc: each "lineN" is 5 chars + '\n'.
+    //   line0: 0..5   line1: 6..11   line2: 12..17   line3: 18..23   line4: 24..29
+    const LINES_TEXT = "line0\nline1\nline2\nline3\nline4";
+
+    function makeDoc(text: string, p: string): any {
+        const doc: any = new MockDocument(text);
+        doc.uri = mockVscode.Uri.file(p);
+        doc.version = 1;
+        return doc;
+    }
+
+    function makeTrace(over: any): any {
+        return {
+            id: 'id', filePath: '/workspace/src/lines.ts', rangeOffset: [0, 0],
+            lineRange: [0, 0], content: '', note: '', lang: 'ts', timestamp: 0,
+            ...over,
+        };
+    }
+
+    await test("validateDocumentNow: budget-trip resume visits every trace and terminates", async () => {
+        const p = '/workspace/src/lines.ts';
+        const doc = makeDoc(LINES_TEXT, p);
+        const uriStr = doc.uri.toString();
+
+        // Three traces whose content matches the doc but whose lineRange is stale.
+        // A correct pass must rewrite all three lineRanges to their true lines.
+        const traces = [
+            makeTrace({ id: 't0', content: 'line0', rangeOffset: [0, 5], lineRange: [9, 9] }),
+            makeTrace({ id: 't1', content: 'line2', rangeOffset: [12, 17], lineRange: [9, 9] }),
+            makeTrace({ id: 't2', content: 'line4', rangeOffset: [24, 29], lineRange: [9, 9] }),
+        ];
+        (manager as any).traceIndex.set(uriStr, new Set(traces));
+
+        // Force a budget trip after each single trace: step Date.now by 10ms per
+        // call against a 15ms budget. Each slice gets a fresh startTime, so exactly
+        // one trace is processed per slice → resume must advance across all three.
+        const realNow = Date.now;
+        let clock = 0;
+        Date.now = () => (clock += 10);
+        try {
+            await manager.validateDocumentNow(doc);
+        } finally {
+            Date.now = realNow;
+            (manager as any).traceIndex.delete(uriStr);
+        }
+
+        assert.deepStrictEqual(traces[0].lineRange, [0, 0], "t0 lineRange should be corrected");
+        assert.deepStrictEqual(traces[1].lineRange, [2, 2], "t1 (resumed slice) lineRange should be corrected");
+        assert.deepStrictEqual(traces[2].lineRange, [4, 4], "t2 (final slice) lineRange should be corrected");
+    });
+
+    await test("validateDocumentNow: coalesces concurrent calls onto one in-flight pass", async () => {
+        const p = '/workspace/src/dedupe.ts';
+        const doc = makeDoc(LINES_TEXT, p);
+        const uriStr = doc.uri.toString();
+        const trace = makeTrace({ id: 'd0', content: 'line2', rangeOffset: [12, 17], lineRange: [9, 9] });
+        (manager as any).traceIndex.set(uriStr, new Set([trace]));
+
+        try {
+            const p1 = manager.validateDocumentNow(doc);
+            const p2 = manager.validateDocumentNow(doc);
+            assert.strictEqual(p1, p2, "Overlapping calls must return the same in-flight promise");
+            await Promise.all([p1, p2]);
+            assert.deepStrictEqual(trace.lineRange, [2, 2], "lineRange should be corrected once");
+            // Map must be drained after completion so a later call runs fresh.
+            assert.strictEqual((manager as any).inFlightValidations.has(uriStr), false, "in-flight entry should be cleared");
+        } finally {
+            (manager as any).traceIndex.delete(uriStr);
+        }
+    });
+
+    await test("validateDocumentNow: no-op (resolves) when document has no indexed traces", async () => {
+        const doc = makeDoc(LINES_TEXT, '/workspace/src/untracked.ts');
+        await manager.validateDocumentNow(doc); // must not throw
+    });
+
+    await test("validateDocumentNow: marks trace orphaned when offsets fall outside the document", async () => {
+        const p = '/workspace/src/orphan.md'; // .md → cross-file search mock returns [] (no false recovery)
+        const doc = makeDoc(LINES_TEXT, p);
+        const uriStr = doc.uri.toString();
+        const trace = makeTrace({ id: 'o0', content: 'line0', rangeOffset: [0, 999999], orphaned: false });
+        (manager as any).traceIndex.set(uriStr, new Set([trace]));
+
+        try {
+            await manager.validateDocumentNow(doc);
+            assert.strictEqual(trace.orphaned, true, "Out-of-bounds offsets should mark the trace orphaned");
+        } finally {
+            (manager as any).traceIndex.delete(uriStr);
+        }
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
 
     if (failed > 0) {
