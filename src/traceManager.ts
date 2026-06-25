@@ -1140,14 +1140,26 @@ export class TraceManager implements vscode.Disposable {
      * since the debounced queue is only ever populated from live edit events.
      */
     public async validateDocumentNow(document: vscode.TextDocument): Promise<void> {
-        if (!this.traceIndex.has(document.uri.toString())) return;
+        const uriStr = document.uri.toString();
+        if (!this.traceIndex.has(uriStr)) return;
 
-        const tracesArr = Array.from(this.traceIndex.get(document.uri.toString())!);
+        const tracesArr = Array.from(this.traceIndex.get(uriStr)!);
         this.ensureOffsets(document, tracesArr);
 
         const cts = new vscode.CancellationTokenSource();
         try {
-            const stateChanged = await this.validateDocumentTraces(document, cts.token, Date.now());
+            let stateChanged = false;
+            // Unlike the debounced post-edit queue, this is a one-shot, user-triggered
+            // pass (activation/tab switch) — keep re-running until the doc has no more
+            // pending work instead of leaving the tail end stranded in
+            // pendingValidationDocs with nothing left to drain it.
+            do {
+                this.pendingValidationDocs.delete(uriStr);
+                if (await this.validateDocumentTraces(document, cts.token, Date.now())) {
+                    stateChanged = true;
+                }
+            } while (!cts.token.isCancellationRequested && this.pendingValidationDocs.has(uriStr));
+
             if (stateChanged) {
                 this.persist();
                 this._onDidChangeTraces.fire();

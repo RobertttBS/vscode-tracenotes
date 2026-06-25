@@ -315,7 +315,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (!editor) return;
             updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
-            traceManager.ensureReady().then(() => traceManager.validateDocumentNow(editor.document));
+            traceManager.ensureReady()
+                .then(() => traceManager.validateDocumentNow(editor.document))
+                .catch((err) => console.error('TraceNotes: on-demand validation failed', err));
         }),
     );
 
@@ -436,11 +438,11 @@ export function activate(context: vscode.ExtensionContext) {
     // drift introduced while VS Code was closed (git checkout, external edits)
     // that would otherwise never trigger the edit-event-driven validation queue.
     refreshDecorations();
-    traceManager.ensureReady().then(() => {
-        for (const editor of vscode.window.visibleTextEditors) {
-            traceManager.validateDocumentNow(editor.document);
-        }
-    });
+    traceManager.ensureReady()
+        .then(() => Promise.all(
+            vscode.window.visibleTextEditors.map((editor) => traceManager.validateDocumentNow(editor.document)),
+        ))
+        .catch((err) => console.error('TraceNotes: startup validation failed', err));
 }
 
 /**
