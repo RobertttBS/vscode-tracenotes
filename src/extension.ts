@@ -306,12 +306,16 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
-    // Re-render decorations when the user switches editor tabs
+    // Re-render decorations when the user switches editor tabs.
+    // Also re-validate the file's traces on-demand: edits made outside a live
+    // onDidChangeTextDocument stream (git checkout, external edits, reload) never
+    // enqueue the debounced validation pass, so a stale lineRange/orphan flag would
+    // otherwise persist forever until the user happens to type in that file.
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
-            if (editor) {
-                updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
-            }
+            if (!editor) return;
+            updateDecorations(editor, traceManager.getActiveChildren(), traceManager.getTracesForFile(editor.document.uri.fsPath));
+            traceManager.ensureReady().then(() => traceManager.validateDocumentNow(editor.document));
         }),
     );
 
@@ -427,8 +431,16 @@ export function activate(context: vscode.ExtensionContext) {
         },
     });
 
-    // Paint decorations for the already-open editor on activation
+    // Paint decorations for the already-open editor on activation, and run an
+    // on-demand validation pass over all currently visible editors. This catches
+    // drift introduced while VS Code was closed (git checkout, external edits)
+    // that would otherwise never trigger the edit-event-driven validation queue.
     refreshDecorations();
+    traceManager.ensureReady().then(() => {
+        for (const editor of vscode.window.visibleTextEditors) {
+            traceManager.validateDocumentNow(editor.document);
+        }
+    });
 }
 
 /**

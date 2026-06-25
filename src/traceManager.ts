@@ -1027,76 +1027,8 @@ export class TraceManager implements vscode.Disposable {
             const document = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri);
             if (!document || document.version !== docData.version) continue;
 
-            const tracesInFile = this.traceIndex.get(document.uri.toString());
-            if (tracesInFile) {
-                const docLength = document.getText().length;
-                for (const trace of tracesInFile) {
-                    if (token.isCancellationRequested) return;
-
-                    if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
-                        this.pendingValidationDocs.set(uri, { uri: document.uri, version: document.version });
-                        break;
-                    }
-
-                    if (!trace.rangeOffset) continue;
-
-                    const [startOffset, endOffset] = trace.rangeOffset;
-
-                    if (startOffset < 0 || endOffset > docLength) {
-                        if (!trace.orphaned) {
-                            trace.orphaned = true;
-                            stateChanged = true;
-                        }
-                        continue;
-                    }
-
-                    const startPos = document.positionAt(startOffset);
-                    const endPos = document.positionAt(endOffset);
-
-                    const newStartLine = startPos.line;
-                    const newEndLine = endPos.line;
-
-                    if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
-                        trace.lineRange = [newStartLine, newEndLine];
-                        stateChanged = true;
-                    }
-
-                    const currentContent = document.getText(new vscode.Range(startPos, endPos));
-
-                    if (!this.contentMatches(currentContent, trace.content)) {
-                        const recovered = await this.recoverTracePoints(document, trace.content, startOffset, document.uri, token);
-                        if (token.isCancellationRequested) return;
-
-                        if (recovered) {
-                            trace.rangeOffset = recovered.offset;
-                            if (recovered.uri.fsPath !== document.uri.fsPath) {
-                                trace.filePath = recovered.uri.fsPath;
-                                const targetDoc = await this.getDocAdapter(recovered.uri, false);
-                                if (targetDoc.docAdapter) {
-                                    const rStart = targetDoc.docAdapter.positionAt(recovered.offset[0]);
-                                    const rEnd = targetDoc.docAdapter.positionAt(recovered.offset[1]);
-                                    trace.lineRange = [rStart.line, rEnd.line];
-                                }
-                            } else {
-                                const rStart = document.positionAt(recovered.offset[0]);
-                                const rEnd = document.positionAt(recovered.offset[1]);
-                                trace.lineRange = [rStart.line, rEnd.line];
-                            }
-                            if (trace.orphaned) {
-                                trace.orphaned = false;
-                            }
-                            stateChanged = true;
-                        } else {
-                            if (!trace.orphaned) {
-                                trace.orphaned = true;
-                                stateChanged = true;
-                            }
-                        }
-                    } else if (trace.orphaned) {
-                        trace.orphaned = false;
-                        stateChanged = true;
-                    }
-                }
+            if (await this.validateDocumentTraces(document, token, startTime)) {
+                stateChanged = true;
             }
         }
 
@@ -1109,6 +1041,119 @@ export class TraceManager implements vscode.Disposable {
         if (this.pendingValidationDocs.size === 0 && this.validationCts && !token.isCancellationRequested) {
             this.validationCts.dispose();
             this.validationCts = undefined;
+        }
+    }
+
+    /**
+     * Re-checks every trace anchored in `document` against its current content/offsets,
+     * updating `lineRange`/`orphaned` as needed. Shared by the debounced post-edit
+     * validation queue and by on-demand validation (activation, tab switch) — the latter
+     * is necessary because edits made outside a live `onDidChangeTextDocument` stream
+     * (git checkout, external edits, reload) never enqueue a validation pass otherwise.
+     */
+    private async validateDocumentTraces(
+        document: vscode.TextDocument,
+        token: vscode.CancellationToken,
+        startTime: number,
+    ): Promise<boolean> {
+        let stateChanged = false;
+        const tracesInFile = this.traceIndex.get(document.uri.toString());
+        if (!tracesInFile) return false;
+
+        const docLength = document.getText().length;
+        for (const trace of tracesInFile) {
+            if (token.isCancellationRequested) return stateChanged;
+
+            if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
+                this.pendingValidationDocs.set(document.uri.toString(), { uri: document.uri, version: document.version });
+                break;
+            }
+
+            if (!trace.rangeOffset) continue;
+
+            const [startOffset, endOffset] = trace.rangeOffset;
+
+            if (startOffset < 0 || endOffset > docLength) {
+                if (!trace.orphaned) {
+                    trace.orphaned = true;
+                    stateChanged = true;
+                }
+                continue;
+            }
+
+            const startPos = document.positionAt(startOffset);
+            const endPos = document.positionAt(endOffset);
+
+            const newStartLine = startPos.line;
+            const newEndLine = endPos.line;
+
+            if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
+                trace.lineRange = [newStartLine, newEndLine];
+                stateChanged = true;
+            }
+
+            const currentContent = document.getText(new vscode.Range(startPos, endPos));
+
+            if (!this.contentMatches(currentContent, trace.content)) {
+                const recovered = await this.recoverTracePoints(document, trace.content, startOffset, document.uri, token);
+                if (token.isCancellationRequested) return stateChanged;
+
+                if (recovered) {
+                    trace.rangeOffset = recovered.offset;
+                    if (recovered.uri.fsPath !== document.uri.fsPath) {
+                        trace.filePath = recovered.uri.fsPath;
+                        const targetDoc = await this.getDocAdapter(recovered.uri, false);
+                        if (targetDoc.docAdapter) {
+                            const rStart = targetDoc.docAdapter.positionAt(recovered.offset[0]);
+                            const rEnd = targetDoc.docAdapter.positionAt(recovered.offset[1]);
+                            trace.lineRange = [rStart.line, rEnd.line];
+                        }
+                    } else {
+                        const rStart = document.positionAt(recovered.offset[0]);
+                        const rEnd = document.positionAt(recovered.offset[1]);
+                        trace.lineRange = [rStart.line, rEnd.line];
+                    }
+                    if (trace.orphaned) {
+                        trace.orphaned = false;
+                    }
+                    stateChanged = true;
+                } else {
+                    if (!trace.orphaned) {
+                        trace.orphaned = true;
+                        stateChanged = true;
+                    }
+                }
+            } else if (trace.orphaned) {
+                trace.orphaned = false;
+                stateChanged = true;
+            }
+        }
+
+        return stateChanged;
+    }
+
+    /**
+     * On-demand validation entry point for callers outside the edit-event pipeline
+     * (extension activation, switching to a tab). Without this, a trace whose anchor
+     * drifted via a change that never went through `onDidChangeTextDocument` (git
+     * checkout, external edit, window reload) would keep a stale lineRange forever,
+     * since the debounced queue is only ever populated from live edit events.
+     */
+    public async validateDocumentNow(document: vscode.TextDocument): Promise<void> {
+        if (!this.traceIndex.has(document.uri.toString())) return;
+
+        const tracesArr = Array.from(this.traceIndex.get(document.uri.toString())!);
+        this.ensureOffsets(document, tracesArr);
+
+        const cts = new vscode.CancellationTokenSource();
+        try {
+            const stateChanged = await this.validateDocumentTraces(document, cts.token, Date.now());
+            if (stateChanged) {
+                this.persist();
+                this._onDidChangeTraces.fire();
+            }
+        } finally {
+            cts.dispose();
         }
     }
 
