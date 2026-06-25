@@ -76,7 +76,10 @@ export class TraceManager implements vscode.Disposable {
     private persistenceDebounceTimer: NodeJS.Timeout | undefined;
     private validationCts: vscode.CancellationTokenSource | undefined;
     private treeValidationCts: vscode.CancellationTokenSource | undefined;
-    private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number }> = new Map();
+    // `nextIndex` is the resume position when a pass exhausts VALIDATION_BUDGET_MS
+    // mid-document, so the next slice picks up where it stopped instead of
+    // re-checking (and re-recovering) the leading traces from index 0.
+    private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number; nextIndex?: number }> = new Map();
     // In-flight on-demand validations, keyed by URI — dedupes overlapping
     // validateDocumentNow calls (e.g. rapid tab switches) so the same document's
     // traces aren't mutated by two concurrent passes.
@@ -1040,7 +1043,7 @@ export class TraceManager implements vscode.Disposable {
             const document = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri);
             if (!document || document.version !== docData.version) continue;
 
-            if (await this.validateDocumentTraces(document, token, startTime)) {
+            if (await this.validateDocumentTraces(document, token, startTime, docData.nextIndex ?? 0)) {
                 stateChanged = true;
             }
         }
@@ -1068,17 +1071,20 @@ export class TraceManager implements vscode.Disposable {
         document: vscode.TextDocument,
         token: vscode.CancellationToken,
         startTime: number,
+        startIndex: number = 0,
     ): Promise<boolean> {
         let stateChanged = false;
-        const tracesInFile = this.traceIndex.get(document.uri.toString());
-        if (!tracesInFile) return false;
+        const tracesSet = this.traceIndex.get(document.uri.toString());
+        if (!tracesSet) return false;
+        const tracesInFile = Array.from(tracesSet);
 
         const docLength = document.getText().length;
-        for (const trace of tracesInFile) {
+        for (let i = startIndex; i < tracesInFile.length; i++) {
+            const trace = tracesInFile[i];
             if (token.isCancellationRequested) return stateChanged;
 
             if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
-                this.pendingValidationDocs.set(document.uri.toString(), { uri: document.uri, version: document.version });
+                this.pendingValidationDocs.set(document.uri.toString(), { uri: document.uri, version: document.version, nextIndex: i });
                 break;
             }
 
@@ -1178,14 +1184,19 @@ export class TraceManager implements vscode.Disposable {
             // pass (activation/tab switch) — keep re-running until the doc has no more
             // pending work instead of leaving the tail end stranded in
             // pendingValidationDocs with nothing left to drain it.
+            let resumeIndex = 0;
             do {
                 this.pendingValidationDocs.delete(uriStr);
-                if (await this.validateDocumentTraces(document, cts.token, Date.now())) {
+                // Fresh startTime each slice guarantees at least one trace is processed
+                // before the budget can trip, so resumeIndex strictly advances.
+                if (await this.validateDocumentTraces(document, cts.token, Date.now(), resumeIndex)) {
                     stateChanged = true;
                 }
                 // Yield to the event loop between budget-limited slices so a large
                 // file can't monopolize the extension host during activation.
-                if (this.pendingValidationDocs.has(uriStr)) {
+                const pending = this.pendingValidationDocs.get(uriStr);
+                if (pending) {
+                    resumeIndex = pending.nextIndex ?? 0;
                     await new Promise<void>(resolve => setTimeout(resolve, 0));
                 }
             } while (!cts.token.isCancellationRequested && this.pendingValidationDocs.has(uriStr));
