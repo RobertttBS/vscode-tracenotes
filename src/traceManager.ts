@@ -77,6 +77,10 @@ export class TraceManager implements vscode.Disposable {
     private validationCts: vscode.CancellationTokenSource | undefined;
     private treeValidationCts: vscode.CancellationTokenSource | undefined;
     private pendingValidationDocs: Map<string, { uri: vscode.Uri; version: number }> = new Map();
+    // In-flight on-demand validations, keyed by URI — dedupes overlapping
+    // validateDocumentNow calls (e.g. rapid tab switches) so the same document's
+    // traces aren't mutated by two concurrent passes.
+    private inFlightValidations: Map<string, Promise<void>> = new Map();
 
     // Initialization readiness
     private _readyPromise: Promise<void>;
@@ -976,6 +980,15 @@ export class TraceManager implements vscode.Disposable {
             }
         }
 
+        // The shifted offsets/lineRange are authoritative now, but the debounced
+        // validation below short-circuits when content still matches — so persist the
+        // shift and notify the webview here, otherwise the new offsets live only in
+        // memory (lost on reload) and the sidebar keeps showing stale line numbers.
+        if (shiftedTraces.size > 0) {
+            this.persist();
+            this._onDidChangeTraces.fire();
+        }
+
         if (needsValidation) {
             this.pendingValidationDocs.set(docUriStr, { uri: document.uri, version: document.version });
 
@@ -1139,10 +1152,22 @@ export class TraceManager implements vscode.Disposable {
      * checkout, external edit, window reload) would keep a stale lineRange forever,
      * since the debounced queue is only ever populated from live edit events.
      */
-    public async validateDocumentNow(document: vscode.TextDocument): Promise<void> {
+    public validateDocumentNow(document: vscode.TextDocument): Promise<void> {
         const uriStr = document.uri.toString();
-        if (!this.traceIndex.has(uriStr)) return;
+        if (!this.traceIndex.has(uriStr)) return Promise.resolve();
 
+        // Coalesce overlapping calls for the same document (rapid tab switches,
+        // activation racing a tab switch) onto a single in-flight pass.
+        const existing = this.inFlightValidations.get(uriStr);
+        if (existing) return existing;
+
+        const run = this.runValidateDocumentNow(document, uriStr)
+            .finally(() => this.inFlightValidations.delete(uriStr));
+        this.inFlightValidations.set(uriStr, run);
+        return run;
+    }
+
+    private async runValidateDocumentNow(document: vscode.TextDocument, uriStr: string): Promise<void> {
         const tracesArr = Array.from(this.traceIndex.get(uriStr)!);
         this.ensureOffsets(document, tracesArr);
 
@@ -1157,6 +1182,11 @@ export class TraceManager implements vscode.Disposable {
                 this.pendingValidationDocs.delete(uriStr);
                 if (await this.validateDocumentTraces(document, cts.token, Date.now())) {
                     stateChanged = true;
+                }
+                // Yield to the event loop between budget-limited slices so a large
+                // file can't monopolize the extension host during activation.
+                if (this.pendingValidationDocs.has(uriStr)) {
+                    await new Promise<void>(resolve => setTimeout(resolve, 0));
                 }
             } while (!cts.token.isCancellationRequested && this.pendingValidationDocs.has(uriStr));
 
