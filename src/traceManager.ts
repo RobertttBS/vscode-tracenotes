@@ -1027,6 +1027,13 @@ export class TraceManager implements vscode.Disposable {
         const startTime = Date.now();
         let stateChanged = false;
 
+        // Note: this loop mutates the very Map it iterates. The delete below removes
+        // the current entry; the conditional set re-adds it only when the budget
+        // tripped mid-document (nextIndex returned). A budget trip also fails the
+        // next top-of-loop budget check, so the re-added entry isn't reprocessed in
+        // this pass — it's carried over for the setTimeout(0)-scheduled next pass to
+        // resume from nextIndex. (Per spec the iterator would revisit the re-added
+        // key, but the budget break short-circuits before it does any work.)
         for (const [uri, docData] of this.pendingValidationDocs) {
             if (token.isCancellationRequested) return;
 
@@ -1043,8 +1050,14 @@ export class TraceManager implements vscode.Disposable {
             const document = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri);
             if (!document || document.version !== docData.version) continue;
 
-            if (await this.validateDocumentTraces(document, token, startTime, docData.nextIndex ?? 0)) {
+            const result = await this.validateDocumentTraces(document, token, startTime, docData.nextIndex ?? 0);
+            if (result.changed) {
                 stateChanged = true;
+            }
+            if (result.nextIndex !== undefined) {
+                // Budget tripped mid-document — re-enqueue with the resume position.
+                // The outer budget check above will reschedule the next slice.
+                this.pendingValidationDocs.set(uri, { uri: docData.uri, version: docData.version, nextIndex: result.nextIndex });
             }
         }
 
@@ -1072,20 +1085,23 @@ export class TraceManager implements vscode.Disposable {
         token: vscode.CancellationToken,
         startTime: number,
         startIndex: number = 0,
-    ): Promise<boolean> {
+    ): Promise<{ changed: boolean; nextIndex?: number }> {
         let stateChanged = false;
         const tracesSet = this.traceIndex.get(document.uri.toString());
-        if (!tracesSet) return false;
+        if (!tracesSet) return { changed: false };
         const tracesInFile = Array.from(tracesSet);
 
         const docLength = document.getText().length;
         for (let i = startIndex; i < tracesInFile.length; i++) {
             const trace = tracesInFile[i];
-            if (token.isCancellationRequested) return stateChanged;
+            if (token.isCancellationRequested) return { changed: stateChanged };
 
             if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
-                this.pendingValidationDocs.set(document.uri.toString(), { uri: document.uri, version: document.version, nextIndex: i });
-                break;
+                // Hand the resume position back to the caller rather than writing
+                // it into pendingValidationDocs — that map is shared with the
+                // debounced edit path, which could overwrite the index. Each caller
+                // owns where it persists/uses resume state.
+                return { changed: stateChanged, nextIndex: i };
             }
 
             if (!trace.rangeOffset) continue;
@@ -1115,7 +1131,7 @@ export class TraceManager implements vscode.Disposable {
 
             if (!this.contentMatches(currentContent, trace.content)) {
                 const recovered = await this.recoverTracePoints(document, trace.content, startOffset, document.uri, token);
-                if (token.isCancellationRequested) return stateChanged;
+                if (token.isCancellationRequested) return { changed: stateChanged };
 
                 if (recovered) {
                     trace.rangeOffset = recovered.offset;
@@ -1148,7 +1164,7 @@ export class TraceManager implements vscode.Disposable {
             }
         }
 
-        return stateChanged;
+        return { changed: stateChanged };
     }
 
     /**
@@ -1186,20 +1202,22 @@ export class TraceManager implements vscode.Disposable {
             // pendingValidationDocs with nothing left to drain it.
             let resumeIndex = 0;
             do {
+                // Clear any debounced entry for this doc so the two paths don't both
+                // drain it; this pass owns validation and runs against the live doc.
                 this.pendingValidationDocs.delete(uriStr);
                 // Fresh startTime each slice guarantees at least one trace is processed
                 // before the budget can trip, so resumeIndex strictly advances.
-                if (await this.validateDocumentTraces(document, cts.token, Date.now(), resumeIndex)) {
+                const result = await this.validateDocumentTraces(document, cts.token, Date.now(), resumeIndex);
+                if (result.changed) {
                     stateChanged = true;
                 }
+                // nextIndex undefined means the pass finished the document.
+                if (result.nextIndex === undefined) break;
+                resumeIndex = result.nextIndex;
                 // Yield to the event loop between budget-limited slices so a large
                 // file can't monopolize the extension host during activation.
-                const pending = this.pendingValidationDocs.get(uriStr);
-                if (pending) {
-                    resumeIndex = pending.nextIndex ?? 0;
-                    await new Promise<void>(resolve => setTimeout(resolve, 0));
-                }
-            } while (!cts.token.isCancellationRequested && this.pendingValidationDocs.has(uriStr));
+                await new Promise<void>(resolve => setTimeout(resolve, 0));
+            } while (!cts.token.isCancellationRequested);
 
             if (stateChanged) {
                 this.persist();
