@@ -609,6 +609,7 @@ const Storyboard: React.FC = () => {
         if (trace.filePath) {
             postMessage({
                 command: 'jumpToCode',
+                id: trace.id,
                 filePath: trace.filePath,
                 range: trace.lineRange,
             });

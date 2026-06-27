@@ -80,7 +80,7 @@ export type ExtensionToWebviewMessage =
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =
-    | { command: 'jumpToCode'; filePath: string; range: [number, number] }
+    | { command: 'jumpToCode'; id: string; filePath: string; range: [number, number] }
     | { command: 'removeTrace'; id: string }
     | { command: 'reorderTraces'; orderedIds: string[] }
     | { command: 'updateNote'; id: string; note: string }

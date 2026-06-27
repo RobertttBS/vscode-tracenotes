@@ -705,26 +705,38 @@ export class TraceManager implements vscode.Disposable {
         trace.orphaned = false;
 
         if (isDifferentFile) {
-            const oldUriStr = vscode.Uri.file(oldFilePath).toString();
-            const oldIndexList = this.traceIndex.get(oldUriStr);
-            if (oldIndexList) {
-                oldIndexList.delete(trace);
-                if (oldIndexList.size === 0) {
-                    this.traceIndex.delete(oldUriStr);
-                }
-            }
-
-            const newUriStr = document.uri.toString();
-            let newIndexList = this.traceIndex.get(newUriStr);
-            if (!newIndexList) {
-                newIndexList = new Set();
-                this.traceIndex.set(newUriStr, newIndexList);
-            }
-            newIndexList.add(trace);
+            this.moveTraceInFileIndex(trace, vscode.Uri.file(oldFilePath).toString(), document.uri.toString());
         }
 
         this.persist();
         this._onDidChangeTraces.fire();
+    }
+
+    /**
+     * Move a trace between the per-file `traceIndex` buckets when its `filePath`
+     * changes. Both deliberate relocation (`relocateTrace`) and automatic cross-file
+     * recovery (`validateDocumentTraces`) must call this — otherwise the trace stays
+     * bucketed under its old URI and `getTracesForFile`/decorations/future validation
+     * on the new file silently miss it. (Hierarchy is unchanged, so `traceIdMap` and
+     * `parentIdMap` keyed by id stay valid.)
+     */
+    private moveTraceInFileIndex(trace: TracePoint, oldUriStr: string, newUriStr: string): void {
+        if (oldUriStr === newUriStr) { return; }
+
+        const oldIndexList = this.traceIndex.get(oldUriStr);
+        if (oldIndexList) {
+            oldIndexList.delete(trace);
+            if (oldIndexList.size === 0) {
+                this.traceIndex.delete(oldUriStr);
+            }
+        }
+
+        let newIndexList = this.traceIndex.get(newUriStr);
+        if (!newIndexList) {
+            newIndexList = new Set();
+            this.traceIndex.set(newUriStr, newIndexList);
+        }
+        newIndexList.add(trace);
     }
 
     public getAll(): TracePoint[] {
@@ -1137,6 +1149,10 @@ export class TraceManager implements vscode.Disposable {
                     trace.rangeOffset = recovered.offset;
                     if (recovered.uri.fsPath !== document.uri.fsPath) {
                         trace.filePath = recovered.uri.fsPath;
+                        // Keep traceIndex in sync with the relocated file, same as
+                        // relocateTrace — otherwise the trace stays bucketed under the
+                        // old URI and the target file misses it.
+                        this.moveTraceInFileIndex(trace, document.uri.toString(), recovered.uri.toString());
                         const targetDoc = await this.getDocAdapter(recovered.uri, false);
                         if (targetDoc.docAdapter) {
                             const rStart = targetDoc.docAdapter.positionAt(recovered.offset[0]);

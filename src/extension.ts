@@ -41,9 +41,30 @@ export function activate(context: vscode.ExtensionContext) {
         traceManager,
         (msg) => {
             switch (msg.command) {
-                case 'jumpToCode':
-                    handleJump({ filePath: msg.filePath, range: msg.range });
+                case 'jumpToCode': {
+                    // Validate the target file before computing the jump target.
+                    // Drift introduced outside the live edit stream (git checkout,
+                    // external edit) is only recovered on-demand, so without this the
+                    // first jump after such drift lands on the stale line and the user
+                    // has to click twice. Look up the freshly-recovered lineRange/path
+                    // (recovery may even relocate the trace to another file) and jump there.
+                    // StoryboardProvider already awaited ensureReady() before dispatch.
+                    const { id, filePath, range } = msg;
+                    void (async () => {
+                        try {
+                            const doc = await vscode.workspace.openTextDocument(filePath);
+                            await traceManager.validateDocumentNow(doc);
+                        } catch {
+                            // unreadable/missing file — handleJump surfaces the error
+                        }
+                        const fresh = traceManager.findTraceById(id);
+                        await handleJump({
+                            filePath: fresh?.filePath ?? filePath,
+                            range: fresh?.lineRange ?? range,
+                        });
+                    })().catch((err) => console.error('TraceNotes: jump validation failed', err));
                     break;
+                }
                 case 'removeTrace':
                     traceManager.remove(msg.id);
                     break;
