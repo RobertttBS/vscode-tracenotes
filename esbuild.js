@@ -1,4 +1,5 @@
 const esbuild = require('esbuild');
+const fs = require('fs');
 
 const isWatch = process.argv.includes('--watch');
 
@@ -32,6 +33,9 @@ const webviewConfig = {
 };
 
 async function main() {
+    // Wipe stale output (e.g. leftover per-module tsc artifacts) so only the
+    // esbuild bundles ship in the VSIX.
+    fs.rmSync('dist', { recursive: true, force: true });
     if (isWatch) {
         const extCtx = await esbuild.context(extensionConfig);
         const webCtx = await esbuild.context(webviewConfig);
