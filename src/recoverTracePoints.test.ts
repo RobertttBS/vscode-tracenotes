@@ -848,6 +848,146 @@ async function runTests() {
         }
     });
 
+    // ===== findNormalized OFFSET ROUND-TRIP (issue #6 guard) =====
+    // findNormalized maps a position found in whitespace/digit/zero-width-
+    // normalized space back to an offset in the ORIGINAL text via a hand-written
+    // forward char scan (isWSCode / isZeroWidthCode / isDigitCode). That scan is
+    // the inverse of the normalizeFullText() regex chain. If a future edit changes
+    // one side (a new whitespace rule, a different digit fold, another zero-width
+    // char) without keeping the other in sync, the recovered offset silently
+    // slides and a highlight lands on the wrong span — no error, just wrong.
+    // These tests pin the invariant so a desync fails loudly in CI:
+    //   normalize( fullText.slice(start, end) ) === normalize( cleanContent )
+    // and, for unique matches, [start, end] is exactly the original span.
+
+    const findNormalized = (manager as any).findNormalized.bind(manager) as
+        (fullText: string, cleanContent: string, preferredOffset: number) => [number, number] | null;
+    const normalizeFullText = (manager as any).normalizeFullText.bind(manager) as
+        (s: string) => string;
+
+    await test("findNormalized: exact span recovery across whitespace / digit / zero-width variation", async () => {
+        // prefix + target + suffix, all boundary chars non-ws/digit/zero-width so
+        // the target occurs once and maps to an unambiguous original span.
+        const cases = [
+            { prefix: "AAA ",  target: "foo   bar",        clean: "foo bar" },  // collapsed whitespace run
+            { prefix: "xx ",   target: "arr[12345]",       clean: "arr[1]" },   // digit run → '#'
+            { prefix: "pre ",  target: "foo​bar",     clean: "foobar" },   // stripped zero-width
+            { prefix: "head ", target: "a\t b1234c ​z", clean: "a b9c z" },// tab+space+digit+zw combined
+        ];
+        for (const { prefix, target, clean } of cases) {
+            const full = prefix + target + " tail";
+            const start = prefix.length;
+            const end = prefix.length + target.length;
+            const res = findNormalized(full, clean, start);
+            assert.ok(res !== null, `findNormalized returned null for clean="${clean}"`);
+            assert.deepStrictEqual(
+                res, [start, end],
+                `span mismatch for clean="${clean}" (recovered "${full.slice(res![0], res![1])}")`,
+            );
+            // Belt-and-suspenders: the slice re-normalizes to the same thing the
+            // search content does — the property that survives even ambiguous matches.
+            assert.strictEqual(
+                normalizeFullText(full.slice(res![0], res![1])),
+                normalizeFullText(clean),
+            );
+        }
+    });
+
+    await test("findNormalized + contentMatches: boundary zero-width chars don't desync or churn", async () => {
+        const contentMatches = (manager as any).contentMatches.bind(manager) as
+            (docContent: string, storedContent: string) => boolean;
+        const ZWSP = String.fromCharCode(0x200B); // not matched by \s, survives .trim()
+
+        // (a) A leading zero-width char on the SEARCH content still recovers, and the
+        //     round-trip holds (the zero-width char normalizes away on both sides).
+        {
+            const full = "AAA foo bar tail";
+            const clean = ZWSP + "foo bar";
+            const res = findNormalized(full, clean, 4);
+            assert.ok(res !== null, "leading-zero-width clean should still match");
+            assert.strictEqual(
+                normalizeFullText(full.slice(res![0], res![1])),
+                normalizeFullText(clean),
+            );
+        }
+
+        // (b) A leading zero-width char in the DOCUMENT, preceded by a non-run char so
+        //     the skip path (not run absorption) handles it: origStart must land on the
+        //     first retained char, not the zero-width char.
+        {
+            const full = "ab" + ZWSP + "(a b) tail";
+            const clean = "(a b)";
+            const res = findNormalized(full, clean, 0);
+            assert.ok(res !== null);
+            assert.strictEqual(full[res![0]], "(", "span must start on '(', not the leading zero-width char");
+            assert.strictEqual(
+                normalizeFullText(full.slice(res![0], res![1])),
+                normalizeFullText(clean),
+            );
+        }
+
+        // (c) contentMatches must be zero-width agnostic. Otherwise a non-\s boundary
+        //     zero-width char present on only one side makes getText(rangeOffset)
+        //     disagree with the stored content forever, re-triggering recovery each
+        //     pass (the search/normalize path strips zero-width chars; this gate must too).
+        assert.strictEqual(contentMatches("foo bar", ZWSP + "foo bar" + ZWSP), true, "boundary zero-width on one side must still match");
+        assert.strictEqual(contentMatches("foo" + ZWSP + "bar", "foobar"), true, "internal zero-width must be ignored");
+        assert.strictEqual(contentMatches("foo bar", "foo baz"), false, "genuinely different content must not match");
+    });
+
+    await test("findNormalized: randomized round-trip invariant over generated strings", async () => {
+        // Seeded LCG so any failure is reproducible, not flaky.
+        let seed = 0x9e3779b1;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0x100000000; };
+        const rint = (n: number) => Math.floor(rnd() * n);
+
+        const ZW = ['​', '‌', '‍', '⁠', '﻿'];
+        const CLEAN = 'abcXYZ(){}[];_';
+        const isClean = (ch: string) => {
+            const c = ch.charCodeAt(0);
+            return !(c === 32 || (c >= 9 && c <= 13)) && !(c >= 48 && c <= 57)
+                && !(c === 0x200B || c === 0x200C || c === 0x200D || c === 0x2060 || c === 0xFEFF);
+        };
+        const randText = () => {
+            let s = '';
+            const atoms = rint(40) + 5;
+            for (let i = 0; i < atoms; i++) {
+                switch (rint(6)) {
+                    case 0: case 1: s += CLEAN[rint(CLEAN.length)]; break;
+                    case 2: s += ' '.repeat(rint(3) + 1); break;
+                    case 3: s += '\t\n'[rint(2)]; break;
+                    case 4: s += String(rint(100000)); break;   // digit run
+                    default: s += ZW[rint(ZW.length)];          // zero-width
+                }
+            }
+            return s;
+        };
+
+        let checked = 0;
+        for (let iter = 0; iter < 2000; iter++) {
+            const full = randText();
+            // Pick a span bounded on both ends by clean chars, so normalize(clean)
+            // is guaranteed to appear in normalize(full).
+            const cleanIdx: number[] = [];
+            for (let i = 0; i < full.length; i++) { if (isClean(full[i])) cleanIdx.push(i); }
+            if (cleanIdx.length < 1) continue;
+            const a = cleanIdx[rint(cleanIdx.length)];
+            const b = cleanIdx[rint(cleanIdx.length)];
+            const s = Math.min(a, b);
+            const e = Math.max(a, b) + 1; // last char is clean → exclusive end
+            const clean = full.slice(s, e);
+            const res = findNormalized(full, clean, s);
+            assert.ok(res !== null, `iter ${iter}: null for clean=${JSON.stringify(clean)} in ${JSON.stringify(full)}`);
+            assert.strictEqual(
+                normalizeFullText(full.slice(res![0], res![1])),
+                normalizeFullText(clean),
+                `iter ${iter}: round-trip mismatch; clean=${JSON.stringify(clean)} full=${JSON.stringify(full)} res=${JSON.stringify(res)}`,
+            );
+            checked++;
+        }
+        assert.ok(checked > 100, `expected many generated spans, only checked ${checked}`);
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
 
     if (failed > 0) {

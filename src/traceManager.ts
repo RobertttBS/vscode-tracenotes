@@ -23,6 +23,17 @@ function isZeroWidthCode(code: number): boolean {
 function isDigitCode(code: number): boolean {
     return code >= 48 && code <= 57;
 }
+// normalizeFullText() strips zero-width chars BEFORE folding whitespace/digit
+// runs, so a zero-width char embedded in a run merges that run in normalized
+// space (e.g. "1​2" → "#"). The back-map run loops must treat zero-width
+// chars as transparent run members, or they'd break the run into two tokens and
+// drift every offset after it. Used only inside an already-started run.
+function isWSOrZeroWidthCode(code: number): boolean {
+    return isWSCode(code) || isZeroWidthCode(code);
+}
+function isDigitOrZeroWidthCode(code: number): boolean {
+    return isDigitCode(code) || isZeroWidthCode(code);
+}
 
 export interface ITraceDocument {
     lineCount: number;
@@ -1389,22 +1400,34 @@ export class TraceManager implements vscode.Disposable {
         let normPos = 0;
         while (normPos < bestNormIdx && origPos < len) {
             const code = fullText.charCodeAt(origPos);
-            if (isWSCode(code)) {
-                // skip the whole whitespace run in original
-                while (origPos < len && isWSCode(fullText.charCodeAt(origPos))) origPos++;
-                normPos++; // one space in normalized
-            } else if (isZeroWidthCode(code)) {
-                // zero-width char: skip in original, no normPos advance (was stripped)
+            if (isZeroWidthCode(code)) {
+                // zero-width char: skip in original, no normPos advance (was stripped).
+                // MUST precede the whitespace check: U+FEFF is both zero-width and a
+                // \s match, and normalizeFullText strips zero-width *before* folding
+                // whitespace — so a lone FEFF contributes nothing, not a space.
                 origPos++;
+            } else if (isWSCode(code)) {
+                // skip the whole whitespace run in original (zero-width chars merge into it)
+                while (origPos < len && isWSOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
+                normPos++; // one space in normalized
             } else if (isDigitCode(code)) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (origPos < len && isDigitCode(fullText.charCodeAt(origPos))) origPos++;
+                while (origPos < len && isDigitOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
                 normPos++; // one '#' in normalized
             } else {
                 origPos++;
                 normPos++;
             }
         }
+        // The loop can exit with origPos resting on a zero-width char that precedes
+        // the first retained char of the match: zero-width chars advance origPos
+        // without advancing normPos, so once normPos reaches bestNormIdx the loop
+        // stops before stepping over them. Skip them so origStart lands on the first
+        // retained char, keeping the span tight and symmetric with the end walk
+        // (which likewise stops before any trailing zero-width chars). The round-trip
+        // holds either way since these chars normalize away — this just avoids an
+        // extraneous leading zero-width char in the recovered offset.
+        while (origPos < len && isZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
         const origStart = origPos;
 
         // Walk forward to find end: match normContent.length chars in normalized space
@@ -1413,14 +1436,15 @@ export class TraceManager implements vscode.Disposable {
         const normEnd = bestNormIdx + normContent.length;
         while (endNormPos < normEnd && endOrigPos < len) {
             const code = fullText.charCodeAt(endOrigPos);
-            if (isWSCode(code)) {
-                while (endOrigPos < len && isWSCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
-                endNormPos++;
-            } else if (isZeroWidthCode(code)) {
+            if (isZeroWidthCode(code)) {
+                // zero-width first — see the start-map loop above (U+FEFF is also \s).
                 endOrigPos++;
+            } else if (isWSCode(code)) {
+                while (endOrigPos < len && isWSOrZeroWidthCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
+                endNormPos++;
             } else if (isDigitCode(code)) {
                 // consume the entire digit run in original; normalized has a single '#'
-                while (endOrigPos < len && isDigitCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
+                while (endOrigPos < len && isDigitOrZeroWidthCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
                 endNormPos++; // one '#' in normalized
             } else {
                 endOrigPos++;
@@ -1733,8 +1757,13 @@ export class TraceManager implements vscode.Disposable {
 
 
     private contentMatches(docContent: string, storedContent: string): boolean {
-        const n1 = docContent.replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
-        const n2 = storedContent.replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
+        // Strip zero-width chars first, mirroring normalizeFullText / the recovery
+        // search path. Without this the gate is ZW-sensitive while search is not:
+        // a non-\s boundary zero-width char (U+200B/200C/200D/2060 survive .trim())
+        // present on only one side makes getText(rangeOffset) disagree with the
+        // stored content forever, re-triggering recovery on every pass.
+        const n1 = docContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
+        const n2 = storedContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#').trim();
         return n1 === n2;
     }
 
