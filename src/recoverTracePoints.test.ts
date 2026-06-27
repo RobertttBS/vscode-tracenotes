@@ -849,6 +849,43 @@ async function runTests() {
         }
     });
 
+    await test("validateDocumentNow: cross-file recovery re-buckets the trace into the new file's traceIndex", async () => {
+        // file.ts is now empty, but its trace's content still lives verbatim in
+        // otherFile.ts (cross-workspace mock). Recovery must relocate the trace AND
+        // move it between traceIndex buckets — otherwise getTracesForFile / decorations
+        // / future validation on the new file silently miss it (the moveTraceInFileIndex fix).
+        const p = '/workspace/src/file.ts';
+        const doc = makeDoc('', p); // empty → contentMatches fails → recovery fires
+        const oldUriStr = doc.uri.toString();
+        const otherPath = '/workspace/src/otherFile.ts';
+        const otherUriStr = mockVscode.Uri.file(otherPath).toString();
+
+        const trace = makeTrace({
+            id: 'xfile',
+            filePath: p,
+            content: 'function testFunc() {\n    console.log("hello");\n}',
+            rangeOffset: [0, 0],
+        });
+        (manager as any).traceIndex.set(oldUriStr, new Set([trace]));
+
+        try {
+            await manager.validateDocumentNow(doc);
+
+            assert.strictEqual(trace.filePath, otherPath, "trace.filePath should point at the file it was recovered in");
+            assert.ok(
+                manager.getTracesForFile(otherPath).includes(trace),
+                "relocated trace must be bucketed under the new file's URI",
+            );
+            assert.strictEqual(
+                (manager as any).traceIndex.has(oldUriStr), false,
+                "old (now empty) bucket should be dropped once its last trace moves out",
+            );
+        } finally {
+            (manager as any).traceIndex.delete(oldUriStr);
+            (manager as any).traceIndex.delete(otherUriStr);
+        }
+    });
+
     // ===== findNormalized OFFSET ROUND-TRIP (issue #6 guard) =====
     // findNormalized maps a position found in whitespace/digit/zero-width-
     // normalized space back to an offset in the ORIGINAL text via a hand-written

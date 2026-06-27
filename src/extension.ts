@@ -51,15 +51,22 @@ export function activate(context: vscode.ExtensionContext) {
                     // StoryboardProvider already awaited ensureReady() before dispatch.
                     const { id, filePath, range } = msg;
                     void (async () => {
+                        // Validate the file the trace *currently* lives on, not the one the
+                        // (possibly stale) webview sent: validateDocumentNow keys off the
+                        // traceIndex bucket, so validating a file the trace already left is a
+                        // no-op and we'd jump with a stale range. Re-read after validation
+                        // since recovery may have relocated the trace again.
+                        const current = traceManager.findTraceById(id);
+                        const targetFile = current?.filePath ?? filePath;
                         try {
-                            const doc = await vscode.workspace.openTextDocument(filePath);
+                            const doc = await vscode.workspace.openTextDocument(targetFile);
                             await traceManager.validateDocumentNow(doc);
                         } catch {
                             // unreadable/missing file — handleJump surfaces the error
                         }
                         const fresh = traceManager.findTraceById(id);
                         await handleJump({
-                            filePath: fresh?.filePath ?? filePath,
+                            filePath: fresh?.filePath ?? targetFile,
                             range: fresh?.lineRange ?? range,
                         });
                     })().catch((err) => console.error('TraceNotes: jump validation failed', err));
