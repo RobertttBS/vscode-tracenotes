@@ -35,6 +35,22 @@ function isDigitOrZeroWidthCode(code: number): boolean {
     return isDigitCode(code) || isZeroWidthCode(code);
 }
 
+// Tier-A duplicate disambiguation (same-file recovery only). When recovery fires
+// and the stored content still appears verbatim more than once, picking the
+// offset-closest copy is a silent guess — the one recovery outcome that hands back
+// a confident *wrong* anchor with no orphaned signal instead of honestly degrading
+// to "lost". We trust the nearest copy only when one is clearly right: it sits
+// ~where the trace was (the block shifted, EXACT_PROXIMITY_CHARS) or is much nearer
+// than any other copy (runner-up beyond AMBIGUITY_DISTANCE_RATIO×). Otherwise the
+// search returns AMBIGUOUS_DUPLICATE and the caller orphans.
+const EXACT_PROXIMITY_CHARS = 256;
+const AMBIGUITY_DISTANCE_RATIO = 2;
+// Exported only so the standalone test can assert the exact sentinel (more
+// diagnostic than a structural check); there is no public-API surface here — the
+// extension ships as a single esbuild bundle.
+export const AMBIGUOUS_DUPLICATE: unique symbol = Symbol('ambiguous-duplicate');
+type SearchResult = [number, number] | typeof AMBIGUOUS_DUPLICATE | null;
+
 export interface ITraceDocument {
     lineCount: number;
     offsetAt(position: vscode.Position): number;
@@ -1301,7 +1317,16 @@ export class TraceManager implements vscode.Disposable {
         if (cleanContent.length === 0) return null;
 
         // Level 1: search the current file with no radius restriction
-        const sameFileResult = this.searchInText(fullText, cleanContent, lastKnownStart);
+        const sameFileResult = this.searchInText(fullText, cleanContent, lastKnownStart, undefined, true);
+        if (sameFileResult === AMBIGUOUS_DUPLICATE) {
+            // Verbatim duplicates with no clear winner in this file — orphan instead of
+            // jumping to the wrong copy. We deliberately skip Level 2: the content
+            // demonstrably still lives in this file (just ambiguously), so relocating to a
+            // unique cross-file hit would be a *different* wrong guess. Orphaning (null) is
+            // the honest outcome even in the rarer case where the trace was truly moved to
+            // another file while duplicates linger here.
+            return null;
+        }
         if (sameFileResult) {
             return { offset: sameFileResult, uri: originalUri };
         }
@@ -1320,10 +1345,16 @@ export class TraceManager implements vscode.Disposable {
         fullText: string,
         cleanContent: string,
         preferredOffset: number,
-        anchorCtx?: AnchorCtx
-    ): [number, number] | null {
-        // Tier A: exact match across full text
-        const exactResult = this.findClosestExact(fullText, cleanContent, preferredOffset);
+        anchorCtx?: AnchorCtx,
+        detectAmbiguity: boolean = false
+    ): SearchResult {
+        // Tier A: exact match across full text. AMBIGUOUS_DUPLICATE short-circuits Tiers
+        // B/C explicitly — they search the same duplicated text with a weaker signal and
+        // can't disambiguate what Tier A already couldn't. Disambiguation is exact-match
+        // only by design: if Tier A finds *no* exact hit, Tiers B/C still silently pick
+        // the offset-closest normalized/fuzzy candidate.
+        const exactResult = this.findClosestExact(fullText, cleanContent, preferredOffset, detectAmbiguity);
+        if (exactResult === AMBIGUOUS_DUPLICATE) return exactResult;
         if (exactResult) return exactResult;
 
         // Tier B: whitespace-normalized match
@@ -1340,18 +1371,37 @@ export class TraceManager implements vscode.Disposable {
     private findClosestExact(
         fullText: string,
         cleanContent: string,
-        preferredOffset: number
-    ): [number, number] | null {
+        preferredOffset: number,
+        detectAmbiguity: boolean = false
+    ): SearchResult {
         let best = -1;
         let bestDist = Infinity;
+        let runnerUpDist = Infinity;
         let idx = fullText.indexOf(cleanContent);
         while (idx >= 0) {
             const dist = Math.abs(idx - preferredOffset);
-            if (dist < bestDist) { bestDist = dist; best = idx; }
+            if (dist < bestDist) { runnerUpDist = bestDist; bestDist = dist; best = idx; }
+            else if (dist < runnerUpDist) { runnerUpDist = dist; }
             idx = fullText.indexOf(cleanContent, idx + 1);
         }
-        if (best >= 0) return [best, best + cleanContent.length];
-        return null;
+        if (best < 0) return null;
+
+        // Refuse to guess between verbatim duplicates with no clear winner. runnerUpDist
+        // stays Infinity for a single match (always trusted). Within the proximity band
+        // (bestDist <= EXACT_PROXIMITY_CHARS) the nearest copy is always trusted — even an
+        // exact distance tie picks the earliest occurrence: a copy that close is ~where the
+        // trace was, so a mis-anchor stays within a few lines rather than jumping to an
+        // unrelated copy. See AMBIGUOUS_DUPLICATE.
+        if (
+            detectAmbiguity &&
+            runnerUpDist !== Infinity &&
+            bestDist > EXACT_PROXIMITY_CHARS &&
+            runnerUpDist <= bestDist * AMBIGUITY_DISTANCE_RATIO
+        ) {
+            return AMBIGUOUS_DUPLICATE;
+        }
+
+        return [best, best + cleanContent.length];
     }
 
     /**
@@ -1509,7 +1559,9 @@ export class TraceManager implements vscode.Disposable {
                 if (matchCount < required) continue;
 
                 const found = this.searchInText(text, cleanContent, 0, anchorCtx);
-                if (found) return { offset: found, uri: fileUri };
+                // Ambiguity detection is off here (preferredOffset 0 is meaningless
+                // cross-file), so `found` is never AMBIGUOUS_DUPLICATE — guard narrows the type.
+                if (found && found !== AMBIGUOUS_DUPLICATE) return { offset: found, uri: fileUri };
             } catch {
                 // skip unreadable files silently
             }

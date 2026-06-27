@@ -91,7 +91,7 @@ Module.prototype.require = function(request: string) {
 };
 
 // --- IMPORT TRACEMANAGER ---
-import { TraceManager } from './traceManager';
+import { TraceManager, AMBIGUOUS_DUPLICATE } from './traceManager';
 
 // Mock ITraceDocument
 class MockDocument {
@@ -272,11 +272,12 @@ async function runTests() {
         const res1 = await recoverTracePoints(doc1, content, lastKnown1, uri);
         assert.strictEqual(res1!.offset[0], docContent1.lastIndexOf("function duplicate"), "Should pick the closest block");
 
-        // 2. Equidistant duplicates (deterministic check)
+        // 2. Two duplicates, lastKnown sitting on the first copy (offset 500, distance 0).
+        // Within the proximity band, so the nearest copy is trusted — not orphaned.
         const docContent2 = " ".repeat(500) + content + " ".repeat(500) + content;
         const doc2 = new MockDocument(docContent2);
-        const res2 = await recoverTracePoints(doc2, content, 500, uri); // lastKnown is exactly in the middle of two gaps
-        assert.ok(res2 !== null, "Equidistant duplicates should not fail");
+        const res2 = await recoverTracePoints(doc2, content, 500, uri);
+        assert.ok(res2 !== null, "duplicate at the preferred offset should recover, not orphan");
     });
 
 
@@ -986,6 +987,68 @@ async function runTests() {
             checked++;
         }
         assert.ok(checked > 100, `expected many generated spans, only checked ${checked}`);
+    });
+
+    // --- Tier-A duplicate disambiguation (#3: fail safe, not fail wrong) ---
+    // When recovery fires and the stored content still appears verbatim >1× with no
+    // clear winner, Tier A must orphan rather than silently anchor to the wrong copy.
+    // A single match, a copy ~where the trace was, or a clearly-nearest copy still
+    // recovers — only genuine ties orphan.
+    const findClosestExact = (manager as any).findClosestExact.bind(manager) as
+        (fullText: string, cleanContent: string, preferredOffset: number, detectAmbiguity?: boolean) => any;
+    const content = "function duplicate() { return 1; }"; // 34 chars, occurs verbatim
+
+    await test("findClosestExact: single match and clear winners recover; genuine ties orphan", async () => {
+        // Single occurrence → always trusted, even with detection on.
+        {
+            const full = "xx " + content + " yy";
+            assert.deepStrictEqual(
+                findClosestExact(full, content, 0, true), [3, 3 + content.length],
+                "single match must recover",
+            );
+        }
+        // Nearest copy sits ~where the trace was (within EXACT_PROXIMITY_CHARS) → trust it.
+        {
+            const full = content + " ".repeat(1000) + content;
+            const second = full.lastIndexOf(content);
+            assert.deepStrictEqual(
+                findClosestExact(full, content, second + 5, true), [second, second + content.length],
+                "block-shifted-but-close copy must recover",
+            );
+        }
+        // Nearest copy much closer than the runner-up (beyond the ratio) → trust it.
+        {
+            const full = " ".repeat(300) + content + " ".repeat(5000) + content;
+            assert.deepStrictEqual(
+                findClosestExact(full, content, 0, true), [300, 300 + content.length],
+                "clearly-nearest copy must recover",
+            );
+        }
+        // Two comparably-distant copies, preferred offset in the deleted middle → orphan.
+        {
+            const full = " ".repeat(1000) + content + " ".repeat(1000) + content;
+            const preferred = 1000 + content.length + 500;
+            assert.strictEqual(
+                findClosestExact(full, content, preferred, true), AMBIGUOUS_DUPLICATE,
+                "comparably-distant duplicates must be ambiguous",
+            );
+            // Detection off → preserves the legacy silent pick: the copy closest to
+            // preferred (the second one, dist 500 vs the first's 534).
+            const second = full.lastIndexOf(content);
+            assert.deepStrictEqual(
+                findClosestExact(full, content, preferred, false), [second, second + content.length],
+                "with detection off, must return the offset-closest copy",
+            );
+        }
+    });
+
+    await test("recoverTracePoints: ambiguous same-file duplicates orphan instead of mis-anchoring", async () => {
+        const full = " ".repeat(1000) + content + " ".repeat(1000) + content;
+        const doc = new MockDocument(full);
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+        const preferred = 1000 + content.length + 500; // in the deleted gap, between the copies
+        const res = await recoverTracePoints(doc, content, preferred, uri);
+        assert.strictEqual(res, null, "ambiguous duplicates must orphan (null), not jump to a copy");
     });
 
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
