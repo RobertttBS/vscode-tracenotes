@@ -1088,6 +1088,85 @@ async function runTests() {
         assert.strictEqual(res, null, "ambiguous duplicates must orphan (null), not jump to a copy");
     });
 
+    // --- Tier B/C ambiguity guard (extends the Tier A orphan-over-guess rule) ---
+    // The AMBIGUOUS_DUPLICATE guard used to live ONLY in Tier A (exact match): the
+    // moment recovery fell through to Tier B (normalized) or Tier C (anchor + Sellers
+    // fuzzy), the same "two comparably-good candidates, no clear winner" situation was
+    // resolved by silently picking the proximity-first one — a confident WRONG anchor
+    // with no orphaned signal. The guard now spans all three tiers, so a fuzzy tie
+    // orphans exactly like the exact tie. This test locks in that symmetry.
+    await test("Tier B orphans an ambiguous normalized-duplicate tie, matching the Tier A guard", async () => {
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+
+        // Trace was stored on a line containing the literal id `12345`; the file now
+        // holds TWO copies where that id reads `99999` / `67890`. Stored content
+        // matches neither copy verbatim (Tier A misses), but digit runs normalize to
+        // `#`, so both copies match the stored content identically under Tier B
+        // normalization — the same "two comparably-good candidates" tie as Tier A.
+        const stored = 'const handle = registerCallback(12345, onReady);';
+        const copyA = 'const handle = registerCallback(99999, onReady);';
+        const copyB = 'const handle = registerCallback(67890, onReady);';
+
+        // 1000-char gaps, preferred offset in the deleted middle → both copies are
+        // comparably distant, beyond EXACT_PROXIMITY_CHARS, within the ratio → no
+        // proximity winner → orphan.
+        const GAP = ' '.repeat(1000);
+        const docContent = GAP + copyA + GAP + copyB + GAP;
+        const doc = new MockDocument(docContent);
+        const firstCopy = docContent.indexOf(copyA);
+        const secondCopy = docContent.indexOf(copyB);
+        const preferred = Math.floor((firstCopy + secondCopy) / 2);
+
+        const res = await recoverTracePoints(doc, stored, preferred, uri);
+        assert.strictEqual(res, null, "Tier B should orphan an ambiguous normalized-duplicate tie, not pick a copy");
+    });
+
+    await test("Tier C orphans an ambiguous fuzzy-duplicate tie, matching the Tier A guard", async () => {
+        const uri = mockVscode.Uri.file('/workspace/src/file.ts');
+
+        // Trace was stored on `computeMetrics`; the user later renamed it to
+        // `computeMetricsV2` in TWO copy-pasted places. Stored content now matches
+        // neither copy exactly (Tier A misses) nor under whitespace/digit
+        // normalization (Tier B misses), but is within fuzzy edit distance of BOTH
+        // (one renamed token over ~26) — so Tier C matches each copy equally well.
+        const stored = [
+            'function computeMetrics() {',
+            '    let accumulator = initialize();',
+            '    accumulator = transform(accumulator);',
+            '    return finalize(accumulator);',
+            '}',
+        ].join('\n');
+        const drifted = stored.replace('computeMetrics', 'computeMetricsV2');
+
+        const GAP = ' '.repeat(2000);
+        const docContent = GAP + drifted + GAP + drifted + GAP;
+        const doc = new MockDocument(docContent);
+
+        const firstCopy = docContent.indexOf(drifted);
+        const secondCopy = docContent.lastIndexOf(drifted);
+        // Preferred offset exactly between the two copies → genuinely no winner.
+        const preferred = Math.floor((firstCopy + secondCopy) / 2);
+
+        const res = await recoverTracePoints(doc, stored, preferred, uri);
+
+        // FIXED behavior: two equally-good fuzzy candidates with no proximity winner
+        // now orphan (AMBIGUOUS_DUPLICATE → null) instead of silently anchoring onto a
+        // copy. (firstCopy/secondCopy referenced here so the layout assumptions stay
+        // documented even though we no longer inspect a recovered offset.)
+        void firstCopy; void secondCopy;
+        assert.strictEqual(res, null, "Tier C should orphan an ambiguous fuzzy-duplicate tie, not pick a copy");
+
+        // The SAME ambiguous tie as an EXACT duplicate is orphaned by the Tier A guard.
+        // Same risk, same outcome now: the asymmetry is gone.
+        const exactContent = GAP + stored + GAP + stored + GAP;
+        const exactDoc = new MockDocument(exactContent);
+        const exactFirst = exactContent.indexOf(stored);
+        const exactSecond = exactContent.lastIndexOf(stored);
+        const exactPreferred = Math.floor((exactFirst + exactSecond) / 2);
+        const exactRes = await recoverTracePoints(exactDoc, stored, exactPreferred, uri);
+        assert.strictEqual(exactRes, null, "exact-duplicate tie should also orphan via Tier A");
+    });
+
     console.log(`\nResults: ${passed} passed, ${failed} failed`);
 
     if (failed > 0) {

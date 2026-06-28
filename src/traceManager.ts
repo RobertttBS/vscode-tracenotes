@@ -35,7 +35,7 @@ function isDigitOrZeroWidthCode(code: number): boolean {
     return isDigitCode(code) || isZeroWidthCode(code);
 }
 
-// Tier-A duplicate disambiguation (same-file recovery only). When recovery fires
+// Tier A/B/C duplicate disambiguation (same-file recovery only). When recovery fires
 // and the stored content still appears verbatim more than once, picking the
 // offset-closest copy is a silent guess — the one recovery outcome that hands back
 // a confident *wrong* anchor with no orphaned signal instead of honestly degrading
@@ -1348,21 +1348,23 @@ export class TraceManager implements vscode.Disposable {
         anchorCtx?: AnchorCtx,
         detectAmbiguity: boolean = false
     ): SearchResult {
-        // Tier A: exact match across full text. AMBIGUOUS_DUPLICATE short-circuits Tiers
-        // B/C explicitly — they search the same duplicated text with a weaker signal and
-        // can't disambiguate what Tier A already couldn't. Disambiguation is exact-match
-        // only by design: if Tier A finds *no* exact hit, Tiers B/C still silently pick
-        // the offset-closest normalized/fuzzy candidate.
+        // All three tiers honor the same duplicate-disambiguation guard (when
+        // detectAmbiguity is set): a tier that finds more than one equally-good
+        // candidate with no clear proximity winner returns AMBIGUOUS_DUPLICATE so the
+        // caller orphans instead of silently handing back a copy. Tiers B/C are exactly
+        // the "content drifted" paths — the cases most likely to spawn near-tie
+        // candidates — so the guard matters most there. See AMBIGUOUS_DUPLICATE.
         const exactResult = this.findClosestExact(fullText, cleanContent, preferredOffset, detectAmbiguity);
         if (exactResult === AMBIGUOUS_DUPLICATE) return exactResult;
         if (exactResult) return exactResult;
 
         // Tier B: whitespace-normalized match
-        const normResult = this.findNormalized(fullText, cleanContent, preferredOffset);
+        const normResult = this.findNormalized(fullText, cleanContent, preferredOffset, detectAmbiguity);
+        if (normResult === AMBIGUOUS_DUPLICATE) return normResult;
         if (normResult) return normResult;
 
         // Tier C: anchor-then-Sellers
-        return this.anchorThenSellers(fullText, cleanContent, preferredOffset, anchorCtx);
+        return this.anchorThenSellers(fullText, cleanContent, preferredOffset, anchorCtx, detectAmbiguity);
     }
 
     /**
@@ -1428,20 +1430,37 @@ export class TraceManager implements vscode.Disposable {
     private findNormalized(
         fullText: string,
         cleanContent: string,
-        preferredOffset: number
-    ): [number, number] | null {
+        preferredOffset: number,
+        detectAmbiguity: boolean = false
+    ): SearchResult {
         const normContent = cleanContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
         const normText = this.normalizeFullText(fullText);
 
         let bestNormIdx = -1;
         let bestDist = Infinity;
+        let runnerUpDist = Infinity;
         let idx = normText.indexOf(normContent);
         while (idx >= 0) {
+            // Distance mixes normalized-space idx with original-space preferredOffset,
+            // same approximation the tier already uses to pick the closest copy; the
+            // ratio guard below stays valid since both sides shrink identically.
             const dist = Math.abs(idx - preferredOffset);
-            if (dist < bestDist) { bestDist = dist; bestNormIdx = idx; }
+            if (dist < bestDist) { runnerUpDist = bestDist; bestDist = dist; bestNormIdx = idx; }
+            else if (dist < runnerUpDist) { runnerUpDist = dist; }
             idx = normText.indexOf(normContent, idx + 1);
         }
         if (bestNormIdx < 0) return null;
+
+        // Same orphan-over-guess guard as Tier A (findClosestExact): refuse to pick
+        // between equally-plausible normalized duplicates when no copy clearly wins.
+        if (
+            detectAmbiguity &&
+            runnerUpDist !== Infinity &&
+            bestDist > EXACT_PROXIMITY_CHARS &&
+            runnerUpDist <= bestDist * AMBIGUITY_DISTANCE_RATIO
+        ) {
+            return AMBIGUOUS_DUPLICATE;
+        }
 
         // Map normalized index back to original text offset.
         // Both strings collapse whitespace runs and strip zero-width chars identically.
@@ -1580,7 +1599,7 @@ export class TraceManager implements vscode.Disposable {
         tokenBounds: [number, number],
         cleanContent: string,
         precomputedTargetTokens?: { text: string; offset: number; type: string }[]
-    ): [number, number] | null {
+    ): { bounds: [number, number]; distance: number } | null {
         const buffer = Math.max(100, Math.floor(cleanContent.length * 0.5));
         let searchStart = Math.max(0, tokenBounds[0] - buffer);
         let searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
@@ -1603,7 +1622,7 @@ export class TraceManager implements vscode.Disposable {
         const targetTokens = precomputedTargetTokens ?? this.tokenize(cleanContent)
             .filter(t => t.type !== 'comment')
             .map(t => ({ ...t, text: t.text.toLowerCase() }));
-        if (targetTokens.length === 0) return tokenBounds;
+        if (targetTokens.length === 0) return { bounds: tokenBounds, distance: 0 };
 
         const searchTokens = this.tokenize(localArea)
             .filter(t => t.type !== 'comment')
@@ -1683,8 +1702,8 @@ export class TraceManager implements vscode.Disposable {
             const absoluteStart = searchTokens[bestStartIdx].offset + searchStart;
             const endToken = searchTokens[bestEndIdx];
             const absoluteEnd = endToken.offset + endToken.text.length + searchStart;
-            
-            return [absoluteStart, absoluteEnd];
+
+            return { bounds: [absoluteStart, absoluteEnd], distance: bestDistance };
         }
 
         return null;
@@ -1719,8 +1738,11 @@ export class TraceManager implements vscode.Disposable {
      * 1. Extract the 3 most distinctive tokens from cleanContent as anchors.
      * 2. Find every occurrence of each anchor in fullText.
      * 3. For each occurrence, run fuzzyValidateBounds on a window centered there.
-     * 4. Return the first result that passes the Sellers' threshold, preferring
-     *    candidates closest to preferredOffset.
+     * 4. Resolve the winner. Without detectAmbiguity (cross-file): return the first
+     *    candidate that passes the Sellers' threshold (deduped is proximity-sorted).
+     *    With detectAmbiguity (same-file): score every candidate by Sellers edit
+     *    distance, return the lowest, and orphan (AMBIGUOUS_DUPLICATE) when an
+     *    equally-good runner-up sits at a distinct location with no proximity winner.
      *
      * Falls back to a full-text Sellers' pass when no anchor words are present
      * or none are found in the file.
@@ -1729,8 +1751,9 @@ export class TraceManager implements vscode.Disposable {
         fullText: string,
         cleanContent: string,
         preferredOffset: number,
-        anchorCtx?: AnchorCtx
-    ): [number, number] | null {
+        anchorCtx?: AnchorCtx,
+        detectAmbiguity: boolean = false
+    ): SearchResult {
         const allTokens = anchorCtx?.allTokens ?? this.tokenize(cleanContent);
         const anchors = anchorCtx?.anchors ?? this.extractAnchorWordsFromTokens(allTokens, 3);
         const targetTokens = anchorCtx?.targetTokens ?? allTokens
@@ -1752,8 +1775,9 @@ export class TraceManager implements vscode.Disposable {
         }
 
         if (candidates.length === 0) {
-            // No anchor hits — run Sellers' over the full text
-            return this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent, targetTokens);
+            // No anchor hits — run Sellers' over the full text (single window, no tie possible)
+            const whole = this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent, targetTokens);
+            return whole ? whole.bounds : null;
         }
 
         // Sort by proximity to preferredOffset so the most-likely hit is tried first
@@ -1767,14 +1791,54 @@ export class TraceManager implements vscode.Disposable {
             }
         }
 
-        // For each anchor position, validate a window centered around it
+        // For each anchor position, validate a window centered around it.
         const half = cleanContent.length;
-        for (const center of deduped) {
-            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
-            if (result) return result;
+
+        // Cross-file / no-ambiguity path keeps the original short-circuit: the first
+        // validating window (deduped is proximity-sorted) wins, behavior unchanged.
+        if (!detectAmbiguity) {
+            for (const center of deduped) {
+                const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
+                if (result) return result.bounds;
+            }
+            return null;
         }
 
-        return null;
+        // Same-file recovery: score every candidate by Sellers edit distance instead of
+        // stopping at the first hit, then (a) prefer the best-quality match, not merely
+        // the proximity-closest, and (b) orphan when two distinct locations match equally
+        // well with no clear proximity winner — the Tier A guard, extended to fuzzy ties.
+        const matches: { bounds: [number, number]; editDist: number; prox: number }[] = [];
+        for (const center of deduped) {
+            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
+            if (result) {
+                matches.push({ bounds: result.bounds, editDist: result.distance, prox: Math.abs(center - preferredOffset) });
+            }
+        }
+        if (matches.length === 0) return null;
+
+        // Best = lowest edit distance, ties broken by proximity to preferredOffset.
+        matches.sort((a, b) => a.editDist - b.editDist || a.prox - b.prox);
+        const best = matches[0];
+
+        // A runner-up is only genuine competition if it matches *as well* (equal edit
+        // distance) at a clearly different location. Then apply the Tier A proximity
+        // guard: trust the nearest copy only when it sits in the proximity band or is
+        // distinctly closer than the runner-up; otherwise orphan rather than guess.
+        const runnerUp = matches.find(m =>
+            m !== best &&
+            m.editDist === best.editDist &&
+            Math.abs(m.bounds[0] - best.bounds[0]) >= cleanContent.length
+        );
+        if (
+            runnerUp &&
+            best.prox > EXACT_PROXIMITY_CHARS &&
+            runnerUp.prox <= best.prox * AMBIGUITY_DISTANCE_RATIO
+        ) {
+            return AMBIGUOUS_DUPLICATE;
+        }
+
+        return best.bounds;
     }
 
     private static readonly ANCHOR_FORBIDDEN = new Set(['void', 'int', 'char', 'long', 'float', 'double', 'short', 'signed', 'unsigned', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'default', 'const', 'static', 'extern', 'volatile', 'register', 'typedef', 'struct', 'union', 'enum', 'inline', 'restrict', 'alignas', 'alignof', 'atomic', 'bool', 'complex', 'generic', 'imaginary', 'noreturn', 'static_assert', 'thread_local', 'public', 'private', 'protected', 'class', 'interface', 'namespace', 'using', 'function', 'async', 'await', 'export', 'import', 'from', 'as', 'any', 'any', 'number', 'string', 'boolean', 'symbol', 'undefined', 'null', 'true', 'false', 'let', 'var', 'const', 'new', 'this', 'throw', 'try', 'catch', 'finally', 'super', 'extends', 'implements', 'module', 'package', 'type', 'declare', 'abstract', 'readonly', 'keyof', 'typeof', 'in', 'of', 'instanceof']);
