@@ -21,6 +21,16 @@ export interface TracePoint {
     children?: TracePoint[];     // sub-traces (max 10 levels deep)
 }
 
+/**
+ * Fences that wrap a trace note's raw Markdown body in exported documents.
+ * The note is written verbatim between them, so headings, blank lines and `---`
+ * inside a note survive the round-trip without colliding with the structural
+ * headings that encode the trace tree. HTML comments keep the markers invisible
+ * in rendered Markdown (e.g. Obsidian reading view).
+ */
+export const NOTE_BLOCK_START = '<!-- tracenote -->';
+export const NOTE_BLOCK_END = '<!-- /tracenote -->';
+
 /** Maps a highlight colour to its human-readable Markdown tag (and vice-versa). */
 export const HIGHLIGHT_TO_TAG: Record<NonNullable<TracePoint['highlight']>, string> = {
     red:    'Important',
