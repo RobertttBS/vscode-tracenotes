@@ -1881,6 +1881,9 @@ export class TraceManager implements vscode.Disposable {
         // lines, `---`); when set, the note replaces the heading-derived title.
         let capturingNote = false;
         let currentNote: string[] = [];
+        // Set once a trace's fenced note closes: the fence is authoritative, so
+        // any later loose lines (e.g. hand-edits after the fence) aren't appended.
+        let noteFinalized = false;
 
         // Captures optional %%Tag%% immediately after the number+dot
         const headerRegex = /^(#+)\s+\d+\.\s+(?:%%([^%]+)%%\s+)?(.*)/;
@@ -1937,6 +1940,7 @@ export class TraceManager implements vscode.Disposable {
             if (capturingNote) {
                 if (line.trim() === NOTE_BLOCK_END) {
                     capturingNote = false;
+                    noteFinalized = true;
                     if (currentTrace) {
                         currentTrace.note = currentNote.join('\n');
                     }
@@ -1993,6 +1997,7 @@ export class TraceManager implements vscode.Disposable {
             const headerMatch = line.match(headerRegex);
             if (headerMatch) {
                 await flushCurrentTrace();
+                noteFinalized = false;
 
                 const hashes    = headerMatch[1];
                 const tag       = headerMatch[2]?.trim() ?? null;   // %%Tag%% content (may be undefined)
@@ -2017,7 +2022,7 @@ export class TraceManager implements vscode.Disposable {
                     _tempDepth: depth,
                     timestamp: Date.now()
                 } as any;
-            } else if (currentTrace && line.trim().length > 0) {
+            } else if (currentTrace && !noteFinalized && line.trim().length > 0) {
                 if (currentTrace.note && !currentTrace.note.endsWith('\n')) {
                     currentTrace.note += '\n';
                 }

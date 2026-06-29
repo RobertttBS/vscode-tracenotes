@@ -144,6 +144,21 @@ describe('markdown note round-trip (method A)', () => {
         expect(parsed[0].note).toBe('line one\nline two');
     });
 
+    it('ignores stray lines after a closing fence (hand-edited file)', async () => {
+        const md = [
+            '## 1. Title',
+            '',
+            NOTE_BLOCK_START,
+            'the real note',
+            NOTE_BLOCK_END,
+            '',
+            'stray hand-edited line',
+        ].join('\n');
+        const parsed = await parse(md);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].note).toBe('the real note');
+    });
+
     it('derives a clean heading title by stripping the leading # from the first note line', async () => {
         const md = generateMarkdown([makeTrace({ note: '# Overview\nbody' })]);
         // The structural heading shows "Overview", not "# Overview".
