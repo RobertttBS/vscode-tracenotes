@@ -4,6 +4,7 @@ import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 import MarkdownNote from './MarkdownNote';
+import { handleListEnter, handleListIndent } from '../utils/listEditing';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -93,6 +94,9 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const borderSumRef = useRef(0);
+    // Caret position to restore after a programmatic note edit (list continuation
+    // or indent), applied once the controlled value has been committed to the DOM.
+    const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
     // Measure border widths once when entering edit mode
     useLayoutEffect(() => {
@@ -114,6 +118,11 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
     useLayoutEffect(() => {
         if (editing) {
             adjustHeight();
+        }
+        const pending = pendingSelectionRef.current;
+        if (pending && textareaRef.current) {
+            textareaRef.current.setSelectionRange(pending.start, pending.end);
+            pendingSelectionRef.current = null;
         }
     }, [editing, noteValue, adjustHeight]);
 
@@ -138,18 +147,52 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
         onUpdateNote(trace.id, newNote);
     }, [trace.id, onUpdateNote]);
 
-    const handleNoteKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const handleNoteKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        const textarea = e.currentTarget;
+
         // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleNoteSave();
+            return;
         }
         // Escape to cancel
         if (e.key === 'Escape') {
             setEditing(false);
             setNoteValue(trace.note);
+            return;
         }
-        // Note: Plain 'Enter' is now allowed to insert a newline (default behavior for textarea)
+
+        // Tab / Shift+Tab: indent or outdent the selected line(s).
+        if (e.key === 'Tab') {
+            const result = handleListIndent(
+                textarea.value,
+                textarea.selectionStart,
+                textarea.selectionEnd,
+                e.shiftKey,
+            );
+            if (result) {
+                e.preventDefault();
+                pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
+                setNoteValue(result.value);
+            }
+            return;
+        }
+
+        // Plain Enter inside a list item: carry the marker onto the next line.
+        if (e.key === 'Enter' && !e.shiftKey) {
+            const result = handleListEnter(
+                textarea.value,
+                textarea.selectionStart,
+                textarea.selectionEnd,
+            );
+            if (result) {
+                e.preventDefault();
+                pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
+                setNoteValue(result.value);
+            }
+            // Otherwise plain Enter inserts a newline (default textarea behavior).
+        }
     }, [handleNoteSave, trace.note]);
 
     // Context Menu State
