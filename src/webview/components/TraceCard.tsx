@@ -5,6 +5,7 @@ import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/pri
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 import MarkdownNote from './MarkdownNote';
 import { handleListEnter, handleListIndent, type EditResult } from '../utils/listEditing';
+import { toggleBold } from '../utils/inlineFormatting';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -162,6 +163,9 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleNoteSave();
+        } else if ((e.key === 'b' || e.key === 'B') && (e.ctrlKey || e.metaKey)) {
+            // Ctrl/Cmd+B toggles bold (`**`) around the selection.
+            applyEdit(toggleBold(textarea.value, textarea.selectionStart, textarea.selectionEnd));
         } else if (e.key === 'Escape') {
             // Escape to cancel
             setEditing(false);
