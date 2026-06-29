@@ -127,4 +127,15 @@ describe('handleListIndent', () => {
         const r = handleListIndent(value, start, end, false)!;
         expect(render(r.value, r.selectionStart, r.selectionEnd)).toBe('  |- a');
     });
+
+    it('returns null when indenting a non-list line so Tab can move focus', () => {
+        const { value, start, end } = withCaret('plain text|');
+        expect(handleListIndent(value, start, end, false)).toBeNull();
+    });
+
+    it('indents a list block even when a spanned line is plain text', () => {
+        const { value, start, end } = withCaret('- a|\ncontinuation|');
+        const r = handleListIndent(value, start, end, false)!;
+        expect(render(r.value, r.selectionStart, r.selectionEnd)).toBe('  - a|\n  continuation|');
+    });
 });

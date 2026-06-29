@@ -75,8 +75,12 @@ export function handleListEnter(value: string, start: number, end: number): Edit
 
 /**
  * Tab / Shift+Tab indents or outdents every line touched by the selection.
- * Indent prepends two spaces; outdent removes a leading tab or up to two
- * spaces. Returns `null` only when an outdent would change nothing.
+ * Indent prepends two spaces; outdent removes a leading tab or up to two spaces.
+ *
+ * Returns `null` so the key falls through to the textarea's default — which for
+ * Tab moves focus, keeping the field from becoming a keyboard trap — when:
+ *   - indent and the selection touches no list item, or
+ *   - outdent and no line has leading whitespace to remove.
  */
 export function handleListIndent(
     value: string,
@@ -84,55 +88,50 @@ export function handleListIndent(
     end: number,
     outdent: boolean,
 ): EditResult | null {
-    const blockStart = value.lastIndexOf('\n', start - 1) + 1;
-    const nl = value.indexOf('\n', end > start ? end - 1 : end);
-    const blockEnd = nl === -1 ? value.length : nl;
-
+    const blockStart = lineBounds(value, start).start;
+    const blockEnd = lineBounds(value, end > start ? end - 1 : end).end;
     const lines = value.slice(blockStart, blockEnd).split('\n');
 
-    // Each entry records a single-line edit applied at the line's start offset:
-    // a positive `change` inserts that many chars, a negative one removes them.
-    const edits: { lineStart: number; change: number }[] = [];
-    let changed = false;
+    // Offset of each line's start within `value`, in document order.
+    const lineStarts: number[] = [];
     let pos = blockStart;
-
-    const newLines = lines.map((line) => {
-        const lineStart = pos;
+    for (const line of lines) {
+        lineStarts.push(pos);
         pos += line.length + 1; // account for the newline that split() dropped
+    }
 
-        if (!outdent) {
-            changed = true;
-            edits.push({ lineStart, change: INDENT.length });
-            return INDENT + line;
-        }
+    let newLines: string[];
+    let remap: (p: number) => number;
 
-        const m = /^(\t| {1,2})/.exec(line);
-        const remove = m ? m[0].length : 0;
-        if (remove > 0) {
-            changed = true;
-            edits.push({ lineStart, change: -remove });
-        }
-        return remove > 0 ? line.slice(remove) : line;
-    });
+    if (!outdent) {
+        // Only treat Tab as list-indent when the selection actually touches a
+        // list item, so plain prose keeps Tab's default behaviour.
+        if (!lines.some((line) => LIST_ITEM_RE.test(line))) { return null; }
 
-    if (!changed) { return null; }
+        // Every line gains a fixed INDENT, so a caret shifts right by INDENT.length
+        // for each line start at or before it.
+        newLines = lines.map((line) => INDENT + line);
+        remap = (p) => p + INDENT.length * lineStarts.filter((ls) => ls <= p).length;
+    } else {
+        // Outdent removes a leading tab or up to two spaces per line — the amount
+        // varies and some lines may not change, so bail when nothing would.
+        const removals = lines.map((line) => /^(\t| {1,2})/.exec(line)?.[0].length ?? 0);
+        if (removals.every((r) => r === 0)) { return null; }
 
-    // Remap a caret offset through every line edit. Inserts before/at the caret
-    // push it right; removals before it pull it left, clamped so a caret inside
-    // the removed run lands at the line start.
-    const remap = (p: number): number => {
-        let shift = 0;
-        for (const { lineStart, change } of edits) {
-            if (change > 0) {
-                if (lineStart <= p) { shift += change; }
-            } else {
-                const removeEnd = lineStart - change; // lineStart + |change|
-                if (p >= removeEnd) { shift += change; }
-                else if (p > lineStart) { shift += lineStart - p; }
-            }
-        }
-        return p + shift;
-    };
+        newLines = lines.map((line, i) => line.slice(removals[i]));
+        // A removal before the caret pulls it left; a caret inside the removed run
+        // lands at its line start.
+        remap = (p) => {
+            let shift = 0;
+            removals.forEach((remove, i) => {
+                if (remove === 0) { return; }
+                const ls = lineStarts[i];
+                if (p >= ls + remove) { shift -= remove; }
+                else if (p > ls) { shift -= p - ls; }
+            });
+            return p + shift;
+        };
+    }
 
     const newValue = value.slice(0, blockStart) + newLines.join('\n') + value.slice(blockEnd);
     return {
