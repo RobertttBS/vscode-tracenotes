@@ -1517,7 +1517,8 @@ export class TraceManager implements vscode.Disposable {
 
         if (cleanContent.length < 5) return null; // too short to cross-file match safely
 
-        const anchorWords = this.extractAnchorWords(cleanContent, 5);
+        const allTokens = this.tokenize(cleanContent);
+        const anchorWords = this.extractAnchorWordsFromTokens(allTokens, 5);
         if (anchorWords.length === 0) return null;
         const lowerAnchorWords = anchorWords.map(w => w.toLowerCase());
         const required = Math.max(1, Math.ceil(anchorWords.length * 0.4));
@@ -1527,8 +1528,7 @@ export class TraceManager implements vscode.Disposable {
 
         const allFiles = await vscode.workspace.findFiles(searchPattern, undefined, undefined, token);
 
-        // Pre-compute tokenization/anchors once per trace — reused across all candidate files
-        const allTokens = this.tokenize(cleanContent);
+        // Pre-compute anchors/target tokens once per trace — reused across all candidate files
         const anchorCtx = {
             allTokens,
             anchors: this.extractAnchorWordsFromTokens(allTokens, 3),
@@ -1840,11 +1840,6 @@ export class TraceManager implements vscode.Disposable {
         unique.sort((a, b) => b.length - a.length);
         return unique.slice(0, limit);
     }
-
-    private extractAnchorWords(content: string, limit: number): string[] {
-        return this.extractAnchorWordsFromTokens(this.tokenize(content), limit);
-    }
-
 
     private contentMatches(docContent: string, storedContent: string): boolean {
         // Strip zero-width chars first, mirroring normalizeFullText / the recovery
