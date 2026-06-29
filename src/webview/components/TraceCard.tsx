@@ -5,7 +5,7 @@ import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/pri
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 import MarkdownNote from './MarkdownNote';
 import { handleListEnter, handleListIndent, type EditResult } from '../utils/listEditing';
-import { toggleBold } from '../utils/inlineFormatting';
+import { toggleBold, wrapSelection, WRAP_PAIRS } from '../utils/inlineFormatting';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -158,6 +158,21 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
             pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
             setNoteValue(result.value);
         };
+
+        // Typing a wrap character (`*`, `` ` ``, brackets, ...) over a non-empty
+        // selection wraps it instead of replacing it, like Obsidian. Inner text
+        // stays selected, so pressing again stacks (e.g. `*`×2 → `**…**`). Skip
+        // while an IME is composing so Chinese/Japanese input isn't disturbed.
+        const wrapClose = WRAP_PAIRS[e.key];
+        if (
+            wrapClose &&
+            !e.ctrlKey && !e.metaKey && !e.altKey &&
+            !e.nativeEvent.isComposing &&
+            textarea.selectionStart !== textarea.selectionEnd
+        ) {
+            applyEdit(wrapSelection(textarea.value, textarea.selectionStart, textarea.selectionEnd, e.key, wrapClose));
+            return;
+        }
 
         // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

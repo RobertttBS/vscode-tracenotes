@@ -37,3 +37,33 @@ export function toggleBold(value: string, start: number, end: number): EditResul
     const newValue = value.slice(0, start) + BOLD + selected + BOLD + value.slice(end);
     return { value: newValue, selectionStart: start + BOLD.length, selectionEnd: end + BOLD.length };
 }
+
+/**
+ * Characters that, when typed over a non-empty selection, wrap the selection in
+ * a matching pair instead of replacing it — mirroring Obsidian/typical editors.
+ * Symmetric markers (`*`, `` ` ``, ...) map to themselves; brackets/quotes map to
+ * their closing partner.
+ */
+export const WRAP_PAIRS: Record<string, string> = {
+    '*': '*',
+    '_': '_',
+    '`': '`',
+    '~': '~',
+    '(': ')',
+    '[': ']',
+    '{': '}',
+    '"': '"',
+    "'": "'",
+};
+
+/**
+ * Wrap the current selection with `open`/`close`, leaving the original (inner)
+ * text selected. Because the inner text stays selected, pressing the same key
+ * again stacks another layer — so `*` twice yields `**…**` (bold) and `` ` ``
+ * three times yields ```` ```…``` ```` — matching how Obsidian wraps selections.
+ */
+export function wrapSelection(value: string, start: number, end: number, open: string, close: string): EditResult {
+    const selected = value.slice(start, end);
+    const newValue = value.slice(0, start) + open + selected + close + value.slice(end);
+    return { value: newValue, selectionStart: start + open.length, selectionEnd: end + open.length };
+}
