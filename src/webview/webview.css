@@ -230,7 +230,9 @@ body.vscode-light .note-display {
 }
 
 .markdown-note p {
-  margin: 4px 0;
+  /* A blank line between paragraphs should read as an empty line, so use a
+     roughly line-height gap (adjacent margins collapse to ~1em between paras). */
+  margin: 1em 0;
 }
 
 .markdown-note h1,
@@ -286,6 +288,13 @@ body.vscode-light .note-display {
   padding-left: 8px;
   border-left: 3px solid var(--vscode-widget-border, #4e4e4e);
   opacity: 0.85;
+}
+
+.markdown-note hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, #4e4e4e);
+  opacity: 0.5;
+  margin: 8px 0;
 }
 
 .markdown-note table {

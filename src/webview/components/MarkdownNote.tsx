@@ -2,6 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toggleCheckboxInMarkdown } from '../utils/toggleCheckboxInMarkdown';
+import { remarkLineBreaks } from '../utils/remarkLineBreaks';
 
 interface MarkdownNoteProps {
     note: string;
@@ -12,7 +13,7 @@ interface MarkdownNoteProps {
 }
 
 // Stable across renders so react-markdown doesn't re-parse plugins each time.
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS = [remarkGfm, remarkLineBreaks];
 
 const MarkdownNote: React.FC<MarkdownNoteProps> = ({ note, onToggleCheckbox, onClick }) => {
     // Reset every render: react-markdown renders checkboxes in document order,

@@ -4,6 +4,8 @@ import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 import MarkdownNote from './MarkdownNote';
+import { handleListEnter, handleListIndent, type EditResult } from '../utils/listEditing';
+import { toggleBold, wrapSelection, WRAP_PAIRS } from '../utils/inlineFormatting';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -93,6 +95,9 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const borderSumRef = useRef(0);
+    // Caret position to restore after a programmatic note edit (list continuation
+    // or indent), applied once the controlled value has been committed to the DOM.
+    const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
     // Measure border widths once when entering edit mode
     useLayoutEffect(() => {
@@ -114,6 +119,11 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
     useLayoutEffect(() => {
         if (editing) {
             adjustHeight();
+        }
+        const pending = pendingSelectionRef.current;
+        if (pending && textareaRef.current) {
+            textareaRef.current.setSelectionRange(pending.start, pending.end);
+            pendingSelectionRef.current = null;
         }
     }, [editing, noteValue, adjustHeight]);
 
@@ -138,18 +148,51 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
         onUpdateNote(trace.id, newNote);
     }, [trace.id, onUpdateNote]);
 
-    const handleNoteKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const handleNoteKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        const textarea = e.currentTarget;
+
+        // Commit a programmatic edit and remember where the caret should land.
+        const applyEdit = (result: EditResult | null) => {
+            if (!result) { return; }
+            e.preventDefault();
+            pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
+            setNoteValue(result.value);
+        };
+
+        // Typing a wrap character (`*`, `` ` ``, brackets, ...) over a non-empty
+        // selection wraps it instead of replacing it, like Obsidian. Inner text
+        // stays selected, so pressing again stacks (e.g. `*`×2 → `**…**`). Skip
+        // while an IME is composing so Chinese/Japanese input isn't disturbed.
+        const wrapClose = WRAP_PAIRS[e.key];
+        if (
+            wrapClose &&
+            !e.ctrlKey && !e.metaKey && !e.altKey &&
+            !e.nativeEvent.isComposing &&
+            textarea.selectionStart !== textarea.selectionEnd
+        ) {
+            applyEdit(wrapSelection(textarea.value, textarea.selectionStart, textarea.selectionEnd, e.key, wrapClose));
+            return;
+        }
+
         // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleNoteSave();
-        }
-        // Escape to cancel
-        if (e.key === 'Escape') {
+        } else if ((e.key === 'b' || e.key === 'B') && (e.ctrlKey || e.metaKey)) {
+            // Ctrl/Cmd+B toggles bold (`**`) around the selection.
+            applyEdit(toggleBold(textarea.value, textarea.selectionStart, textarea.selectionEnd));
+        } else if (e.key === 'Escape') {
+            // Escape to cancel
             setEditing(false);
             setNoteValue(trace.note);
+        } else if (e.key === 'Tab') {
+            // Tab / Shift+Tab: indent or outdent the selected line(s).
+            applyEdit(handleListIndent(textarea.value, textarea.selectionStart, textarea.selectionEnd, e.shiftKey));
+        } else if (e.key === 'Enter' && !e.shiftKey) {
+            // Plain Enter inside a list item carries the marker onto the next
+            // line; elsewhere it falls through to the textarea's own newline.
+            applyEdit(handleListEnter(textarea.value, textarea.selectionStart, textarea.selectionEnd));
         }
-        // Note: Plain 'Enter' is now allowed to insert a newline (default behavior for textarea)
     }, [handleNoteSave, trace.note]);
 
     // Context Menu State

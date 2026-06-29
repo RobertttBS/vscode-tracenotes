@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
 import { FileStorageManager } from './storage/FileStorageManager';
 
@@ -1941,6 +1941,13 @@ export class TraceManager implements vscode.Disposable {
         let currentTrace: (Partial<TracePoint> & { _tempDepth: number }) | null = null;
         let currentContent: string[] = [];
         let capturingContent = false;
+        // Verbatim capture of a fenced note body (may contain headings, blank
+        // lines, `---`); when set, the note replaces the heading-derived title.
+        let capturingNote = false;
+        let currentNote: string[] = [];
+        // Set once a trace's fenced note closes: the fence is authoritative, so
+        // any later loose lines (e.g. hand-edits after the fence) aren't appended.
+        let noteFinalized = false;
 
         // Captures optional %%Tag%% immediately after the number+dot
         const headerRegex = /^(#+)\s+\d+\.\s+(?:%%([^%]+)%%\s+)?(.*)/;
@@ -1948,6 +1955,14 @@ export class TraceManager implements vscode.Disposable {
 
         const flushCurrentTrace = async () => {
             if (!currentTrace) return;
+
+            // Finalize an unclosed fenced note (no NOTE_BLOCK_END before EOF) so its
+            // accumulated body isn't dropped, and reset the flag for the next trace.
+            if (capturingNote) {
+                currentTrace.note = currentNote.join('\n');
+                currentNote = [];
+                capturingNote = false;
+            }
 
             if (capturingContent) {
                 currentTrace.content = currentContent.join('\n');
@@ -1983,6 +1998,27 @@ export class TraceManager implements vscode.Disposable {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+
+            // Inside a fenced note: collect every line verbatim until the closing
+            // fence, so headings / blank lines / `---` are preserved exactly.
+            if (capturingNote) {
+                if (line.trim() === NOTE_BLOCK_END) {
+                    capturingNote = false;
+                    noteFinalized = true;
+                    if (currentTrace) {
+                        currentTrace.note = currentNote.join('\n');
+                    }
+                    currentNote = [];
+                } else {
+                    currentNote.push(unescapeNoteFence(line));
+                }
+                continue;
+            }
+            if (line.trim() === NOTE_BLOCK_START && currentTrace && !capturingContent) {
+                capturingNote = true;
+                currentNote = [];
+                continue;
+            }
 
             if (!capturingContent && line.trim().startsWith('---')) {
                 continue;
@@ -2025,6 +2061,7 @@ export class TraceManager implements vscode.Disposable {
             const headerMatch = line.match(headerRegex);
             if (headerMatch) {
                 await flushCurrentTrace();
+                noteFinalized = false;
 
                 const hashes    = headerMatch[1];
                 const tag       = headerMatch[2]?.trim() ?? null;   // %%Tag%% content (may be undefined)
@@ -2049,7 +2086,7 @@ export class TraceManager implements vscode.Disposable {
                     _tempDepth: depth,
                     timestamp: Date.now()
                 } as any;
-            } else if (currentTrace && line.trim().length > 0) {
+            } else if (currentTrace && !noteFinalized && line.trim().length > 0) {
                 if (currentTrace.note && !currentTrace.note.endsWith('\n')) {
                     currentTrace.note += '\n';
                 }
