@@ -288,6 +288,13 @@ body.vscode-light .note-display {
   opacity: 0.85;
 }
 
+.markdown-note hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, #4e4e4e);
+  opacity: 0.5;
+  margin: 8px 0;
+}
+
 .markdown-note table {
   border-collapse: collapse;
   margin: 4px 0;
