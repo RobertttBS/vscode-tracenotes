@@ -9,17 +9,6 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 export const vscode = acquireVsCodeApi();
 
-export type MessageHandler = (message: { type: string; payload?: unknown }) => void;
-
-/** Subscribe to messages from the extension host */
-export function onMessage(handler: MessageHandler): () => void {
-    const listener = (event: MessageEvent) => {
-        handler(event.data);
-    };
-    window.addEventListener('message', listener);
-    return () => window.removeEventListener('message', listener);
-}
-
 /** Send a message to the extension host */
 export function postMessage(message: Record<string, unknown>): void {
     vscode.postMessage(message);

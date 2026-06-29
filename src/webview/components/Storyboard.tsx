@@ -54,9 +54,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import TraceCard from './TraceCard';
-import { onMessage, postMessage } from '../utils/messaging';
+import { postMessage } from '../utils/messaging';
 import { useWebviewState } from '../hooks/useWebviewState';
-import { TracePoint, MAX_DEPTH, SearchableTree, ExtensionToWebviewMessage } from '../../types';
+import { TracePoint, MAX_DEPTH, TraceTree, ExtensionToWebviewMessage } from '../../types';
 
 // Renders only static, non-heavy UI — no SyntaxHighlighter mount,
 // no local state — so drag initiation stays at 60 fps.
@@ -285,7 +285,7 @@ const Storyboard: React.FC = () => {
     const [currentDepth, setCurrentDepth] = useWebviewState<number>('currentDepth', 0);
     const [breadcrumb, setBreadcrumb] = useWebviewState<string>('breadcrumb', '');
     const [treeList, setTreeList] = useWebviewState<{ id: string; name: string; active: boolean }[]>('treeList', []);
-    const [allTrees, setAllTrees] = useState<SearchableTree[] | null>(null);
+    const [allTrees, setAllTrees] = useState<TraceTree[] | null>(null);
     const [activeTreeId, setActiveTreeId] = useWebviewState<string>('activeTreeId', '');
 
     const { canGoBack, canGoForward, pushNavigation, goBack, goForward } = useNavigationHistory();
@@ -344,9 +344,10 @@ const Storyboard: React.FC = () => {
         });
     }, []);
 
-    // Listen for messages from the extension
+    // Storyboard owns the sole extension→webview message subscription.
     useEffect(() => {
-        const unsubscribe = onMessage((message) => {
+        const listener = (event: MessageEvent) => {
+            const message: { type: string; payload?: unknown } = event.data;
             switch (message.type) {
                 case 'syncWorkspace': {
                     const payload = message.payload as any;
@@ -380,7 +381,7 @@ const Storyboard: React.FC = () => {
                     break;
                 }
                 case 'allTreesData': {
-                    const payload = (message as { type: string; payload: { trees: SearchableTree[] } }).payload;
+                    const payload = (message as { type: string; payload: { trees: TraceTree[] } }).payload;
                     setAllTrees(payload.trees);
                     break;
                 }
@@ -390,9 +391,10 @@ const Storyboard: React.FC = () => {
                     break;
                 }
             }
-        });
+        };
+        window.addEventListener('message', listener);
         return () => {
-            unsubscribe();
+            window.removeEventListener('message', listener);
             if (scrollTimerRef.current) { clearTimeout(scrollTimerRef.current); }
         };
     }, []);

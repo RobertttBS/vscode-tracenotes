@@ -171,7 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
                 case 'requestAllTrees':
                     provider.postMessage({
                         type: 'allTreesData',
-                        payload: { trees: traceManager.getSearchableTrees() },
+                        payload: { trees: traceManager.getAllTrees() },
                     });
                     break;
             }

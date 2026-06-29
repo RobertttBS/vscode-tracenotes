@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
 import { FileStorageManager } from './storage/FileStorageManager';
 
@@ -83,8 +83,6 @@ export class TraceManager implements vscode.Disposable {
     private traceIdMap: Map<string, TracePoint> = new Map();
     private parentIdMap: Map<string, string | null> = new Map();
 
-    private searchableTreesCache: { id: string; name: string; traces: SearchableTrace[] }[] | null = null;
-
     // One-entry caches for full-document transforms. Validation loops call
     // findNormalized/anchorThenSellers repeatedly with the same document text,
     // so caching the last input avoids re-allocating full copies per trace.
@@ -140,8 +138,6 @@ export class TraceManager implements vscode.Disposable {
                 this.pendingValidationDocs.delete(doc.uri.toString());
             })
         );
-
-        this.onDidChangeTraces(() => { this.searchableTreesCache = null; });
     }
 
     /**
@@ -815,28 +811,6 @@ export class TraceManager implements vscode.Disposable {
             breadcrumb: this.getActiveBreadcrumb(),
             treeList: this.getTreeList(),
         };
-    }
-
-    /** Slim projection of every tree, suitable for the cross-tree search view. */
-    public getSearchableTrees(): { id: string; name: string; traces: SearchableTrace[] }[] {
-        if (this.searchableTreesCache) { return this.searchableTreesCache; }
-
-        const project = (list: TracePoint[]): SearchableTrace[] =>
-            list.map(t => {
-                const slim: SearchableTrace = {
-                    id: t.id,
-                    note: t.note,
-                    content: t.content,
-                    filePath: t.filePath,
-                };
-                if (t.lineRange) { slim.lineRange = t.lineRange; }
-                if (t.highlight) { slim.highlight = t.highlight; }
-                if (t.children?.length) { slim.children = project(t.children); }
-                return slim;
-            });
-
-        this.searchableTreesCache = this.trees.map(t => ({ id: t.id, name: t.name, traces: project(t.traces) }));
-        return this.searchableTreesCache;
     }
 
     public getAllFlat(list: TracePoint[] = this.getActiveRootTraces()): TracePoint[] {

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { TrashIcon, SearchIcon } from './icons';
-import { SearchableTrace, SearchableTree } from '../../types';
+import { TracePoint, TraceTree } from '../../types';
 import { FloatCard } from './FloatCanvas';
 import { parseQuery, matchTrace, collectHighlightTargets } from '../utils/search';
 
@@ -18,14 +18,14 @@ interface TreeListProps {
     onImport: () => void;
     onExport: () => void;
     onClose: () => void;
-    allTreeData: SearchableTree[] | null;
+    allTreeData: TraceTree[] | null;
     onNavigateToTrace: (treeId: string, groupId: string | null, focusId: string) => void;
     onRequestAllTrees: () => void;
 }
 
-function flattenTraces(traces: SearchableTrace[]): { trace: SearchableTrace; parentId: string | null }[] {
-    const result: { trace: SearchableTrace; parentId: string | null }[] = [];
-    const stack: { trace: SearchableTrace; parentId: string | null }[] = [];
+function flattenTraces(traces: TracePoint[]): { trace: TracePoint; parentId: string | null }[] {
+    const result: { trace: TracePoint; parentId: string | null }[] = [];
+    const stack: { trace: TracePoint; parentId: string | null }[] = [];
     for (let i = traces.length - 1; i >= 0; i--) {
         stack.push({ trace: traces[i], parentId: null });
     }
@@ -116,7 +116,7 @@ export const TreeList: React.FC<TreeListProps> = ({
         const results: {
             treeId: string;
             treeName: string;
-            trace: SearchableTrace;
+            trace: TracePoint;
             parentId: string | null;
         }[] = [];
         for (const { treeId, treeName, entries } of flattenedTrees) {

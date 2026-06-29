@@ -1,24 +1,17 @@
 import { useState, useEffect } from 'react';
 
-export type ThemeMode = 'dark' | 'light' | 'high-contrast';
-
-export function useVSCodeTheme(): ThemeMode {
-    const [theme, setTheme] = useState<ThemeMode>(() => {
-        if (document.body.classList.contains('vscode-light')) return 'light';
-        if (document.body.classList.contains('vscode-high-contrast')) return 'high-contrast';
-        return 'dark'; // Default
-    });
+/** True when VS Code is using a light theme; everything else uses the dark syntax style. */
+export function useVSCodeTheme(): boolean {
+    const [isLight, setIsLight] = useState(() => document.body.classList.contains('vscode-light'));
 
     useEffect(() => {
         const observer = new MutationObserver(() => {
-            if (document.body.classList.contains('vscode-light')) setTheme('light');
-            else if (document.body.classList.contains('vscode-high-contrast')) setTheme('high-contrast');
-            else setTheme('dark');
+            setIsLight(document.body.classList.contains('vscode-light'));
         });
 
         observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
         return () => observer.disconnect();
     }, []);
 
-    return theme;
+    return isLight;
 }

@@ -76,10 +76,10 @@ function mapLanguage(lang: string): string {
 }
 
 const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCardClick, onUpdateNote, onRemove, onRelocate, onEnterGroup, showEnterGroup }) => {
-    const themeMode = useVSCodeTheme();
+    const isLight = useVSCodeTheme();
     const syntaxStyle = useMemo(() => {
-        return themeMode === 'light' ? prism : vscDarkPlus;
-    }, [themeMode]);
+        return isLight ? prism : vscDarkPlus;
+    }, [isLight]);
 
     const [editing, setEditing] = useState(!!autoFocusNote);
     const [isRelocating, setIsRelocating] = useState(false);

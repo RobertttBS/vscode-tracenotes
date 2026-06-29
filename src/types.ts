@@ -50,11 +50,7 @@ export function escapeNoteFences(note: string): string {
 
 /** Reverse {@link escapeNoteFences} for a single captured note line. */
 export function unescapeNoteFence(line: string): string {
-    const trimmed = line.trim();
-    return (trimmed === NOTE_BLOCK_START.replace('<!--', NOTE_FENCE_ESCAPE) ||
-            trimmed === NOTE_BLOCK_END.replace('<!--', NOTE_FENCE_ESCAPE))
-        ? line.replace(NOTE_FENCE_ESCAPE, '<!--')
-        : line;
+    return line.replace(NOTE_FENCE_ESCAPE, '<!--');
 }
 
 /** Maps a highlight colour to its human-readable Markdown tag (and vice-versa). */
@@ -78,23 +74,6 @@ export interface TraceTree {
     traces: TracePoint[];
 }
 
-/** Slim trace projection used by the cross-tree search view. */
-export interface SearchableTrace {
-    id: string;
-    note: string;
-    content: string;
-    filePath: string;
-    lineRange?: [number, number];
-    highlight?: TracePoint['highlight'];
-    children?: SearchableTrace[];
-}
-
-export interface SearchableTree {
-    id: string;
-    name: string;
-    traces: SearchableTrace[];
-}
-
 /** Messages sent from Extension → Webview */
 export type ExtensionToWebviewMessage =
     | { type: 'focusCard'; id: string | null }
@@ -111,7 +90,7 @@ export type ExtensionToWebviewMessage =
             focusId?: string;
         };
     }
-    | { type: 'allTreesData'; payload: { trees: SearchableTree[] } }
+    | { type: 'allTreesData'; payload: { trees: TraceTree[] } }
     | { type: 'jumpToFadedTrace'; groupId: string | null; focusId: string };
 
 /** Messages sent from Webview → Extension */

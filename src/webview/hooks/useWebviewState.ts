@@ -1,13 +1,12 @@
 import { useState, useCallback } from 'react';
 import { saveState, loadState } from '../utils/messaging';
 
-// Module-level LRU cache (Map preserves insertion order; delete+reinsert = promote to MRU)
+// Module-level cache hydrated from the webview's persisted state. The keyset is a
+// fixed set of literals (one per useWebviewState call site), so no eviction is needed.
 const stateCache = new Map<string, any>(
     Object.entries(loadState<Record<string, any>>() ?? {})
 );
 let timeout: ReturnType<typeof setTimeout> | undefined;
-
-const MAX_CACHE_KEYS = 50;
 
 /**
  * Enhanced useWebviewState
@@ -32,12 +31,6 @@ export function useWebviewState<T>(
                 ? (value as (prev: T) => T)(prev)
                 : value;
 
-            // Promote to MRU by reinserting; evict LRU entry when at capacity
-            stateCache.delete(key);
-            if (stateCache.size >= MAX_CACHE_KEYS) {
-                const lruKey = stateCache.keys().next().value;
-                if (lruKey !== undefined) { stateCache.delete(lruKey); }
-            }
             stateCache.set(key, nextValue);
 
             // Schedule a single debounced write to the VS Code API
