@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TracePoint, HIGHLIGHT_TO_TAG, NOTE_BLOCK_START, NOTE_BLOCK_END } from './types';
+import { TracePoint, HIGHLIGHT_TO_TAG, NOTE_BLOCK_START, NOTE_BLOCK_END, escapeNoteFences } from './types';
 
 /**
  * Generate a Markdown document from the collected traces.
@@ -36,7 +36,7 @@ function renderTrace(t: TracePoint, index: number, depth: number): string {
     if (t.note) {
         // Fence the raw note so any headings / blank lines / `---` it contains
         // round-trip intact and don't collide with the structural headings.
-        md += `${NOTE_BLOCK_START}\n${t.note}\n${NOTE_BLOCK_END}\n\n`;
+        md += `${NOTE_BLOCK_START}\n${escapeNoteFences(t.note)}\n${NOTE_BLOCK_END}\n\n`;
     }
     
     if (t.content.trim()) {

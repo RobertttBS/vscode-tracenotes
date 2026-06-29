@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace, NOTE_BLOCK_START, NOTE_BLOCK_END } from './types';
+import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, SearchableTrace, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
 import { generateIsomorphicUUID } from './utils/uuid';
 import { FileStorageManager } from './storage/FileStorageManager';
 
@@ -1889,6 +1889,14 @@ export class TraceManager implements vscode.Disposable {
         const flushCurrentTrace = async () => {
             if (!currentTrace) return;
 
+            // Finalize an unclosed fenced note (no NOTE_BLOCK_END before EOF) so its
+            // accumulated body isn't dropped, and reset the flag for the next trace.
+            if (capturingNote) {
+                currentTrace.note = currentNote.join('\n');
+                currentNote = [];
+                capturingNote = false;
+            }
+
             if (capturingContent) {
                 currentTrace.content = currentContent.join('\n');
                 currentContent = [];
@@ -1934,7 +1942,7 @@ export class TraceManager implements vscode.Disposable {
                     }
                     currentNote = [];
                 } else {
-                    currentNote.push(line);
+                    currentNote.push(unescapeNoteFence(line));
                 }
                 continue;
             }

@@ -123,6 +123,27 @@ describe('markdown note round-trip (method A)', () => {
         expect(parsed[0].highlight).toBe('blue');
     });
 
+    it('round-trips a note body that itself contains a closing fence delimiter', async () => {
+        const note = 'before the delimiter\n<!-- /tracenote -->\nafter the delimiter';
+        const parsed = await parse(generateMarkdown([makeTrace({ note })]));
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].note).toBe(note);
+    });
+
+    it('round-trips a note body that itself contains an opening fence delimiter', async () => {
+        const note = 'before\n<!-- tracenote -->\nafter';
+        const parsed = await parse(generateMarkdown([makeTrace({ note })]));
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].note).toBe(note);
+    });
+
+    it('keeps the accumulated body when a fenced note is never closed before EOF', async () => {
+        const md = ['## 1. Title', '', NOTE_BLOCK_START, 'line one', 'line two'].join('\n');
+        const parsed = await parse(md);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].note).toBe('line one\nline two');
+    });
+
     it('derives a clean heading title by stripping the leading # from the first note line', async () => {
         const md = generateMarkdown([makeTrace({ note: '# Overview\nbody' })]);
         // The structural heading shows "Overview", not "# Overview".

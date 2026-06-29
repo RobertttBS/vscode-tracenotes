@@ -31,6 +31,32 @@ export interface TracePoint {
 export const NOTE_BLOCK_START = '<!-- tracenote -->';
 export const NOTE_BLOCK_END = '<!-- /tracenote -->';
 
+/**
+ * A note body can itself contain a line that looks like a fence delimiter. Escape
+ * such lines on export by inserting a zero-width space after `<!--`, and reverse it
+ * on import, so the delimiters round-trip without prematurely closing the block.
+ */
+const NOTE_FENCE_ESCAPE = '<!--\u200B';
+
+/** Escape any delimiter-looking lines in a note before wrapping it in a fence. */
+export function escapeNoteFences(note: string): string {
+    return note.split('\n').map(line => {
+        const trimmed = line.trim();
+        return (trimmed === NOTE_BLOCK_START || trimmed === NOTE_BLOCK_END)
+            ? line.replace('<!--', NOTE_FENCE_ESCAPE)
+            : line;
+    }).join('\n');
+}
+
+/** Reverse {@link escapeNoteFences} for a single captured note line. */
+export function unescapeNoteFence(line: string): string {
+    const trimmed = line.trim();
+    return (trimmed === NOTE_BLOCK_START.replace('<!--', NOTE_FENCE_ESCAPE) ||
+            trimmed === NOTE_BLOCK_END.replace('<!--', NOTE_FENCE_ESCAPE))
+        ? line.replace(NOTE_FENCE_ESCAPE, '<!--')
+        : line;
+}
+
 /** Maps a highlight colour to its human-readable Markdown tag (and vice-versa). */
 export const HIGHLIGHT_TO_TAG: Record<NonNullable<TracePoint['highlight']>, string> = {
     red:    'Important',
