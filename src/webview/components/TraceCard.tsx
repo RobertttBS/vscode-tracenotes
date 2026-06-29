@@ -4,7 +4,7 @@ import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useVSCodeTheme } from '../hooks/useVSCodeTheme';
 import MarkdownNote from './MarkdownNote';
-import { handleListEnter, handleListIndent } from '../utils/listEditing';
+import { handleListEnter, handleListIndent, type EditResult } from '../utils/listEditing';
 
 // Register only the languages we actually need (instead of bundling all ~300)
 import tsx from 'refractor/tsx';
@@ -150,48 +150,29 @@ const TraceCard: React.FC<TraceCardProps> = ({ trace, index, autoFocusNote, onCa
     const handleNoteKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         const textarea = e.currentTarget;
 
+        // Commit a programmatic edit and remember where the caret should land.
+        const applyEdit = (result: EditResult | null) => {
+            if (!result) { return; }
+            e.preventDefault();
+            pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
+            setNoteValue(result.value);
+        };
+
         // Ctrl+Enter or Meta+Enter (Cmd+Enter) to save
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleNoteSave();
-            return;
-        }
-        // Escape to cancel
-        if (e.key === 'Escape') {
+        } else if (e.key === 'Escape') {
+            // Escape to cancel
             setEditing(false);
             setNoteValue(trace.note);
-            return;
-        }
-
-        // Tab / Shift+Tab: indent or outdent the selected line(s).
-        if (e.key === 'Tab') {
-            const result = handleListIndent(
-                textarea.value,
-                textarea.selectionStart,
-                textarea.selectionEnd,
-                e.shiftKey,
-            );
-            if (result) {
-                e.preventDefault();
-                pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
-                setNoteValue(result.value);
-            }
-            return;
-        }
-
-        // Plain Enter inside a list item: carry the marker onto the next line.
-        if (e.key === 'Enter' && !e.shiftKey) {
-            const result = handleListEnter(
-                textarea.value,
-                textarea.selectionStart,
-                textarea.selectionEnd,
-            );
-            if (result) {
-                e.preventDefault();
-                pendingSelectionRef.current = { start: result.selectionStart, end: result.selectionEnd };
-                setNoteValue(result.value);
-            }
-            // Otherwise plain Enter inserts a newline (default textarea behavior).
+        } else if (e.key === 'Tab') {
+            // Tab / Shift+Tab: indent or outdent the selected line(s).
+            applyEdit(handleListIndent(textarea.value, textarea.selectionStart, textarea.selectionEnd, e.shiftKey));
+        } else if (e.key === 'Enter' && !e.shiftKey) {
+            // Plain Enter inside a list item carries the marker onto the next
+            // line; elsewhere it falls through to the textarea's own newline.
+            applyEdit(handleListEnter(textarea.value, textarea.selectionStart, textarea.selectionEnd));
         }
     }, [handleNoteSave, trace.note]);
 
