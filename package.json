@@ -2,7 +2,7 @@
   "name": "tracenotes",
   "displayName": "TraceNotes",
   "description": "An extension for code tracing and note-taking.",
-  "version": "0.0.63",
+  "version": "0.0.64",
   "publisher": "RobertttBS",
   "icon": "images/icon.png",
   "repository": {
