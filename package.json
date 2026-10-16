@@ -20,6 +20,17 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "TraceNotes",
+      "properties": {
+        "tracenotes.projectId": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Folders with the same project ID share their traces. Leave empty to use the git origin URL, or the folder name when there is none. Use the TraceNotes: Set Project ID command to switch immediately; after editing it by hand, reload the window."
+        }
+      }
+    },
     "commands": [
       {
         "command": "tracenotes.collectTrace",
@@ -44,6 +55,11 @@
       {
         "command": "tracenotes.jumpToFadedTrace",
         "title": "Jump to Trace Card (Faded Decoration)"
+      },
+      {
+        "command": "tracenotes.setProjectId",
+        "title": "TraceNotes: Set Project ID",
+        "icon": "$(link)"
       }
     ],
     "viewsContainers": {
@@ -71,7 +87,16 @@
         "mac": "alt+c",
         "when": "editorTextFocus"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "tracenotes.setProjectId",
+          "when": "view == tracenotes.storyboard",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.js",

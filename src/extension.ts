@@ -336,6 +336,69 @@ export function activate(context: vscode.ExtensionContext) {
         }),
     );
 
+    // Command: Set Project ID — folders with the same ID share traces
+    // (docs/specs/shared-project-traces.md). Writes the workspace-folder setting
+    // and switches without a window reload.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('tracenotes.setProjectId', async () => {
+            await traceManager.ensureReady();
+            const folder = vscode.workspace.workspaceFolders?.[0];
+            const current = await traceManager.getProject();
+            if (!folder || !current) {
+                vscode.window.showWarningMessage('TraceNotes: Open a folder to share traces across folders.');
+                return;
+            }
+
+            type Item = vscode.QuickPickItem & { id?: string; action?: 'new' | 'auto' };
+            const items: Item[] = (await traceManager.listProjects())
+                .filter(p => p.id !== current.id)
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .map(p => ({
+                    label: p.id,
+                    id: p.id,
+                    description: `${p.folders.length} folder(s)`,
+                    detail: p.folders.map(f => path.basename(f)).join(', '),
+                }));
+            items.push({ label: '$(add) Enter a new Project ID…', action: 'new' });
+            if (current.source === 'setting') {
+                items.push({ label: '$(sync) Use automatic ID', description: 'git origin, or folder name', action: 'auto' });
+            }
+
+            const picked = await vscode.window.showQuickPick(items, {
+                title: 'TraceNotes: Set Project ID',
+                placeHolder: `Current: ${current.id} (${current.source}) — pick a project to share traces with`,
+                matchOnDetail: true,
+            });
+            if (!picked) { return; }
+
+            let nextId: string | undefined = picked.id;
+            if (picked.action === 'new') {
+                nextId = (await vscode.window.showInputBox({
+                    title: 'TraceNotes: New Project ID',
+                    prompt: 'Folders with the same Project ID share traces.',
+                    value: current.id,
+                    validateInput: v => v.trim() ? undefined : 'Project ID cannot be empty.',
+                }))?.trim();
+                if (!nextId || nextId === current.id) { return; }
+            }
+
+            const merge = await vscode.window.showInformationMessage(
+                nextId
+                    ? `Switch this folder to project "${nextId}". Merge the current traces into it?`
+                    : 'Switch this folder to its automatic project ID. Merge the current traces into it?',
+                { modal: true, detail: 'Without merging, the current traces stay in the previous project.' },
+                'Merge', 'Switch Only',
+            );
+            if (!merge) { return; }
+
+            await vscode.workspace.getConfiguration('tracenotes', folder.uri)
+                .update('projectId', nextId, vscode.ConfigurationTarget.WorkspaceFolder);
+            await traceManager.switchProject(merge === 'Merge');
+            const now = await traceManager.getProject();
+            vscode.window.showInformationMessage(`TraceNotes: Now sharing traces as "${now?.id}".`);
+        }),
+    );
+
     // Re-render decorations when the user switches editor tabs.
     // Also re-validate the file's traces on-demand: edits made outside a live
     // onDidChangeTextDocument stream (git checkout, external edits, reload) never

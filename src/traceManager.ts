@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, HighlightColor, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
-import { FileStorageManager } from './storage/FileStorageManager';
+import { FileStorageManager, mergeTrees } from './storage/FileStorageManager';
 
 // Module-level regex constants — compiled once instead of per call on hot paths.
 const RE_ZERO_WIDTH  = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
@@ -114,6 +114,12 @@ export class TraceManager implements vscode.Disposable {
 
     // Dirty flag: true when in-memory state has not yet been flushed to disk
     private isDirty: boolean = false;
+    // Only this folder's positions changed (validation / edit shifts) — see persistPositions
+    private positionsDirty: boolean = false;
+
+    // Watches the project's shared trees file; reloads are serialized through reloadChain
+    private storageWatcher: vscode.Disposable | undefined;
+    private reloadChain: Promise<void> = Promise.resolve();
 
     // Deleted-card history for webview Ctrl+Z / Cmd+Z (most recent last).
     // In-memory only: undo history does not survive a window reload.
@@ -163,6 +169,7 @@ export class TraceManager implements vscode.Disposable {
      */
     public dispose(): void {
         this._onDidChangeTraces.dispose();
+        this.storageWatcher?.dispose();
 
         if (this.validationCts) {
             this.validationCts.cancel();
@@ -253,6 +260,90 @@ export class TraceManager implements vscode.Disposable {
 
         // Notify UI that restored data is ready
         this._onDidChangeTraces.fire();
+
+        await this.watchSharedFile();
+    }
+
+    /** Picks up traces other folders of the same project write to the shared file. */
+    private async watchSharedFile(): Promise<void> {
+        this.storageWatcher?.dispose();
+        this.storageWatcher = await this.fileStorage.watch(() => {
+            this.reloadChain = this.reloadChain
+                .then(() => this.reloadFromDisk())
+                .catch(err => console.error('TraceNotes: Reload from shared file failed', err));
+        });
+    }
+
+    /** This folder's project ID and where it came from; undefined when no folder is open. */
+    public getProject() {
+        return this.fileStorage.getProject();
+    }
+
+    public listProjects() {
+        return this.fileStorage.listProjects();
+    }
+
+    /**
+     * Re-resolves the project after `tracenotes.projectId` changed and loads its
+     * traces, optionally merging this window's current traces into it.
+     * Call after the setting is updated; works without a window reload.
+     */
+    public async switchProject(mergeCurrent: boolean): Promise<void> {
+        await this.flush();
+        const current = this.trees;
+        this.storageWatcher?.dispose();
+        this.storageWatcher = undefined;
+        await this.fileStorage.resetProject();
+
+        let loaded = await this.fileStorage.load() ?? [];
+        if (mergeCurrent) {
+            loaded = mergeTrees(loaded, current, vscode.workspace.workspaceFolders?.[0]?.name ?? 'merged');
+        }
+        if (loaded.length === 0) {
+            this.initializeDefaults();
+        } else {
+            this.applyLoadedTrees(loaded);
+        }
+        if (mergeCurrent) {
+            this.isDirty = true;
+            await this.flush();
+        }
+        this._onDidChangeTraces.fire();
+        await this.watchSharedFile();
+        await Promise.all(vscode.window.visibleTextEditors.map(e => this.validateDocumentNow(e.document)));
+    }
+
+    /** Re-reads the shared file after another window wrote it, keeping this window's cursor. */
+    private async reloadFromDisk(retry = true): Promise<void> {
+        // ponytail: last writer wins — our pending save will overwrite theirs.
+        // Merge by trace id if concurrent edits across windows become common.
+        if (this.isDirty) { return; }
+        if (this.positionsDirty) { await this.flush(); } // load() overlays the positions file
+
+        const loaded = await this.fileStorage.load();
+        if (!loaded || loaded.length === 0 || this.isDirty) { return; }
+        // Typing during load() shifted positions the loaded overlay doesn't have yet.
+        if (this.positionsDirty) { return retry ? this.reloadFromDisk(false) : undefined; }
+
+        this.applyLoadedTrees(loaded);
+        this._onDidChangeTraces.fire();
+
+        // New traces from other folders carry their offsets only as hints; anchor them here.
+        await Promise.all(vscode.window.visibleTextEditors.map(e => this.validateDocumentNow(e.document)));
+    }
+
+    /** Replaces the trees, keeping this window's tree/group cursor when it still exists. */
+    private applyLoadedTrees(loaded: TraceTree[]): void {
+        this.trees = loaded;
+        if (!this.trees.some(t => t.id === this.activeTreeId)) {
+            this.activeTreeId = this.trees[0].id;
+            this.persistActiveTree();
+        }
+        this.rebuildTraceIndex();
+        if (this.activeGroupId && !this.findTraceById(this.activeGroupId)) {
+            this.activeGroupId = null;
+            this.persistActiveGroup();
+        }
     }
 
     private persist(): void {
@@ -263,7 +354,20 @@ export class TraceManager implements vscode.Disposable {
 
         // Mark in-memory state as unsaved
         this.isDirty = true;
+        this.scheduleFlush();
+    }
 
+    /**
+     * Persists validation / edit-shift results to this folder's positions file
+     * only, so checkouts on different branches never rewrite the shared file
+     * (docs/specs/shared-project-traces.md R6).
+     */
+    private persistPositions(): void {
+        this.positionsDirty = true;
+        this.scheduleFlush();
+    }
+
+    private scheduleFlush(): void {
         if (this.persistenceDebounceTimer) {
             clearTimeout(this.persistenceDebounceTimer);
         }
@@ -289,16 +393,19 @@ export class TraceManager implements vscode.Disposable {
             this.persistenceDebounceTimer = undefined;
         }
 
-        if (!this.isDirty) {
+        if (!this.isDirty && !this.positionsDirty) {
             return; // Nothing new to write
         }
 
+        const full = this.isDirty; // a full save also writes positions
         this.isDirty = false; // Optimistically clear before the async write
+        this.positionsDirty = false;
+        let ok = false;
         try {
-            await this.fileStorage.save(this.trees);
-        } catch (err) {
-            this.isDirty = true; // Revert on failure so the next flush retries
-            throw err;
+            ok = await (full ? this.fileStorage.save(this.trees) : this.fileStorage.savePositions(this.trees));
+        } finally {
+            // Revert on failure (thrown or reported) so the next flush retries
+            if (!ok) { if (full) { this.isDirty = true; } else { this.positionsDirty = true; } }
         }
     }
 
@@ -417,7 +524,7 @@ export class TraceManager implements vscode.Disposable {
         }
 
         if (!token.isCancellationRequested && stateChanged) {
-            this.persist();
+            this.persistPositions();
             this._onDidChangeTraces.fire();
         }
 
@@ -1069,7 +1176,7 @@ export class TraceManager implements vscode.Disposable {
         // shift and notify the webview here, otherwise the new offsets live only in
         // memory (lost on reload) and the sidebar keeps showing stale line numbers.
         if (shiftedTraces.size > 0) {
-            this.persist();
+            this.persistPositions();
             this._onDidChangeTraces.fire();
         }
 
@@ -1143,7 +1250,7 @@ export class TraceManager implements vscode.Disposable {
         }
 
         if (stateChanged) {
-            this.persist();
+            this.persistPositions();
             this._onDidChangeTraces.fire();
         }
 
@@ -1305,7 +1412,7 @@ export class TraceManager implements vscode.Disposable {
             } while (!cts.token.isCancellationRequested);
 
             if (stateChanged) {
-                this.persist();
+                this.persistPositions();
                 this._onDidChangeTraces.fire();
             }
         } finally {

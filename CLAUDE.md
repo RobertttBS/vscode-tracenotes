@@ -17,7 +17,7 @@ npm test        # vitest run
 
 Single vitest file: `npx vitest run <path>`. `src/recoverTracePoints.test.ts` is **not** vitest — it mocks `vscode` inline and runs standalone via `npx ts-node src/recoverTracePoints.test.ts` (see `tips/tips.md`). Package: `npx vsce package`.
 
-**A clean `npm test` always prints `Test Files 1 failed | 6 passed` — that one failure is the baseline** (vitest can't load `vscode` in `recoverTracePoints.test.ts`), not a regression. Judge results by the `Tests` line (want `N passed`, 0 failed), not the `Test Files` line. See `docs/diagnosis.md` #1.
+**A clean `npm test` always prints `Test Files 1 failed | N passed` — that one failure is the baseline** (vitest can't load `vscode` in `recoverTracePoints.test.ts`), not a regression. Judge results by the `Tests` line (want `N passed`, 0 failed), not the `Test Files` line. See `docs/diagnosis.md` #1.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Single vitest file: `npx vitest run <path>`. `src/recoverTracePoints.test.ts` is
 
 **TraceManager (`src/traceManager.ts`) is the source of truth** for `TraceTree[]`, the active tree/group cursor, and fast-path index maps (`traceIndex`, `traceIdMap`, `parentIdMap`). It also handles:
 - Range validation via token anchoring with a per-call `VALIDATION_BUDGET_MS`.
-- Persistence via `src/storage/FileStorageManager.ts` — atomic write (temp → rotate → rename) of `tracenotes.data.json` to workspace `storageUri` (fallback `globalStorageUri`). `deactivate()` awaits `flush()` to drain debounced saves.
+- Persistence via `src/storage/FileStorageManager.ts` — atomic write (temp → rotate → rename). With a folder open, trees go to a per-project shared file under `globalStorageUri/projects/` (shared across checkouts by project ID) and per-folder positions to `storageUri`; validation writes only positions (`persistPositions()`). See `docs/specs/shared-project-traces.md`. `deactivate()` awaits `flush()` to drain debounced saves.
 - `onDidChangeTraces` events drive debounced decoration repaints + `syncWorkspace` posts.
 
 Always mutate traces through TraceManager methods (`add`, `remove`, `reorder`, `relocateTrace`, `enterGroup`/`exitGroup`, `moveToChild`/`moveToParent`) so indexes and persistence stay in sync.
