@@ -16,6 +16,12 @@ TraceNotes is an extension for navigating and documenting code logic. It allows 
 - **Indentation Correction** – Automatically removes leading indentation from collected snippets based on the selection.
 - **Recovery** – Trace points attempt to maintain their position when files are modified, though accuracy may vary depending on the extent of the changes.
 
+### Project Sharing (Worktrees & Clones)
+
+- **Cross-Checkout Sync** – Share traces across different git worktrees, clones, or checkouts of the same repository. Projects are automatically recognized by git remote `origin`, folder name, or by clicking the **`Set Project ID`** (`🔗`) button in the Storyboard header (`tracenotes.projectId`).
+- **Portable Paths** – Traces store workspace-relative paths, opening the corresponding file in each local checkout.
+- **Independent Positions & Live Updates** – Code position validation is kept per checkout so different branches don't conflict, while trace edits sync live across open VS Code windows.
+
 ### Markdown Portability
 
 - **Export** – Save collected traces to a Markdown file. The export preserves the hierarchy using standard Markdown headings.
@@ -23,21 +29,24 @@ TraceNotes is an extension for navigating and documenting code logic. It allows 
 
 ### Additional Capabilities
 
-- **Organization** – Group traces into levels (up to 10 levels deep), manage multiple trace trees, and reorder cards via drag and drop.
+- **Organization** – Group traces into levels (up to 10 levels deep), manage multiple trace trees, and reorder or nest cards via drag and drop.
+- **Navigation & Search** – Navigate back and forward across trace views (`<` / `>`) and search traces in a floating view (`🔍`).
 - **Synchronization** – Link trace cards to source lines for bi-directional navigation. Cursor movement highlights associated cards.
 - **Visual Markers** – Assign colors to traces to highlight sidebar cards and editor gutter positions.
-- **Annotations** – Add notes to individual trace points to provide context.
+- **Annotations & Standalone Notes** – Add notes to individual trace points or click `+` to insert standalone empty note cards.
 
 ---
 
 ## Commands & Shortcuts
 
-| Action            | Shortcut (macOS) | Shortcut (Win/Linux) | Command                            |
-| :---------------- | :--------------- | :------------------- | :--------------------------------- |
-| **Collect Trace** | `Option + C`     | `Alt + C`            | `TraceNotes: Collect Trace`        |
-| **Export MD**     | —                | —                    | `TraceNotes: Export to Markdown`   |
-| **Import MD**     | —                | —                    | `TraceNotes: Import from Markdown` |
-| **Clear Current** | —                | —                    | `TraceNotes: Clear All Traces`     |
+| Action              | Shortcut (macOS) | Shortcut (Win/Linux) | Command                               |
+| :------------------ | :--------------- | :------------------- | :------------------------------------ |
+| **Collect Trace**   | `Option + C`     | `Alt + C`            | `TraceNotes: Collect Trace`           |
+| **Export MD**       | —                | —                    | `TraceNotes: Export to Markdown`      |
+| **Import MD**       | —                | —                    | `TraceNotes: Import Trace`            |
+| **Export All Data** | —                | —                    | `TraceNotes: Export All Data to JSON` |
+| **Clear Current**   | —                | —                    | `TraceNotes: Clear All Traces`        |
+| **Set Project ID**  | —                | —                    | `TraceNotes: Set Project ID`          |
 
 ---
 
