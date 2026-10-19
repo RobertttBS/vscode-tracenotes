@@ -2,51 +2,60 @@
 
 > An extension for code tracing and note-taking that supports exporting and importing in Markdown format.
 
-### Select the code and press **`Opt+C`** or **`Alt+C`** to collect traces; the rest is intuitive.
+### Select code and press **`Opt+C`** or **`Alt+C`** to collect a trace. See [Features](#features) for the rest.
 
-![UI explanation](images/UI_explaination.jpeg)
+![UI explanation](images/UI_explanation.jpeg)
 
 TraceNotes is an extension for navigating and documenting code logic. It allows you to build a structured narrative of code flows that stay synchronized with the editor.
 
 ## Features
 
-### Trace Collection
+### Collection & Recovery
 
-- **Capture** – Select code and press `Opt+C` or `Alt+C` to create a trace point.
-- **Indentation Correction** – Automatically removes leading indentation from collected snippets based on the selection.
-- **Recovery** – Trace points attempt to maintain their position when files are modified, though accuracy may vary depending on the extent of the changes.
+- **Capture** – Select code and press `Opt+C` (`Alt+C`), or click `+` for a standalone note card. Snippets are dedented automatically.
+- **Recovery** – Traces re-anchor after edits via exact, whitespace-normalized, then fuzzy matching, falling back to a workspace-wide search for moved code. Unrecoverable traces are marked `Orphaned`; re-bind them with **`✎`**.
+- **Undo Remove** – `Cmd+Z` (`Ctrl+Z`) in the Storyboard restores deleted cards and their children.
+
+### Organization & Navigation
+
+- **Hierarchy** – Nest traces up to 10 levels and keep multiple trace trees in **`Manage Traces`**.
+- **Drag and Drop** – Reorder cards, drop on **`Move to Child`** to nest, or on **`To Parent`** to move up a level.
+- **Canvas (`🔍`)** – View the whole tree on a 2D canvas. Drag to pan, `Ctrl/Cmd + Scroll` to zoom, click to jump.
+- **Search** – Search the current tree or all trees with `AND`, `OR`, `NOT` / `-term`, `"phrases"`, and `( )`.
+- **History** – Go back and forward (`<` / `>`) through visited cards, groups, and trees.
+
+### Notes & Editor Sync
+
+- **Markdown Notes** – GFM rendering with links and clickable task checkboxes.
+- **Note Editing** – List continuation, `Tab` / `Shift+Tab` indent, selection wrapping (`*`, `` ` ``, `_`, `~`, brackets, quotes).
+- **Editor Sync** – Clicking a card jumps to its code; moving the cursor highlights the matching card.
+- **Colors & Gutter** – Right-click a card to pick one of 8 colors. Gutter markers show traces outside the current group; hover to preview the note and **`↗ Jump to card`**.
 
 ### Project Sharing (Worktrees & Clones)
 
-- **Cross-Checkout Sync** – Share traces across different git worktrees, clones, or checkouts of the same repository. Projects are automatically recognized by git remote `origin`, folder name, or by clicking the **`Set Project ID`** (`🔗`) button in the Storyboard header (`tracenotes.projectId`).
-- **Portable Paths** – Traces store workspace-relative paths, opening the corresponding file in each local checkout.
-- **Independent Positions & Live Updates** – Code position validation is kept per checkout so different branches don't conflict, while trace edits sync live across open VS Code windows.
+- **Cross-Checkout Sync** – Worktrees and clones of one repo share traces, matched by git `origin`, folder name, or **`Set Project ID`** (`🔗`).
+- **Per-Checkout Positions** – Paths are workspace-relative and positions are tracked per checkout, so branches don't conflict. Edits sync live across windows.
 
-### Markdown Portability
+### Import & Export
 
-- **Export** – Save collected traces to a Markdown file. The export preserves the hierarchy using standard Markdown headings.
-- **Import** – Load trace data back into the extension from supported Markdown documents.
-
-### Additional Capabilities
-
-- **Organization** – Group traces into levels (up to 10 levels deep), manage multiple trace trees, and reorder or nest cards via drag and drop.
-- **Navigation & Search** – Navigate back and forward across trace views (`<` / `>`) and search traces in a floating view (`🔍`).
-- **Synchronization** – Link trace cards to source lines for bi-directional navigation. Cursor movement highlights associated cards.
-- **Visual Markers** – Assign colors to traces to highlight sidebar cards and editor gutter positions.
-- **Annotations & Standalone Notes** – Add notes to individual trace points or click `+` to insert standalone empty note cards.
+- **Markdown** – Lossless round-trip: headings for hierarchy, `%%Tag%%` for colors (Obsidian-compatible), and `<!-- tracenote -->` fences around notes.
+- **JSON** – Back up all trees to `tracenotes-data.json`. **`Import Trace`** accepts `.md` and `.json`.
 
 ---
 
 ## Commands & Shortcuts
 
-| Action              | Shortcut (macOS) | Shortcut (Win/Linux) | Command                               |
-| :------------------ | :--------------- | :------------------- | :------------------------------------ |
-| **Collect Trace**   | `Option + C`     | `Alt + C`            | `TraceNotes: Collect Trace`           |
-| **Export MD**       | —                | —                    | `TraceNotes: Export to Markdown`      |
-| **Import MD**       | —                | —                    | `TraceNotes: Import Trace`            |
-| **Export All Data** | —                | —                    | `TraceNotes: Export All Data to JSON` |
-| **Clear Current**   | —                | —                    | `TraceNotes: Clear All Traces`        |
-| **Set Project ID**  | —                | —                    | `TraceNotes: Set Project ID`          |
+| Action                     | Shortcut (macOS)      | Shortcut (Win/Linux)   | Context / Command                     |
+| :------------------------- | :-------------------- | :--------------------- | :------------------------------------ |
+| **Collect Trace**          | `Option + C`          | `Alt + C`              | `TraceNotes: Collect Trace`           |
+| **Undo Remove**            | `Cmd + Z`             | `Ctrl + Z`             | Storyboard focus                      |
+| **Save / Cancel Note**     | `Cmd + Enter` / `Esc` | `Ctrl + Enter` / `Esc` | Note editor focus                     |
+| **Toggle Bold**            | `Cmd + B`             | `Ctrl + B`             | Note editor focus                     |
+| **Export MD**              | —                     | —                      | `TraceNotes: Export to Markdown`      |
+| **Import MD / JSON**       | —                     | —                      | `TraceNotes: Import Trace`            |
+| **Export All Data (JSON)** | —                     | —                      | `TraceNotes: Export All Data to JSON` |
+| **Clear Current Tree**     | —                     | —                      | `TraceNotes: Clear All Traces`        |
+| **Set Project ID**         | —                     | —                      | `TraceNotes: Set Project ID`          |
 
 ---
 
