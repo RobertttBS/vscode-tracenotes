@@ -94,7 +94,8 @@ export type ExtensionToWebviewMessage =
         };
     }
     | { type: 'allTreesData'; payload: { trees: TraceTree[] } }
-    | { type: 'jumpToFadedTrace'; groupId: string | null; focusId: string };
+    | { type: 'jumpToFadedTrace'; groupId: string | null; focusId: string }
+    | { type: 'minimapLayout'; cardWidth: number; columnGap: number };
 
 /** Messages sent from Webview → Extension */
 export type WebviewToExtensionMessage =

@@ -45,6 +45,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
                     type: 'syncWorkspace', 
                     payload: this.traceManager.getWorkspaceSyncPayload() 
                 });
+                this.postMinimapLayout();
             } else {
                 this.onMessage(msg);
             }
@@ -54,6 +55,21 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
     /** Send a message to the webview */
     postMessage(message: ExtensionToWebviewMessage): void {
         this._view?.webview.postMessage(message);
+    }
+
+    /** Push the minimap layout settings (tracenotes.minimap.*) to the webview */
+    postMinimapLayout(): void {
+        const config = vscode.workspace.getConfiguration('tracenotes.minimap');
+        // package.json min/max are only editor hints; clamp so hand-edited values can't break the layout
+        const clamp = (key: string, def: number, min: number, max: number) => {
+            const v = config.get<number>(key, def);
+            return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def;
+        };
+        this.postMessage({
+            type: 'minimapLayout',
+            cardWidth: clamp('cardWidth', 380, 200, 1000),
+            columnGap: clamp('columnGap', 60, 56, 400),
+        });
     }
 
     private getHtml(webview: vscode.Webview): string {

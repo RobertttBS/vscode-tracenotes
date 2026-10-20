@@ -184,6 +184,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(StoryboardProvider.viewType, provider, {
             webviewOptions: { retainContextWhenHidden: true },
         }),
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('tracenotes.minimap')) { provider.postMinimapLayout(); }
+        }),
     );
 
     // Command: Collect Trace

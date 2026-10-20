@@ -383,6 +383,13 @@ const Storyboard: React.FC = () => {
                     jumpToFadedTraceRef.current?.(msg.groupId, msg.focusId);
                     break;
                 }
+                case 'minimapLayout': {
+                    const msg = message as Extract<ExtensionToWebviewMessage, { type: 'minimapLayout' }>;
+                    const root = document.documentElement.style;
+                    root.setProperty('--float-card-width', `${msg.cardWidth}px`);
+                    root.setProperty('--float-col-gap', `${msg.columnGap}px`);
+                    break;
+                }
             }
         };
         window.addEventListener('message', listener);

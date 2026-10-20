@@ -1073,18 +1073,20 @@ body.vscode-high-contrast .trace-card {
   flex-direction: column;
 }
 
+/* Each depth gets its own column: children start one card width + gap to the right,
+   so level boundaries never overlap when read top-down. Vars set from settings. */
 .float-children {
   position: relative;
-  margin-left: 32px;
-  padding-left: 20px;
+  margin-left: var(--float-card-width, 380px);
+  padding-left: var(--float-col-gap, 60px);
 }
 
-/* Vertical spine — starts at the parent card's bottom-left corner (top: -12px bridges
+/* Vertical spine — starts at the parent card's bottom-right corner (top: -12px bridges
    the card's margin-bottom gap) and runs alongside all siblings */
 .float-children::before {
   content: '';
   position: absolute;
-  left: 8px;
+  left: 0;
   top: -12px;
   bottom: 0;
   width: 1px;
@@ -1100,9 +1102,9 @@ body.vscode-high-contrast .trace-card {
 .float-children > .float-trace-group > .float-card::before {
   content: '';
   position: absolute;
-  left: -12px;
+  left: calc(-1 * var(--float-col-gap, 60px));
   top: 18px;
-  width: 12px;
+  width: var(--float-col-gap, 60px);
   height: 1px;
   background: var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.35));
   pointer-events: none;
@@ -1112,7 +1114,7 @@ body.vscode-high-contrast .trace-card {
 
 .float-card {
   position: relative;
-  width: 380px;
+  width: var(--float-card-width, 380px);
   margin-bottom: 12px;
   border: 1px solid var(--vscode-widget-border);
   border-radius: 4px;

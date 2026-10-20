@@ -28,6 +28,20 @@
           "default": "",
           "scope": "resource",
           "description": "Folders with the same project ID share their traces. Leave empty to use the git origin URL, or the folder name when there is none. Use the TraceNotes: Set Project ID command to switch immediately; after editing it by hand, reload the window."
+        },
+        "tracenotes.minimap.cardWidth": {
+          "type": "number",
+          "default": 380,
+          "minimum": 200,
+          "maximum": 1000,
+          "description": "Width (px) of each card in the minimap."
+        },
+        "tracenotes.minimap.columnGap": {
+          "type": "number",
+          "default": 60,
+          "minimum": 56,
+          "maximum": 400,
+          "description": "Horizontal gap (px) between depth columns in the minimap (min 56, so the active-card arrow fits in the gap). Each child level starts one card width plus this gap to the right of its parent."
         }
       }
     },
