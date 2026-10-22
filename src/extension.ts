@@ -128,9 +128,6 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     break;
                 }
-                case 'exportToMarkdown':
-                    vscode.commands.executeCommand('tracenotes.exportMarkdown');
-                    break;
                 case 'importTrace':
                     vscode.commands.executeCommand('tracenotes.importTrace');
                     break;
@@ -237,7 +234,6 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showWarningMessage('TraceNotes: No traces to export.');
                 return;
             }
-            const md = generateMarkdown(traces);
 
             const treeData = traceManager.getActiveTreeData();
             const fileName = treeData ? `${treeData.name.replace(/[^\p{L}\p{N}\s\-]/gu, '_').replace(/\s+/g, ' ').trim()}.md` : 'tracenotes.md';
@@ -248,6 +244,9 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             if (uri) {
+                // Snapshot after the dialog: the title-bar click blurs the webview, and the
+                // resulting updateNote message must land before we read the traces.
+                const md = generateMarkdown(traceManager.getAll());
                 await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(md));
                 await vscode.window.showTextDocument(uri);
             }

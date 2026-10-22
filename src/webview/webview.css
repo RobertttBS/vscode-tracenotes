@@ -540,11 +540,6 @@ body.vscode-light .note-display {
   color: var(--vscode-foreground, #cccccc);
 }
 
-/* ---- Export Button ---- */
-.export-btn {
-  color: var(--vscode-textLink-foreground, #3794ff);
-}
-
 /* ---- Trace Card Highlights ---- */
 .trace-card.red {
   border-color: #f14c4c;

@@ -52,7 +52,8 @@
       },
       {
         "command": "tracenotes.exportMarkdown",
-        "title": "TraceNotes: Export to Markdown"
+        "title": "TraceNotes: Export to Markdown",
+        "icon": "$(markdown)"
       },
       {
         "command": "tracenotes.importTrace",
@@ -109,9 +110,14 @@
     "menus": {
       "view/title": [
         {
+          "command": "tracenotes.exportMarkdown",
+          "when": "view == tracenotes.storyboard",
+          "group": "navigation@1"
+        },
+        {
           "command": "tracenotes.setProjectId",
           "when": "view == tracenotes.storyboard",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     }

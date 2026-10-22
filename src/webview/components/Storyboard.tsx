@@ -225,7 +225,7 @@ const SortableTraceCard: React.FC<{
     );
 });
 
-import { ExportIcon, ListIcon, PlusIcon, NestingIcon, BackIcon, BackArrowIcon, ForwardArrowIcon, SearchIcon } from './icons';
+import { ListIcon, PlusIcon, NestingIcon, BackIcon, BackArrowIcon, ForwardArrowIcon, SearchIcon } from './icons';
 import { TreeList } from './TreeList';
 import FloatCanvas from './FloatCanvas';
 import { useNavigationHistory } from '../hooks/useNavigationHistory';
@@ -605,10 +605,6 @@ const Storyboard: React.FC = () => {
         postMessage({ command: 'jumpToGroup', groupId, focusId });
     }, [pushNavigation, currentNavEntry]);
 
-    const handleExport = useCallback(() => {
-        postMessage({ command: 'exportToMarkdown' });
-    }, []);
-
     const handleAddTrace = useCallback(() => {
         // Capture the pre-creation focus so Back returns there after the new
         // empty card becomes the live cursor (focusedId is set via syncWorkspace).
@@ -793,14 +789,6 @@ const Storyboard: React.FC = () => {
                     data-tooltip-pos="bottom-right"
                 >
                     <PlusIcon />
-                </button>
-                <button
-                    className="toolbar-btn export-btn"
-                    onClick={handleExport}
-                    data-tooltip="Export to Markdown"
-                    data-tooltip-pos="bottom-right"
-                >
-                    <ExportIcon />
                 </button>
             </div>
         </div>
