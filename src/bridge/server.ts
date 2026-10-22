@@ -10,7 +10,7 @@ import { GUIDE } from './guide';
 import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, sweepStale, writeAtomic } from './registry';
 
 /**
- * Lets external AI agents (Claude Code, Codex, …) edit trace trees through the
+ * Lets external AI agents (Claude Code, Codex, Cursor, …) edit trace trees through the
  * `~/.tracenotes/bin/tracenotes` CLI. Each window listens on its own local
  * socket and registers it in `~/.tracenotes/run/`; the CLI picks the window by cwd.
  * Every mutation goes through TraceManager.
@@ -284,72 +284,49 @@ The project must be open in a VS Code window with the TraceNotes extension.
 
 ${GUIDE}`;
 
-const CODEX_START = '<!-- tracenotes:start -->';
-const CODEX_END = '<!-- tracenotes:end -->';
-
 interface AgentTarget { name: string; file: string; installed: () => boolean; write: () => void }
 
-function readOr(file: string): string {
-    try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
-}
-
-function writeIfChanged(file: string, text: string): void {
-    if (readOr(file) === text) { return; }
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text);
-}
-
-function agentTargets(): AgentTarget[] {
-    const home = os.homedir();
-    const targets: AgentTarget[] = [];
-    if (fs.existsSync(path.join(home, '.claude'))) {
-        const file = path.join(home, '.claude', 'skills', 'tracenotes', 'SKILL.md');
-        targets.push({
-            name: 'Claude Code', file, installed: () => fs.existsSync(file), write: () => {
-                writeIfChanged(file, `---
+const SKILL_MD = `---
 name: tracenotes
 description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's VS Code TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes.
 ---
 
 ${SKILL_BODY}
-`);
-            },
+`;
+
+function writeIfChanged(file: string, text: string): void {
+    try { if (fs.readFileSync(file, 'utf8') === text) { return; } } catch { /* not written yet */ }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+}
+
+/** Agents whose config dir exists; each reads skills from <dir>/skills/<name>/SKILL.md. */
+function agentTargets(): AgentTarget[] {
+    const home = os.homedir();
+    return ([['Claude Code', '.claude'], ['Codex', '.codex'], ['Cursor', '.cursor']] as const)
+        .filter(([, dir]) => fs.existsSync(path.join(home, dir)))
+        .map(([name, dir]) => {
+            const file = path.join(home, dir, 'skills', 'tracenotes', 'SKILL.md');
+            return { name, file, installed: () => fs.existsSync(file), write: () => writeIfChanged(file, SKILL_MD) };
         });
-    }
-    if (fs.existsSync(path.join(home, '.codex'))) {
-        const file = path.join(home, '.codex', 'AGENTS.md');
-        targets.push({
-            name: 'Codex', file, installed: () => readOr(file).includes(CODEX_START), write: () => {
-                let text = readOr(file);
-                const block = `${CODEX_START}\n## TraceNotes\nWhen the user asks to build or edit a TraceNotes trace tree:\n${SKILL_BODY}\n${CODEX_END}`;
-                const start = text.indexOf(CODEX_START);
-                const end = text.indexOf(CODEX_END);
-                text = start >= 0 && end > start
-                    ? text.slice(0, start) + block + text.slice(end + CODEX_END.length)
-                    : (text ? text.replace(/\n*$/, '\n\n') : '') + block + '\n';
-                writeIfChanged(file, text);
-            },
-        });
-    }
-    return targets;
 }
 
 async function setupAgents(): Promise<void> {
     const targets = agentTargets();
     if (!targets.length) {
         vscode.window.showInformationMessage(
-            `TraceNotes: No Claude Code or Codex config found. Tell your agent to run "${SHIM_PATH} help".`);
+            `TraceNotes: No Claude Code, Codex or Cursor config found. Tell your agent to run "${SHIM_PATH} help".`);
         return;
     }
     const ok = await vscode.window.showInformationMessage(
-        `TraceNotes: Teach ${targets.map(t => t.name).join(' and ')} to create trace trees?`,
+        `TraceNotes: Teach ${targets.map(t => t.name).join(', ')} to create trace trees?`,
         { modal: true, detail: `This writes:\n${targets.map(t => t.file).join('\n')}` },
         'Write',
     );
     if (ok !== 'Write') { return; }
     try {
         targets.forEach(t => t.write());
-        vscode.window.showInformationMessage(`TraceNotes: Set up ${targets.map(t => t.name).join(' and ')}.`);
+        vscode.window.showInformationMessage(`TraceNotes: Set up ${targets.map(t => t.name).join(', ')}.`);
     } catch (err) {
         vscode.window.showErrorMessage(`TraceNotes: Agent setup failed. ${err}`);
     }
@@ -363,6 +340,6 @@ function offerSetupOnce(context: vscode.ExtensionContext): void {
     const key = 'tracenotes.agentSetupOffered';
     if (context.globalState.get(key) || !agentTargets().length) { return; }
     void context.globalState.update(key, true);
-    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex) create trace trees?', 'Set Up')
+    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor) create trace trees?', 'Set Up')
         .then(choice => { if (choice) { void setupAgents(); } });
 }
