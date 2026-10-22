@@ -15,19 +15,7 @@ export function collectTrace(editor: vscode.TextEditor): TracePoint | null {
     const text = editor.document.getText(selection);
     const filePath = editor.document.uri.fsPath;
 
-    // Smart dedent algorithm
-    const lines = text.split(/\r?\n/);
-    const minIndent = lines.reduce((min, line) => {
-        if (line.trim().length === 0) { return min; }
-        const match = line.match(/^\s*/);
-        const indent = match ? match[0].length : 0;
-        return indent < min ? indent : min;
-    }, Infinity);
-
-    const effectiveIndent = minIndent === Infinity ? 0 : minIndent;
-    const cleanContent = lines
-        .map(line => (line.length >= effectiveIndent ? line.slice(effectiveIndent) : line))
-        .join('\n');
+    const cleanContent = dedent(text);
 
     return {
         id: crypto.randomUUID(),
@@ -43,4 +31,20 @@ export function collectTrace(editor: vscode.TextEditor): TracePoint | null {
         note: '',
         timestamp: Date.now(),
     };
+}
+
+/** Smart dedent: strip the indentation common to all non-blank lines. */
+export function dedent(text: string): string {
+    const lines = text.split(/\r?\n/);
+    const minIndent = lines.reduce((min, line) => {
+        if (line.trim().length === 0) { return min; }
+        const match = line.match(/^\s*/);
+        const indent = match ? match[0].length : 0;
+        return indent < min ? indent : min;
+    }, Infinity);
+
+    const effectiveIndent = minIndent === Infinity ? 0 : minIndent;
+    return lines
+        .map(line => (line.length >= effectiveIndent ? line.slice(effectiveIndent) : line))
+        .join('\n');
 }

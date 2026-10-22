@@ -16,6 +16,14 @@ const extensionConfig = {
     minify: true,
 };
 
+/** AI-agent CLI (Node / CommonJS), run via the ~/.tracenotes/bin shim */
+const cliConfig = {
+    ...extensionConfig,
+    entryPoints: ['src/cli.ts'],
+    outfile: 'dist/cli.js',
+    external: [],
+};
+
 /** Webview React bundle (browser / IIFE) */
 const webviewConfig = {
     entryPoints: ['src/webview/index.tsx'],
@@ -39,12 +47,14 @@ async function main() {
     if (isWatch) {
         const extCtx = await esbuild.context(extensionConfig);
         const webCtx = await esbuild.context(webviewConfig);
-        await Promise.all([extCtx.watch(), webCtx.watch()]);
+        const cliCtx = await esbuild.context(cliConfig);
+        await Promise.all([extCtx.watch(), webCtx.watch(), cliCtx.watch()]);
         console.log('👀 Watching for changes...');
     } else {
         await Promise.all([
             esbuild.build(extensionConfig),
             esbuild.build(webviewConfig),
+            esbuild.build(cliConfig),
         ]);
         console.log('✅ Build complete');
     }

@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { TracePoint, TraceTree, MAX_DEPTH, HIGHLIGHT_TO_TAG, HighlightColor, NOTE_BLOCK_START, NOTE_BLOCK_END, unescapeNoteFence } from './types';
 import { FileStorageManager, mergeTrees } from './storage/FileStorageManager';
+import { dedent } from './collector';
+import * as fs from 'fs';
 
 // Module-level regex constants — compiled once instead of per call on hot paths.
 const RE_ZERO_WIDTH  = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
@@ -479,7 +481,8 @@ export class TraceManager implements vscode.Disposable {
         }
     }
 
-    private async validateActiveTreeBackground(): Promise<void> {
+    /** Re-anchor every trace of the active tree against the files (also run on tree switch). */
+    public async validateActiveTreeBackground(): Promise<void> {
         if (this.treeValidationCts) {
             this.treeValidationCts.cancel();
             this.treeValidationCts.dispose();
@@ -890,18 +893,7 @@ export class TraceManager implements vscode.Disposable {
         const newFilePath = document.uri.fsPath;
         const isDifferentFile = oldFilePath !== newFilePath;
 
-        const text = document.getText(selection);
-        const lines = text.split(/\r?\n/);
-        const minIndent = lines.reduce((min, line) => {
-            if (line.trim().length === 0) { return min; }
-            const match = line.match(/^\s*/);
-            const indent = match ? match[0].length : 0;
-            return indent < min ? indent : min;
-        }, Infinity);
-        const effectiveIndent = minIndent === Infinity ? 0 : minIndent;
-        const cleanContent = lines
-            .map(line => (line.length >= effectiveIndent ? line.slice(effectiveIndent) : line))
-            .join('\n');
+        const cleanContent = dedent(document.getText(selection));
 
         trace.filePath = newFilePath;
         trace.rangeOffset = [
@@ -2050,6 +2042,9 @@ export class TraceManager implements vscode.Disposable {
     public async importTraceTree(markdown: string, treeName?: string): Promise<void> {
         try {
             const importedTraces = await this.parseMarkdown(markdown);
+            if (this.height(importedTraces) > MAX_DEPTH) {
+                throw new Error(`Traces would exceed the maximum nesting depth of ${MAX_DEPTH}.`);
+            }
 
             const finalTreeName = treeName || `Imported Trace ${new Date().toLocaleString()}`;
             const newTree: TraceTree = {
@@ -2062,14 +2057,50 @@ export class TraceManager implements vscode.Disposable {
 
             this.trees.push(newTree);
             this.activeTreeId = newTree.id;
+            this.activeGroupId = null;
             this.rebuildTraceIndex();
             this.persist();
             this.persistActiveTree();
+            this.persistActiveGroup();
             this._onDidChangeTraces.fire();
         } catch (error) {
             console.error('Failed to import trace tree:', error);
             throw error;
         }
+    }
+
+    /**
+     * Parse exported-format Markdown and append its traces to the active tree,
+     * under `parentId` (null = tree root). Used by the AI bridge (`src/bridge/`).
+     */
+    public async importTraces(markdown: string, parentId: string | null, beside?: { id: string; after: boolean }): Promise<TracePoint[]> {
+        // Parse first: no awaits after the parent lookup, so the tree can't change under it.
+        const traces = await this.parseMarkdown(markdown);
+        if (!this.getActiveTree()) { throw new Error('No active trace tree.'); }
+        if (beside) {
+            const p = this.parentIdMap.get(beside.id);
+            if (p === undefined) { throw new Error(`Trace ${beside.id} not found in the active tree.`); }
+            parentId = p;
+        }
+        const parent = parentId === null ? undefined : this.findTraceById(parentId);
+        if (parentId !== null && !parent) { throw new Error(`Trace ${parentId} not found in the active tree.`); }
+
+        const baseDepth = parentId === null ? 0 : this.getDepth(parentId) + 1;
+        if (baseDepth + this.height(traces) > MAX_DEPTH) {
+            throw new Error(`Traces would exceed the maximum nesting depth of ${MAX_DEPTH}.`);
+        }
+
+        const target = parent ? (parent.children ??= []) : this.getActiveRootTraces();
+        const index = beside ? target.findIndex(t => t.id === beside.id) + (beside.after ? 1 : 0) : target.length;
+        target.splice(index, 0, ...traces);
+        this.rebuildTraceIndex();
+        this.persist();
+        this._onDidChangeTraces.fire();
+        return traces;
+    }
+
+    private height(list: TracePoint[]): number {
+        return list.reduce((h, t) => Math.max(h, 1 + this.height(t.children ?? [])), 0);
     }
 
     private async parseMarkdown(markdown: string): Promise<TracePoint[]> {
@@ -2092,10 +2123,19 @@ export class TraceManager implements vscode.Disposable {
         // Set once a trace's fenced note closes: the fence is authoritative, so
         // any later loose lines (e.g. hand-edits after the fence) aren't appended.
         let noteFinalized = false;
+        // Line where the current trace's code block closed; anything but blank
+        // lines from there to the next heading would be silently dropped.
+        let codeClosedAt = 0;
+        // Line of an open plain ``` fence inside a loose note (example code):
+        // its lines go into the note verbatim, never read as headings.
+        let noteFenceAt = 0;
+        // The open code block is "?:?": it must carry the code to search for.
+        let linesUnknown = false;
 
-        // Captures optional %%Tag%% immediately after the number+dot
-        const headerRegex = /^(#+)\s+\d+\.\s+(?:%%([^%]+)%%\s+)?(.*)/;
-        const codeBlockStartRegex = /^```(\w*)\s+(\d+|\?):(\d+|\?):(.+)$/;
+        // "<n>." numbering is optional; captures an optional %%Tag%% right after it
+        const headerRegex = /^(#+)\s+(?:\d+\.(?:\s+|$))?(?:%%([^%]+)%%\s+)?(.*)/;
+        // lang may be c++, c#, objective-c, …
+        const codeBlockStartRegex = /^```([\w+#.-]*)\s+(\d+|\?):(\d+|\?):(.+)$/;
 
         const flushCurrentTrace = async () => {
             if (!currentTrace) return;
@@ -2163,6 +2203,12 @@ export class TraceManager implements vscode.Disposable {
                 currentNote = [];
                 continue;
             }
+            if (noteFenceAt || (line.startsWith('```') && currentTrace && !capturingContent && !noteFinalized && !codeClosedAt
+                && !codeBlockStartRegex.test(line) && !/^```\S*\s+\S*:/.test(line))) {
+                if (line.startsWith('```')) { noteFenceAt = noteFenceAt ? 0 : i + 1; }
+                currentTrace!.note += '\n' + line;
+                continue;
+            }
 
             if (!capturingContent && line.trim().startsWith('---')) {
                 continue;
@@ -2171,16 +2217,33 @@ export class TraceManager implements vscode.Disposable {
             if (line.startsWith('```')) {
                 if (!capturingContent) {
                     const match = line.match(codeBlockStartRegex);
+                    // An info line that tries for "start:end:path" but doesn't parse would
+                    // otherwise land in the note as text; fail loudly instead.
+                    if (!match && /^```\S*\s+\S*:/.test(line)) {
+                        throw new Error(`Line ${i + 1}: bad code block "${line}". Expected "\`\`\`<lang> <startLine>:<endLine>:<path>".`);
+                    }
+                    if (match && codeClosedAt) {
+                        throw new Error(`Line ${i + 1}: second code block under one heading (the first closed at line ${codeClosedAt}). A trace holds one code block; put the extra code in a child trace (a deeper heading).`);
+                    }
+                    if (match && !currentTrace) {
+                        throw new Error(`Line ${i + 1}: code block outside a trace. Each trace starts with a "## " heading ("#" is not a trace).`);
+                    }
                     if (match && currentTrace) {
                         capturingContent = true;
                         currentTrace.lang = match[1];
-                        const startLine = match[2] === '?' ? 0 : parseInt(match[2]) - 1;
-                        const endLine = match[3] === '?' ? 0 : parseInt(match[3]) - 1;
+                        linesUnknown = match[2] === '?' || match[3] === '?';
+                        const startLine = linesUnknown ? 0 : parseInt(match[2]) - 1;
+                        const endLine = linesUnknown ? 0 : parseInt(match[3]) - 1;
+                        if (startLine < 0 || endLine < startLine) {
+                            throw new Error(`Line ${i + 1}: bad line range ${match[2]}:${match[3]}; lines are 1-based and start <= end.`);
+                        }
                         const filePath = match[4].trim();
                         if (path.isAbsolute(filePath)) {
                             currentTrace.filePath = filePath;
                         } else {
-                            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                            // Multi-root: the folder that has the file, else the first one.
+                            const folders = vscode.workspace.workspaceFolders ?? [];
+                            const workspaceFolder = folders.find(f => fs.existsSync(path.join(f.uri.fsPath, filePath))) ?? folders[0];
                             if (workspaceFolder) {
                                 currentTrace.filePath = vscode.Uri.joinPath(workspaceFolder.uri, filePath).fsPath;
                             } else {
@@ -2192,7 +2255,11 @@ export class TraceManager implements vscode.Disposable {
                     }
                 } else {
                     // Ending code block
+                    if (linesUnknown && !currentContent.some(l => l.trim())) {
+                        throw new Error(`Line ${i + 1}: a "?:?" code block must contain the code to find; paste it in or give line numbers.`);
+                    }
                     await flushCurrentTrace();
+                    codeClosedAt = i + 1;
                     continue;
                 }
             }
@@ -2206,6 +2273,7 @@ export class TraceManager implements vscode.Disposable {
             if (headerMatch) {
                 await flushCurrentTrace();
                 noteFinalized = false;
+                codeClosedAt = 0;
 
                 const hashes    = headerMatch[1];
                 const tag       = headerMatch[2]?.trim() ?? null;   // %%Tag%% content (may be undefined)
@@ -2230,6 +2298,8 @@ export class TraceManager implements vscode.Disposable {
                     _tempDepth: depth,
                     timestamp: Date.now()
                 } as any;
+            } else if (codeClosedAt && line.trim().length > 0) {
+                throw new Error(`Line ${i + 1}: text after the code block (closed at line ${codeClosedAt}). Put note lines between the heading and its code block.`);
             } else if (currentTrace && !noteFinalized && line.trim().length > 0) {
                 if (currentTrace.note && !currentTrace.note.endsWith('\n')) {
                     currentTrace.note += '\n';
@@ -2238,7 +2308,13 @@ export class TraceManager implements vscode.Disposable {
             }
         }
 
+        if (noteFenceAt) {
+            throw new Error(`Line ${noteFenceAt}: the \`\`\` fence in this note is never closed.`);
+        }
         await flushCurrentTrace();
+        if (!rootTraces.length) {
+            throw new Error('No traces found. Each trace starts with a "## " heading.');
+        }
         return rootTraces;
     }
 
@@ -2377,13 +2453,23 @@ export class TraceManager implements vscode.Disposable {
                     const endPos = endLineObj.range.end;
 
                     const text = docAdapter.getText(new vscode.Range(startPos, endPos));
+                    // A fence with no body means "these lines, as they are now"
+                    // (blank lines alone don't count: the trace goes orphaned below).
+                    if (!trace.content.trim() && text.trim()) { trace.content = dedent(text); }
 
-                    if (this.contentMatches(text, trace.content)) {
+                    if (trace.content.trim() && this.contentMatches(text, trace.content)) {
                         trace.rangeOffset = [docAdapter.offsetAt(startPos), docAdapter.offsetAt(endPos)];
+                        trace.lineRange = [startLine, endPos.line]; // endLine may have been past EOF
                         trace.orphaned = false;
                         return trace;
                     }
                 }
+            }
+
+            if (!trace.content.trim()) {
+                trace.orphaned = true;
+                if (!trace.rangeOffset) { trace.rangeOffset = [0, 0]; }
+                return trace;
             }
 
             let estimatedOffset = 0;

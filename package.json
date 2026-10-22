@@ -74,6 +74,10 @@
         "command": "tracenotes.setProjectId",
         "title": "TraceNotes: Set Project ID",
         "icon": "$(link)"
+      },
+      {
+        "command": "tracenotes.setupAgents",
+        "title": "TraceNotes: Set Up AI Agents"
       }
     ],
     "viewsContainers": {

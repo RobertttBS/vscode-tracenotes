@@ -166,4 +166,49 @@ describe('markdown note round-trip (method A)', () => {
         // ...but the note itself round-trips with the leading # intact.
         expect((await parse(md))[0].note).toBe('# Overview\nbody');
     });
+
+    it('accepts headings without "<n>." numbering', async () => {
+        const parsed = await parse(['## %%Todo%% Root', 'more', '### Child'].join('\n'));
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].note).toBe('Root\nmore');
+        expect(parsed[0].highlight).toBe('yellow');
+        expect(parsed[0].children?.[0].note).toBe('Child');
+    });
+
+    it('accepts non-word code fence languages such as c++', async () => {
+        const parsed = await parse(['## 1. T', '```c++ 1:1:src/a.cpp', 'int x;', '```'].join('\n'));
+        expect(parsed[0].lang).toBe('c++');
+        expect(parsed[0].content).toBe('int x;');
+        expect(parsed[0].note).toBe('T');
+    });
+
+    it('rejects a second code block or text after the code block instead of dropping it', async () => {
+        await expect(parse(['## 1. T', '```ts 1:1:src/a.ts', '```', '', '```ts 5:5:src/a.ts', '```'].join('\n'))).rejects.toThrow(/Line 5: second code block/);
+        await expect(parse(['## 1. T', '```ts 1:1:src/a.ts', '```', 'more note'].join('\n'))).rejects.toThrow(/Line 4: text after the code block/);
+        await expect(parse(['## 1. T', '```ts 1:1:src/a.ts', '```', '', '---', '### 1. C', 'note'].join('\n'))).resolves.toHaveLength(1);
+    });
+
+    it('rejects a malformed code fence info line instead of swallowing it into the note', async () => {
+        await expect(parse(['## 1. T', '```ts 12-14:src/a.ts', 'x', '```'].join('\n'))).rejects.toThrow(/Line 2: bad code block/);
+    });
+
+    it('still keeps a plain code block inside a loose note', async () => {
+        const parsed = await parse(['## 1. T', '```js', 'x()', '```'].join('\n'));
+        expect(parsed[0].note).toBe('T\n```js\nx()\n```');
+    });
+
+    it('keeps "#" lines and blank lines inside a note code block verbatim', async () => {
+        const parsed = await parse(['## 1. T', '```sh', '# comment', '', 'run', '```', '### 1. C'].join('\n'));
+        expect(parsed[0].note).toBe('T\n```sh\n# comment\n\nrun\n```');
+        expect(parsed[0].children).toHaveLength(1);
+        await expect(parse(['## 1. T', '```sh', '# x'].join('\n'))).rejects.toThrow(/Line 2: .*never closed/);
+    });
+
+    it('rejects code outside a trace, bad line ranges, empty "?:?" blocks and empty input', async () => {
+        await expect(parse(['# 1. T', '```ts 1:1:src/a.ts', '```'].join('\n'))).rejects.toThrow(/Line 2: code block outside a trace/);
+        await expect(parse(['## 1. T', '```ts 0:5:src/a.ts', '```'].join('\n'))).rejects.toThrow(/Line 2: bad line range/);
+        await expect(parse(['## 1. T', '```ts 30:12:src/a.ts', '```'].join('\n'))).rejects.toThrow(/Line 2: bad line range/);
+        await expect(parse(['## 1. T', '```ts ?:?:src/a.ts', '```'].join('\n'))).rejects.toThrow(/Line 3: a "\?:\?" code block/);
+        await expect(parse('# Title only')).rejects.toThrow(/No traces found/);
+    });
 });

@@ -7,6 +7,7 @@ import { StoryboardProvider } from './webviewProvider';
 import { collectTrace } from './collector';
 import { generateMarkdown } from './exporter';
 import { initDecorations, updateDecorations, handleJump } from './decorationManager';
+import { startBridge } from './bridge/server';
 
 // Module-level reference so `deactivate` can flush pending saves.
 let _traceManagerRef: TraceManager | undefined;
@@ -15,6 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
     const traceManager = new TraceManager(context);
     _traceManagerRef = traceManager;
     context.subscriptions.push(traceManager);
+    startBridge(context, traceManager);
 
     // Track the last active text editor safely to support actions from the webview
     const editorTracker = new EditorTracker();
