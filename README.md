@@ -41,6 +41,25 @@ TraceNotes is an extension for navigating and documenting code logic. It allows 
 - **Markdown** – Lossless round-trip: headings for hierarchy, `%%Tag%%` for colors (Obsidian-compatible), and `<!-- tracenote -->` fences around notes.
 - **JSON** – Back up all trees to `tracenotes-data.json`. **`Import Trace`** accepts `.md` and `.json`.
 
+### AI Agents (Skill & CLI)
+
+Let Claude Code, Codex, or Cursor build and edit trace trees for you — e.g. *"trace the login flow into TraceNotes"*.
+
+- **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window, and changes show up live in the panel. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide.
+- **Skill** – On first start, if `~/.claude`, `~/.codex`, or `~/.cursor` exists, TraceNotes offers to write a `tracenotes` skill to `<dir>/skills/tracenotes/SKILL.md` so the agent knows how to use the CLI. Installed skills are refreshed on every start to match the extension version.
+- **Installed an agent later?** Open it once (so its config folder exists), then run **`TraceNotes: Set Up AI Agents`**. With no agent config found, just tell your agent to run `~/.tracenotes/bin/tracenotes help`.
+
+| CLI command | What it does |
+| :-- | :-- |
+| `list` / `show [--outline]` | List trees / print a tree with trace ids |
+| `create --name <name>` | Create a tree from Markdown on stdin |
+| `add [--parent \| --after \| --before <id>]` | Add traces from Markdown on stdin |
+| `note <id>` / `rm <id>…` | Replace a note / remove traces |
+| `check` / `refresh <id>…` | Find traces whose code changed / re-read their code |
+| `rename` / `delete-tree` | Rename or delete a tree |
+
+Input uses the same Markdown format as **Export to Markdown**; a code fence's info line is `<lang> <start>:<end>:<path>` (or `?:?` with the code pasted in, to let TraceNotes find it).
+
 ---
 
 ## Commands & Shortcuts
@@ -56,6 +75,7 @@ TraceNotes is an extension for navigating and documenting code logic. It allows 
 | **Export All Data (JSON)** | —                     | —                      | `TraceNotes: Export All Data to JSON` |
 | **Clear Current Tree**     | —                     | —                      | `TraceNotes: Clear All Traces`        |
 | **Set Project ID**         | —                     | —                      | `TraceNotes: Set Project ID`          |
+| **Set Up AI Agents**       | —                     | —                      | `TraceNotes: Set Up AI Agents`        |
 
 ---
 
