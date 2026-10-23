@@ -1,8 +1,10 @@
 import * as assert from 'assert';
+import { it, vi } from 'vitest';
 import * as path from 'path';
 
 // --- MOCK VSCODE ---
-const mockVscode = {
+// Hoisted so the vi.mock factory below can return it before TraceManager loads.
+const mockVscode: any = vi.hoisted(() => ({
     Uri: {
         file: (pathStr: string) => ({ fsPath: pathStr, toString: () => pathStr }),
         joinPath: (base: any, ...segments: string[]) => ({ fsPath: path.join(base.fsPath, ...segments), toString: () => path.join(base.fsPath, ...segments) }),
@@ -79,16 +81,9 @@ function calculatetotal() { return 0; }
         showErrorMessage: () => {}
     },
     CancellationTokenSource: class { token = { isCancellationRequested: false }; cancel() {}; dispose() {} }
-};
+}));
 
-const Module = require('module');
-const originalRequire = Module.prototype.require;
-Module.prototype.require = function(request: string) {
-    if (request === 'vscode') {
-        return mockVscode;
-    }
-    return originalRequire.apply(this, arguments);
-};
+vi.mock('vscode', () => mockVscode);
 
 // --- IMPORT TRACEMANAGER ---
 import { TraceManager, AMBIGUOUS_DUPLICATE } from './traceManager';
@@ -136,8 +131,7 @@ class MockDocument {
     }
 }
 
-async function runTests() {
-    console.log("Running recoverTracePoints tests...\n");
+function runTests() {
 
     const contextMock = {
         subscriptions: [],
@@ -157,22 +151,10 @@ async function runTests() {
     // We bind the private recoverTracePoints to the manager for testing
     const recoverTracePoints = (manager as any).recoverTracePoints.bind(manager);
 
-    let passed = 0;
-    let failed = 0;
+    // Each case is its own vitest test; they run sequentially in registration order.
+    const test = (name: string, fn: () => Promise<void>) => it(name, fn);
 
-    async function test(name: string, fn: () => Promise<void>) {
-        try {
-            await fn();
-            console.log(`✅ PASS: ${name}`);
-            passed++;
-        } catch (err: any) {
-            console.error(`❌ FAIL: ${name}`);
-            console.error(`   ${err.message}`);
-            failed++;
-        }
-    }
-
-    await test("Should recover cross file", async () => {
+    test("Should recover cross file", async () => {
         const doc = new MockDocument(""); // File is empty
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         
@@ -186,7 +168,7 @@ async function runTests() {
     });
 
     // --- Whitespace and Formatting Merged ---
-    await test("Whitespace and Formatting Reorganization", async () => {
+    test("Whitespace and Formatting Reorganization", async () => {
         const storedContent = "function foo() { return 2; }";
         const cases = [
             { name: "extra spaces/newlines", content: "function   foo(  )  \n\n\n  {\nreturn 2;\n}" },
@@ -205,7 +187,7 @@ async function runTests() {
 
 
 
-    await test("Should treat '()' and '{}' as significant", async () => {
+    test("Should treat '()' and '{}' as significant", async () => {
         // Document is missing brackets entirely
         const doc = new MockDocument("function foo   return 2;");
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
@@ -216,7 +198,7 @@ async function runTests() {
         assert.strictEqual(res, null, "Should NOT recover if brackets/braces are missing");
     });
 
-    await test("Should recover when function is pasted elsewhere in the same file (moved down)", async () => {
+    test("Should recover when function is pasted elsewhere in the same file (moved down)", async () => {
         const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
         const newDocContent = "\n".repeat(50) + storedContent;
         const doc = new MockDocument(newDocContent);
@@ -229,7 +211,7 @@ async function runTests() {
     });
 
     // --- Content Mutation Merged ---
-    await test("Adversarial Content Mutation", async () => {
+    test("Adversarial Content Mutation", async () => {
         const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
         
         // This test applies multiple mutations at once:
@@ -248,7 +230,7 @@ async function runTests() {
 
 
 
-    await test("Should recover completely identical code moved up", async () => {
+    test("Should recover completely identical code moved up", async () => {
         const storedContent = `function calculate() {\n    let a = 1;\n    let b = 2;\n    return a + b;\n}`;
         const newDocContent = storedContent + "\n".repeat(50) + "// original location";
         const doc = new MockDocument(newDocContent);
@@ -261,7 +243,7 @@ async function runTests() {
     });
 
     // --- Duplicate Resolution Merged ---
-    await test("Duplicate Resolution (Best Candidate Selection)", async () => {
+    test("Duplicate Resolution (Best Candidate Selection)", async () => {
         const content = `function duplicate() { return 1; }`;
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         
@@ -284,7 +266,7 @@ async function runTests() {
 
 
 
-    await test("Short content should NOT match wrong identifier (int foo vs int test)", async () => {
+    test("Short content should NOT match wrong identifier (int foo vs int test)", async () => {
         const storedContent = `int foo(void) {`;
         const newDocContent = `int test(void) {\n    return 0;\n}`;
         const doc = new MockDocument(newDocContent);
@@ -294,7 +276,7 @@ async function runTests() {
         assert.strictEqual(res, null, "Should NOT recover when a key identifier differs in short content");
     });
 
-    await test("Short content SHOULD match when identical", async () => {
+    test("Short content SHOULD match when identical", async () => {
         const storedContent = `int foo(void) {`;
         const newDocContent = `// some header\nint foo(void) {\n    return 0;\n}\nint test(void)\n`;
         const doc = new MockDocument(newDocContent);
@@ -309,7 +291,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[1], expectedEnd, "Should match the correct end offset");
     });
 
-    await test("Should not recover completely unrelated code", async () => {
+    test("Should not recover completely unrelated code", async () => {
         const storedContent = `function process() { let x = 1; let y = 2; return x + y; }`;
         const newDocContent = `function unrelated() { console.log('hello window'); return true; }`;
         const doc = new MockDocument(newDocContent);
@@ -324,7 +306,7 @@ async function runTests() {
     // --- MERGED TESTS FROM repro_failures.ts ---
 
     // --- Distance Boundaries Merged ---
-    await test("Distance Boundary Recovery (Tier 1, 2, 3)", async () => {
+    test("Distance Boundary Recovery (Tier 1, 2, 3)", async () => {
         const content = `function targetFunction() { return 42; }`;
         const longContent = `function elastic() {\n    let alpha = 1;\n    let beta = 2;\n    return alpha + beta;\n}`;
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
@@ -351,7 +333,7 @@ async function runTests() {
 
 
 
-    await test("Should recover cross-file if casing changed (Case-insensitive Tier 3 fix)", async () => {
+    test("Should recover cross-file if casing changed (Case-insensitive Tier 3 fix)", async () => {
         const storedContent = `function calculateTotal() {`;
         // otherFile.ts has "function calculatetotal() { return 0; }"
         const doc = new MockDocument(""); // Empty doc to force Tier 3
@@ -367,7 +349,7 @@ async function runTests() {
     // --- ADVERSARIAL / EDGE-CASE TESTS ---
 
     // --- Invalid Input Rejection Merged ---
-    await test("Invalid Input Rejection", async () => {
+    test("Invalid Input Rejection", async () => {
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
         const doc = new MockDocument("function foo() { return 1; }");
 
@@ -392,7 +374,7 @@ async function runTests() {
 
 
 
-    await test("Content with special regex characters should not break Tier 3", async () => {
+    test("Content with special regex characters should not break Tier 3", async () => {
         // This uses characters that are special in regex: $ . * + ? ( ) [ ] { } | ^ \
         const storedContent = "let pattern = /^foo\\.(bar)+$/;\nlet price = $100.00;\nreturn (a + b) * [c];";
         const doc = new MockDocument(storedContent);
@@ -406,7 +388,7 @@ async function runTests() {
 
 
 
-    await test("Negative lastKnownStart should not crash", async () => {
+    test("Negative lastKnownStart should not crash", async () => {
         const storedContent = "function negativeTest() { return -1; }";
         const doc = new MockDocument(storedContent);
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
@@ -417,7 +399,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0, "Should find at offset 0");
     });
 
-    await test("Large document with target beyond elastic radius should go to Tier 3 or return null", async () => {
+    test("Large document with target beyond elastic radius should go to Tier 3 or return null", async () => {
         // 100K chars of padding — well beyond both Tier 1 (5K) and Tier 2 (10K) radii
         const storedContent = "function farAway() {\n    let result = 42;\n    return result;\n}";
         const padding = "x".repeat(100000);
@@ -436,7 +418,7 @@ async function runTests() {
 
     // --- NEW TESTS FOR TIER 3 FIXES ---
 
-    await test("Cross-workspace: should find content in a different file of the same extension", async () => {
+    test("Cross-workspace: should find content in a different file of the same extension", async () => {
         // void init() is in short.c; the trace was originally from file.c (now empty)
         const storedContent = "void init()";
         const doc = new MockDocument(""); // empty file — forces cross-workspace search
@@ -448,7 +430,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0);
     });
 
-    await test("Cross-workspace: should skip files where content is only in a comment (multi-candidate)", async () => {
+    test("Cross-workspace: should skip files where content is only in a comment (multi-candidate)", async () => {
         // wrong.ts has "multiCandidate" inside a // comment only; right.ts has it as code
         const storedContent = "void multiCandidate()";
         const doc = new MockDocument("");
@@ -459,7 +441,7 @@ async function runTests() {
         assert.strictEqual(res!.uri.fsPath, '/workspace/src/right.ts', "Should skip wrong.ts where match is only in a comment");
     });
 
-    await test("Cross-workspace: cross-file exact match for real-world C function (chkBgdClnBlkProc)", async () => {
+    test("Cross-workspace: cross-file exact match for real-world C function (chkBgdClnBlkProc)", async () => {
         // Simulates: function defined in reset.c, trace was stored from rwcmd.c
         const storedContent = "void chkBgdClnBlkProc()";
         const doc = new MockDocument(""); // rwcmd.c no longer has this function
@@ -470,7 +452,7 @@ async function runTests() {
         assert.strictEqual(res!.uri.fsPath, '/workspace/src/reset.c');
     });
 
-    await test("Language Syntax Edge Cases (Python vs C)", async () => {
+    test("Language Syntax Edge Cases (Python vs C)", async () => {
         const uriTs = mockVscode.Uri.file('/workspace/src/file.py');
         const uriC = mockVscode.Uri.file('/workspace/src/file.c');
 
@@ -487,7 +469,7 @@ async function runTests() {
         assert.ok(resC !== null, "C macro fuzzy match failed");
     });
 
-    await test("Overlapping Matches (Ambiguity Resolution)", async () => {
+    test("Overlapping Matches (Ambiguity Resolution)", async () => {
         const content = "function overlap() { return true; }";
         // Two identical blocks: distance resolution should pick the closer one
         const docContent = "function overlap() { return true; } " + " ".repeat(100) + "function overlap() { return true; }";
@@ -499,7 +481,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], docContent.lastIndexOf("function overlap"), "Should resolve overlapping ambiguity by distance");
     });
 
-    await test("Large Content Limits (Stress Test)", async () => {
+    test("Large Content Limits (Stress Test)", async () => {
         // Use a block with many tokens but large overall size
         const largeStored = ("token" + "x".repeat(10) + " ").repeat(500); // 500 tokens, ~6000 chars
         const docContent = "a".repeat(10000) + largeStored + "b".repeat(10000);
@@ -511,7 +493,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 10000);
     });
 
-    await test("Incomplete Fragments (Syntactic Resilience)", async () => {
+    test("Incomplete Fragments (Syntactic Resilience)", async () => {
         // Use 20+ tokens to bypass strict 18-token threshold
         const stored = "function resilient() {\n    let a = 1; let b = 2; let c = 3; let d = 4;\n    return a + b + c + d;\n}";
         // Dest file has it truncated or heavily modified
@@ -528,7 +510,7 @@ async function runTests() {
 
     // --- REAL-WORLD REGRESSION TESTS (same-file large move beyond old radius) ---
 
-    await test("Same-file large move: exact content at 100K offset, lastKnownStart at 0", async () => {
+    test("Same-file large move: exact content at 100K offset, lastKnownStart at 0", async () => {
         // Simulates: function moved from end of 3000-line file to near the top (line 133)
         const storedContent = "void bgdClnCacheblkProc() { /* impl */ }";
         const padding = "x".repeat(100000);
@@ -542,7 +524,7 @@ async function runTests() {
         assert.strictEqual(res!.uri.fsPath, uri.fsPath, "Same file");
     });
 
-    await test("Same-file large move: exact content buried deep (lastKnownStart near start)", async () => {
+    test("Same-file large move: exact content buried deep (lastKnownStart near start)", async () => {
         const storedContent = "if((mGetGcState==cGcBuildSrc)&&!mChkGcFlag(cBrkBgdGcF))";
         const padding = "/* padding */\n".repeat(5000); // ~70K chars
         const docContent = padding + storedContent;
@@ -557,7 +539,7 @@ async function runTests() {
 
     // --- DIGIT TOLERANCE TESTS ---
 
-    await test("Digit change same offset: contentMatches survives digit-only edit (1 → 0)", async () => {
+    test("Digit change same offset: contentMatches survives digit-only edit (1 → 0)", async () => {
         // Tracepoint on "#define _EN_EXAMPLE (1)", file updated to "(0)"
         // contentMatches must return true so no recovery is triggered and trace isn't orphaned.
         const storedContent = "#define _EN_EXAMPLE (1)";
@@ -570,7 +552,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[0], 0, "Should find at offset 0");
     });
 
-    await test("Digit change + offset shift: findNormalized recovers arr[123] → arr[1] at new position", async () => {
+    test("Digit change + offset shift: findNormalized recovers arr[123] → arr[1] at new position", async () => {
         // Stored content uses arr[123], file has arr[1] at a shifted offset
         const storedContent = "arr[123]";
         const padding = "// some preamble\n".repeat(5); // shifts offset
@@ -584,7 +566,7 @@ async function runTests() {
         assert.strictEqual(res!.offset[1], padding.length + "arr[1]".length, "End offset should span arr[1]");
     });
 
-    await test("Regression: non-digit difference still fails (arr[1] vs foo[1])", async () => {
+    test("Regression: non-digit difference still fails (arr[1] vs foo[1])", async () => {
         // Digit normalization must not create false positives between structurally different lines
         const storedContent = "arr[1]";
         const fileContent = "foo[1]";
@@ -595,7 +577,7 @@ async function runTests() {
         assert.strictEqual(res, null, "Should NOT recover when a key identifier differs");
     });
 
-    await test("Same-file: whitespace-normalized match (stored with extra spaces, file has single spaces)", async () => {
+    test("Same-file: whitespace-normalized match (stored with extra spaces, file has single spaces)", async () => {
         const storedContent = "void bgdClnCacheblkProc()    // BYTE uCaller)";
         const fileContent = "void bgdClnCacheblkProc() // BYTE uCaller)"; // fewer spaces before comment
         const doc = new MockDocument(fileContent);
@@ -610,7 +592,7 @@ async function runTests() {
 
     // --- getAllTrees: structuredClone isolation ---
 
-    await test("getAllTrees: array-level mutation does not affect internal trees (structuredClone)", async () => {
+    test("getAllTrees: array-level mutation does not affect internal trees (structuredClone)", async () => {
         const saved = (manager as any).trees;
         (manager as any).trees = [
             { id: 'tree-1', name: 'TreeOne', createdAt: 0, updatedAt: 0, traces: [] },
@@ -625,7 +607,7 @@ async function runTests() {
         (manager as any).trees = saved;
     });
 
-    await test("getAllTrees: deep property mutation does not affect internal state (structuredClone)", async () => {
+    test("getAllTrees: deep property mutation does not affect internal state (structuredClone)", async () => {
         const saved = (manager as any).trees;
         (manager as any).trees = [
             {
@@ -646,7 +628,7 @@ async function runTests() {
 
     // --- Anchor-word pre-filter: cross-workspace Tier 3 ---
 
-    await test("Pre-filter: file without matching anchor words is excluded, returns null", async () => {
+    test("Pre-filter: file without matching anchor words is excluded, returns null", async () => {
         // 5 non-forbidden identifiers → required = ceil(5 * 0.4) = 2
         // The only candidate file contains none of them → pre-filter must reject it
         const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
@@ -670,7 +652,7 @@ async function runTests() {
         }
     });
 
-    await test("Pre-filter: file with exactly 'required' matching anchors passes the threshold", async () => {
+    test("Pre-filter: file with exactly 'required' matching anchors passes the threshold", async () => {
         // 5 anchors → required = 2. File contains exactly 2 of the 5 → must pass filter and be found.
         const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
         const origFindFiles = mockVscode.workspace.findFiles;
@@ -695,7 +677,7 @@ async function runTests() {
         }
     });
 
-    await test("Pre-filter: short-circuit skips excluded file and finds correct file", async () => {
+    test("Pre-filter: short-circuit skips excluded file and finds correct file", async () => {
         // File A comes first but lacks anchors → pre-filter rejects it
         // File B has the content → must still be found (short-circuit must not skip File B)
         const storedContent = "handleRequest(requestId, sessionToken, clientData, responseBuffer)";
@@ -725,7 +707,7 @@ async function runTests() {
         }
     });
 
-    await test("Pre-filter: case-insensitive matching — anchor words from mixed-case content match all-lowercase file", async () => {
+    test("Pre-filter: case-insensitive matching — anchor words from mixed-case content match all-lowercase file", async () => {
         // Anchor extracted from stored: "calculateTotal" → lowercased → "calculatetotal"
         // File has: "calculatetotal" (all lowercase) — regex /calculatetotal/i must match it
         // (This validates the /i flag preserves the case-insensitive behaviour of the old text.toLowerCase() approach)
@@ -777,7 +759,7 @@ async function runTests() {
         };
     }
 
-    await test("validateDocumentNow: budget-trip resume visits every trace and terminates", async () => {
+    test("validateDocumentNow: budget-trip resume visits every trace and terminates", async () => {
         const p = '/workspace/src/lines.ts';
         const doc = makeDoc(LINES_TEXT, p);
         const uriStr = doc.uri.toString();
@@ -809,7 +791,7 @@ async function runTests() {
         assert.deepStrictEqual(traces[2].lineRange, [4, 4], "t2 (final slice) lineRange should be corrected");
     });
 
-    await test("validateDocumentNow: coalesces concurrent calls onto one in-flight pass", async () => {
+    test("validateDocumentNow: coalesces concurrent calls onto one in-flight pass", async () => {
         const p = '/workspace/src/dedupe.ts';
         const doc = makeDoc(LINES_TEXT, p);
         const uriStr = doc.uri.toString();
@@ -829,12 +811,12 @@ async function runTests() {
         }
     });
 
-    await test("validateDocumentNow: no-op (resolves) when document has no indexed traces", async () => {
+    test("validateDocumentNow: no-op (resolves) when document has no indexed traces", async () => {
         const doc = makeDoc(LINES_TEXT, '/workspace/src/untracked.ts');
         await manager.validateDocumentNow(doc); // must not throw
     });
 
-    await test("validateDocumentNow: marks trace orphaned when offsets fall outside the document", async () => {
+    test("validateDocumentNow: marks trace orphaned when offsets fall outside the document", async () => {
         const p = '/workspace/src/orphan.md'; // .md → cross-file search mock returns [] (no false recovery)
         const doc = makeDoc(LINES_TEXT, p);
         const uriStr = doc.uri.toString();
@@ -849,7 +831,7 @@ async function runTests() {
         }
     });
 
-    await test("validateDocumentNow: cross-file recovery re-buckets the trace into the new file's traceIndex", async () => {
+    test("validateDocumentNow: cross-file recovery re-buckets the trace into the new file's traceIndex", async () => {
         // file.ts is now empty, but its trace's content still lives verbatim in
         // otherFile.ts (cross-workspace mock). Recovery must relocate the trace AND
         // move it between traceIndex buckets — otherwise getTracesForFile / decorations
@@ -903,7 +885,7 @@ async function runTests() {
     const normalizeFullText = (manager as any).normalizeFullText.bind(manager) as
         (s: string) => string;
 
-    await test("findNormalized: exact span recovery across whitespace / digit / zero-width variation", async () => {
+    test("findNormalized: exact span recovery across whitespace / digit / zero-width variation", async () => {
         // prefix + target + suffix, all boundary chars non-ws/digit/zero-width so
         // the target occurs once and maps to an unambiguous original span.
         const cases = [
@@ -931,7 +913,7 @@ async function runTests() {
         }
     });
 
-    await test("findNormalized + contentMatches: boundary zero-width chars don't desync or churn", async () => {
+    test("findNormalized + contentMatches: boundary zero-width chars don't desync or churn", async () => {
         const contentMatches = (manager as any).contentMatches.bind(manager) as
             (docContent: string, storedContent: string) => boolean;
         const ZWSP = String.fromCharCode(0x200B); // not matched by \s, survives .trim()
@@ -973,7 +955,7 @@ async function runTests() {
         assert.strictEqual(contentMatches("foo bar", "foo baz"), false, "genuinely different content must not match");
     });
 
-    await test("findNormalized: randomized round-trip invariant over generated strings", async () => {
+    test("findNormalized: randomized round-trip invariant over generated strings", async () => {
         // Seeded LCG so any failure is reproducible, not flaky.
         let seed = 0x9e3779b1;
         const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0x100000000; };
@@ -1035,7 +1017,7 @@ async function runTests() {
         (fullText: string, cleanContent: string, preferredOffset: number, detectAmbiguity?: boolean) => any;
     const content = "function duplicate() { return 1; }"; // 34 chars, occurs verbatim
 
-    await test("findClosestExact: single match and clear winners recover; genuine ties orphan", async () => {
+    test("findClosestExact: single match and clear winners recover; genuine ties orphan", async () => {
         // Single occurrence → always trusted, even with detection on.
         {
             const full = "xx " + content + " yy";
@@ -1079,7 +1061,7 @@ async function runTests() {
         }
     });
 
-    await test("recoverTracePoints: ambiguous same-file duplicates orphan instead of mis-anchoring", async () => {
+    test("recoverTracePoints: ambiguous same-file duplicates orphan instead of mis-anchoring", async () => {
         const full = " ".repeat(1000) + content + " ".repeat(1000) + content;
         const doc = new MockDocument(full);
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
@@ -1095,7 +1077,7 @@ async function runTests() {
     // resolved by silently picking the proximity-first one — a confident WRONG anchor
     // with no orphaned signal. The guard now spans all three tiers, so a fuzzy tie
     // orphans exactly like the exact tie. This test locks in that symmetry.
-    await test("Tier B orphans an ambiguous normalized-duplicate tie, matching the Tier A guard", async () => {
+    test("Tier B orphans an ambiguous normalized-duplicate tie, matching the Tier A guard", async () => {
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
 
         // Trace was stored on a line containing the literal id `12345`; the file now
@@ -1121,7 +1103,7 @@ async function runTests() {
         assert.strictEqual(res, null, "Tier B should orphan an ambiguous normalized-duplicate tie, not pick a copy");
     });
 
-    await test("Tier C orphans an ambiguous fuzzy-duplicate tie, matching the Tier A guard", async () => {
+    test("Tier C orphans an ambiguous fuzzy-duplicate tie, matching the Tier A guard", async () => {
         const uri = mockVscode.Uri.file('/workspace/src/file.ts');
 
         // Trace was stored on `computeMetrics`; the user later renamed it to
@@ -1166,15 +1148,6 @@ async function runTests() {
         const exactRes = await recoverTracePoints(exactDoc, stored, exactPreferred, uri);
         assert.strictEqual(exactRes, null, "exact-duplicate tie should also orphan via Tier A");
     });
-
-    console.log(`\nResults: ${passed} passed, ${failed} failed`);
-
-    if (failed > 0) {
-        process.exit(1);
-    }
 }
 
-runTests().catch(err => {
-    console.error("Test suite threw an error:", err);
-    process.exit(1);
-});
+runTests();

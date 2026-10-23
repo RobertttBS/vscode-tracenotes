@@ -18,7 +18,7 @@
 - **對「已完成的 trace/persistence 改動」做對抗式審查** → `general-purpose`(sonnet,fresh context),因為 index/disk 同步錯誤是靜默的(不 crash),自驗看不出來。
 
 ## 派工時**必須**寫進 prompt 的專案事實(否則 agent 會誤判)
-1. **基線紅字**:「乾淨狀態 `npm test` 就會顯示 `Test Files 1 failed`,那是基線;判定看 `Tests` 行(要 0 failed),不是 `Test Files` 行。」不寫這句,agent 會把基線紅字回報成失敗。(diagnosis.md #1)
+1. **`npm test` 必須全綠**:「乾淨狀態 `npm test` 全綠,任何 failed 都是回歸;動到 TraceManager 要跑 `src/traceManager.test.ts`。」(diagnosis.md #1)
 2. **只透過 TraceManager 改 `TraceTree[]`**,別碰 `ensureReady()` gate 與 atomic-write 流程(CLAUDE.md「When uncertain」)。
 3. **別叫 agent 讀 `dist/`(minified)、`*.vsix`、`package-lock.json`** — 用 source / `git grep`。(diagnosis.md #3)
 

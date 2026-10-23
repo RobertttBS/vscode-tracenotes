@@ -13,15 +13,15 @@ npm run lint    # eslint src --ext ts,tsx
 npm test        # vitest run
 ```
 
-Single vitest file: `npx vitest run <path>`. `src/recoverTracePoints.test.ts` is **not** vitest — it mocks `vscode` inline and runs standalone via `npx ts-node src/recoverTracePoints.test.ts` (see `tips/tips.md`). Package: `npx vsce package`.
+Single vitest file: `npx vitest run <path>`. Tests that need `vscode` use `vi.mock('vscode', () => import('./test/vscodeMock'))`; `src/test/vscodeMock.ts` backs `workspace.fs` with the real disk, so point storage at a temp dir (see `src/traceManager.test.ts`). Package: `npx vsce package`.
 
-**A clean `npm test` always prints `Test Files 1 failed | 6 passed` — that one failure is the baseline** (vitest can't load `vscode` in `recoverTracePoints.test.ts`), not a regression. Judge results by the `Tests` line (want `N passed`, 0 failed), not the `Test Files` line. See `docs/diagnosis.md` #1.
+**A clean `npm test` is fully green** — any failed file or test is a regression. `src/traceManager.test.ts` is the safety net for TraceManager (CRUD, `clear`, `undoRemove` edge cases, groups/`MAX_DEPTH`, imports, trees, multi-change edit tracking, re-anchoring, persistence round-trip, positions-only saves); run it after touching core. A test that mutates traces should end with `expectIndexConsistent(m)`, which checks all three index maps against the tree. To prove a new test bites, plant the bug in the source, run the test (must fail), then restore.
 
 ## Architecture
 
 **Message bus.** Extension ↔ webview messages are typed unions in `src/types.ts` (`ExtensionToWebviewMessage`, `WebviewToExtensionMessage`). New commands must be added to the union **and** the dispatch switch in `src/extension.ts`. Webview senders use `src/webview/utils/messaging.ts`. `StoryboardProvider` (`src/webviewProvider.ts`) gates every inbound message behind `traceManager.ensureReady()` to prevent disk-load races — keep this gate.
 
-**TraceManager (`src/traceManager.ts`) is the source of truth** for `TraceTree[]`, the active tree/group cursor, and fast-path index maps (`traceIndex`, `traceIdMap`, `parentIdMap`). It also handles:
+**TraceManager (`src/traceManager.ts`) is the source of truth** for `TraceTree[]`, the active tree/group cursor, and fast-path index maps (`traceIndex`, `traceIdMap`, `parentIdMap`); `traceIndex` buckets are keyed only via `fileIndexKey()` (file-less note cards share one bucket). It also handles:
 - Range validation via token anchoring with a per-call `VALIDATION_BUDGET_MS`.
 - Persistence via `src/storage/FileStorageManager.ts` — atomic write (temp → rotate → rename) of `tracenotes.data.json` to workspace `storageUri` (fallback `globalStorageUri`). `deactivate()` awaits `flush()` to drain debounced saves.
 - `onDidChangeTraces` events drive debounced decoration repaints + `syncWorkspace` posts.

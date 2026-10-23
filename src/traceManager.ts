@@ -687,9 +687,14 @@ export class TraceManager implements vscode.Disposable {
         return false;
     }
 
+    /** traceIndex bucket for a path; file-less note cards share one bucket. Add/remove/move must agree on it. */
+    private fileIndexKey(filePath: string): string {
+        return filePath ? vscode.Uri.file(filePath).toString() : 'orphaned://trace';
+    }
+
     private addTraceToIndex(trace: TracePoint, parentId: string | null): void {
         try {
-            const uriStr = trace.filePath ? vscode.Uri.file(trace.filePath).toString() : 'orphaned://trace';
+            const uriStr = this.fileIndexKey(trace.filePath);
             
             let set = this.traceIndex.get(uriStr);
             if (!set) {
@@ -715,7 +720,7 @@ export class TraceManager implements vscode.Disposable {
         const trace = this.traceIdMap.get(id);
         if (!trace) return;
 
-        const uriStr = vscode.Uri.file(trace.filePath).toString();
+        const uriStr = this.fileIndexKey(trace.filePath);
         const set = this.traceIndex.get(uriStr);
         if (set) {
             set.delete(trace);
@@ -906,7 +911,7 @@ export class TraceManager implements vscode.Disposable {
         trace.orphaned = false;
 
         if (isDifferentFile) {
-            this.moveTraceInFileIndex(trace, vscode.Uri.file(oldFilePath).toString(), document.uri.toString());
+            this.moveTraceInFileIndex(trace, this.fileIndexKey(oldFilePath), document.uri.toString());
         }
 
         this.persist();
@@ -1008,7 +1013,7 @@ export class TraceManager implements vscode.Disposable {
         }
         this.activeGroupId = null;
 
-        this.traceIndex.clear();
+        this.rebuildTraceIndex();
         this.persist();
         this.persistActiveGroup();
         this._onDidChangeTraces.fire();

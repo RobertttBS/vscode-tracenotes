@@ -12,9 +12,8 @@
 ```
 CONSTRAINTS: 遵守 /Users/robert/Desktop/vscode-tracenotes/CLAUDE.md。
   只透過 TraceManager 方法改 TraceTree[];勿碰 ensureReady() gate 或 atomic-write 流程。
-BASELINE (務必知道): 乾淨的 `npm test` 就會顯示 `Test Files 1 failed | 6 passed`——
-  那是基線(recoverTracePoints.test.ts 無法在 vitest 載入 vscode),不是回歸。
-  判定看 `Tests` 行(要 0 failed),不是 `Test Files` 行。
+BASELINE (務必知道): 乾淨的 `npm test` 全綠;任何 failed 檔或測試都是回歸。
+  需要 vscode 的測試用 `vi.mock('vscode', () => import('./test/vscodeMock'))`。
 勿讀 dist/(minified)、*.vsix、package-lock.json;搜尋用 `git grep`、限定 src/。
 ```
 
@@ -35,7 +34,7 @@ GOAL: 在 {FILES/AREA} {做什麼/修什麼}。
 WHY: {使用者可見的動機}。
 CONSTRAINTS + BASELINE: {貼上上方「專案填空」}。
 ACCEPTANCE(回報前自己跑):
-1. `npm test` → `Tests` 行 0 failed(忽略 `Test Files` 的基線 1 failed）
+1. `npm test` 全綠(0 failed)
 2. bugfix 需附一個重現該 bug 的測試,修前紅、修後綠
 3. `npm run build` 與 `npm run lint` 通過
 4. 若動到 HighlightColor:手驗新色票在 TraceCard 出現(TS 不接住陣列漏項)

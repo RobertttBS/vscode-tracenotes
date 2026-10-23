@@ -9,8 +9,8 @@
 
 ## 三件我沒被問、但你必須知道的事
 
-### 1. `npm test` 紅字是常態,這是本專案最大的認知陷阱
-乾淨的 tree 就會 `Test Files 1 failed`。我在 [diagnosis.md](diagnosis.md) #1 用實跑輸出證明了:失敗的是 `recoverTracePoints.test.ts` 在 vitest 下載不到 `vscode`,不是真測試壞掉,92 個測試全過。**把「看 `Tests` 行、不看 `Test Files` 行」變成肌肉記憶**,否則你會在自己改壞和基線紅字之間分不清。
+### 1. `npm test` 現在全綠,紅字就是回歸
+(2026-10-23 更新)原本的基線紅字已解決:`recoverTracePoints.test.ts` 改成 vitest,並新增 `src/traceManager.test.ts` 覆蓋 TraceManager 核心。任何 failed 都是你造成的,見 [diagnosis.md](diagnosis.md) #1。
 
 ### 2. TypeScript 是你 fan-out 編輯的安全網,但它有一個已知盲點
 改一個概念要同步多檔(顏色 4 處、訊息 2 處)。兩個 `Record<HighlightColor, …>` 漏 key 會編譯錯、接得住;但 `TraceCard.tsx` 的 `HIGHLIGHT_COLORS` 是 `HighlightColor[]`,**漏一項照樣編譯、色票靜默消失**。相信編譯器,但記得這一處要**手驗 UI**。(diagnosis.md #2)
@@ -25,4 +25,4 @@ TraceManager 是 `TraceTree[]` 的唯一合法變更者,`ensureReady()` 是唯�
 3. **規則累加。** 每次踩坑都想加一條規則,規則互相稀釋。→ 對策:優先 append LESSONS、優先刪而非加;精簡門檻(diagnosis >5 條 / 單檔 >150 行)寫在 maintenance.md,到了就精簡。
 
 ## 交接狀態
-七項交付(diagnosis、CLAUDE.md 外科增補、delegation、judgment、prompt-templates、maintenance、本信)全數落檔。證據於 2026-07-05 實跑取得。無未竟事項,除 diagnosis.md 末一項「是否排除 recoverTracePoints.test.ts」待使用者定奪。
+七項交付(diagnosis、CLAUDE.md 外科增補、delegation、judgment、prompt-templates、maintenance、本信)全數落檔。證據於 2026-07-05 實跑取得。無未竟事項(「排除 recoverTracePoints.test.ts」一項已於 2026-10-23 以改成 vitest 解決)。

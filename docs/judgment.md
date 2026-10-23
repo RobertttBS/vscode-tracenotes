@@ -9,15 +9,15 @@
 
 ## Rubric 2 — 何時算真的完成
 本專案「完成」= 三個都綠、且在**最後一次編輯後**跑過:
-1. `npm test` 的 **`Tests` 行 0 failed**(不是 `Test Files` 行,見 [diagnosis.md](diagnosis.md) #1)
+1. `npm test` **全綠**(0 failed,見 [diagnosis.md](diagnosis.md) #1)
 2. `npm run build` 通過
 3. `npm run lint` 通過
 - ✅ 正例:改完顏色後跑 `npm run build`(綠)+ `npm test` → `Tests 93 passed`,並**手動開 webview 確認新色票出現**(TS 不檢查 TraceCard 陣列漏項)。
-- ❌ 反例:`npm test` 顯示 `1 failed | 6 passed` 就宣稱「有一個測試壞了但跟我無關,完成」——沒去看 `Tests 92 passed`,把基線紅字當成自己的結果矇混。
+- ❌ 反例:`npm test` 有 1 個 failed 就宣稱「那個測試跟我無關,完成」——基線已全綠,任何紅字都是你的回歸。
 
 ## Rubric 3 — 何時停下來問使用者
 - ✅ 正例:要動的東西落在 CLAUDE.md「When uncertain」清單 —— 在 TraceManager 方法**外**改 `TraceTree[]`、移除 `ensureReady()` gate、改 atomic-write 流程。這些破壞是靜默的、且難復原 → 停,提方案再問。
-- ✅ 正例:diagnosis.md #1 的「排除 recoverTracePoints.test.ts」——動測試基建,CLAUDE.md 明令「test fails unclear → ask」→ 問。
+- ✅ 正例:測試失敗原因不明 —— CLAUDE.md 明令「test fails unclear → don't edit the test, ask」→ 問。
 - ❌ 反例:新增一個 highlight 顏色但沒指定色碼 —— 4 個觸點都已知、機械性、易復原 → 挑一個與現有色調協調的值,一句話說明後逕自做,別問。
 
 ## Rubric 4 — 方向錯了的訊號(換路,不要重試)

@@ -1,1 +1,1 @@
-IF recoverTracePoints.test.ts needs to be run, THEN use npx ts-node src/recoverTracePoints.test.ts.
+recoverTracePoints.test.ts runs under vitest now (`npm test`, or `npx vitest run src/recoverTracePoints.test.ts`); the old `npx ts-node` invocation no longer applies.

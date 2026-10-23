@@ -9,24 +9,14 @@
 
 ---
 
-## #1 — `npm test` 在乾淨狀態下就會顯示 "1 failed"(最容易出錯 + 失焦)
+## #1 — (已解決 2026-10-23)`npm test` 曾在乾淨狀態顯示 "1 failed"
 
-**這是本專案最強的 done-signal 陷阱。** 乾淨的 tree 跑 `npm test` 一定紅字,不代表壞掉。
-
-**證據(2026-07-05 實跑 `npx vitest run`):**
+`src/recoverTracePoints.test.ts` 已改成 vitest(`vi.hoisted` + `vi.mock('vscode')`),不再需要 `npx ts-node`。現在乾淨的 `npm test` 全綠:
 ```
-FAIL  src/recoverTracePoints.test.ts [ Error: Failed to load url vscode ]
-Test Files  1 failed | 6 passed (7)
-      Tests  92 passed (92)
+Test Files  10 passed (10)
+      Tests  186 passed (186)
 ```
-`src/recoverTracePoints.test.ts` inline mock `vscode`、透過 `npx ts-node` 獨立執行(見 CLAUDE.md「Commands」與 `tips/tips.md`)。vitest 收集它時因 `import vscode` 失敗而報 "1 failed",且該檔在 vitest 下收集到 **0 test**。真正的 92 個測試全數通過。
-
-**危害:** 做完真實修改後,session 無法區分「自己引入的新失敗」與「基線紅字」,可能(a)去修一個沒壞的東西,或(b)在仍紅的 run 上宣稱完成。
-
-**修法(可判定):**
-- 判定完成看 **`Tests` 那一行**(要 `X passed`,0 failed),**不要看 `Test Files` 那一行**。
-- 真正的回歸會出現:一個**新的** failed 檔名,或 `Tests` 行出現 `X failed`。
-- 要讓 `npm test` 在乾淨狀態變綠,需在 vitest 設定排除該獨立檔 —— **建議但需先問使用者**(改動測試基建,受 CLAUDE.md 保護)。列於本檔末「需人工確認」。
+**判定:任何 failed 檔或 failed 測試都是回歸。** 新的測試若要載入 TraceManager,用 `vi.mock('vscode', () => import('./test/vscodeMock'))`(見 `src/traceManager.test.ts`)。
 
 ## #2 — 一個概念散落多檔;TypeScript 接住大部分,但有一處靜默漏接(最容易出錯)
 
@@ -61,4 +51,4 @@ Test Files  1 failed | 6 passed (7)
 
 ## 需人工確認的事項
 
-1. **是否要在 vitest 設定排除 `src/recoverTracePoints.test.ts`**(讓 `npm test` 乾淨變綠)。此改動觸及測試基建,受 CLAUDE.md「A test fails for an unclear reason: don't edit the test, ask」保護,故未逕自更動。未做時,基線紅字照 #1 的判定法處理。
+(目前無)

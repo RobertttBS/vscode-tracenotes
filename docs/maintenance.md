@@ -14,7 +14,7 @@
 
 ## 需先問使用者
 - 改寫或刪除 CLAUDE.md 的任一條規則(append 一條有日期的例外可以;刪規則不行)。
-- 動測試基建 —— 例如 [diagnosis.md](diagnosis.md) 末列的「排除 recoverTracePoints.test.ts」。
+- 動測試基建(vitest 設定、`src/test/vscodeMock.ts` 的共用行為)。
 - 在 `docs/diagnosis.md` 新增或刪除整條「發現」。
 - 任何觸及 CLAUDE.md「When uncertain」guarded flow 的建議。
 
@@ -40,3 +40,13 @@
 發生什麼: 一個 Fable 5 交接 session 建立此 `docs/` 層,作為全域 `~/.claude/playbooks/` 的本專案薄增量。
 要記住的規則: `docs/` 引用全域方法,只放 tracenotes 專屬內容;別把全域規則複製進來。
 證據: 見 [diagnosis.md](diagnosis.md)(證據於 2026-07-05 實跑取得)、[handoff-letter.md](handoff-letter.md)。
+
+### 2026-10-23 — npm test 基線紅字解決,TraceManager 有了測試
+發生什麼: recoverTracePoints.test.ts 改成 vitest;新增 src/test/vscodeMock.ts 與 src/traceManager.test.ts(20 個)。CLAUDE.md/AGENTS.md/docs 的「1 failed 基線」敘述全數更新。
+要記住的規則: 呼叫會觸發背景驗證的方法(如 switchTree)後,測試要先 await validateActiveTreeBackground() 再存檔比對,否則會 flaky。
+證據: `npm test` → Test Files 10 passed / Tests 179 passed;重跑 15 次穩定。
+
+### 2026-10-23 — 索引一致性要連 traceIndex 一起驗
+發生什麼: 外部 review 指出 `clear()` 只清 `traceIndex`;補測試時又發現沒有檔案的筆記卡,新增時 key 是 `'orphaned://trace'`,刪除和 relocate 時卻算成 `Uri.file('')`,殘留的項目會越積越多。兩個都修了,三個地方都改用 `fileIndexKey()`。
+要記住的規則: 改動卡片的測試結尾要呼叫 `expectIndexConsistent(m)`(現在也驗 `traceIndex`);新測試要先把 bug 植入 source,確認測試會失敗,再還原。
+證據: `npm test` → Test Files 10 passed / Tests 186 passed;把舊寫法放回 source,對應測試都會失敗。
