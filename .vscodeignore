@@ -16,3 +16,6 @@ package-lock.json
 .claude/
 CLAUDE.md
 tips/
+AGENTS.md
+docs/
+resources/
