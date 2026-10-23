@@ -13,12 +13,12 @@
 
 `src/recoverTracePoints.test.ts` 已改成 vitest(`vi.hoisted` + `vi.mock('vscode')`),不再需要 `npx ts-node`。現在乾淨的 `npm test` 全綠:
 ```
-Test Files  10 passed (10)
-      Tests  186 passed (186)
+Test Files  12 passed (12)
+      Tests  206 passed (206)
 ```
 **判定:任何 failed 檔或 failed 測試都是回歸。** 新的測試若要載入 TraceManager,用 `vi.mock('vscode', () => import('./test/vscodeMock'))`(見 `src/traceManager.test.ts`)。
 
-## #2 — 一個概念散落多檔;TypeScript 接住大部分,但有一處靜默漏接(最容易出錯)
+## #2 — 一個概念散落多檔;TypeScript 全接得住,但 `npm run build` 不做型別檢查(最容易出錯)
 
 **證據(2026-07-05 grep):** 新增一個 highlight 顏色需同步 **4 處**:
 - `src/types.ts:11` — `HighlightColor` union
@@ -28,14 +28,12 @@ Test Files  10 passed (10)
 
 新增一個訊息指令需同步 **2 處**:`src/types.ts:100` 的 union + `src/extension.ts` 的 dispatch switch(目前 21 個 case)。
 
-**編譯器接哪些、漏哪些(有兩個靜默漏接處要人工顧):**
-- **接得住**:兩個 `Record<HighlightColor, …>` 少 key → 編譯錯誤;訊息 switch 加了 union 沒有的 case → 編譯錯誤(字面量不在 union)。
-- **靜默漏接 ①**:`HIGHLIGHT_COLORS` 是 `HighlightColor[]`(陣列,非 exhaustive map)→ 少一個 entry **照樣編譯**,只是 UI 色票不出現。
-- **靜默漏接 ②**:dispatch switch **無 `default:` 也無 exhaustiveness 檢查**(`src/extension.ts:42–176`)→ union 加了指令但 switch 漏 case,**不報錯**,runtime **靜默忽略**該訊息。
+**編譯器接哪些(2026-10-23 起兩處靜默漏接已補):**
+- `Record<HighlightColor, …>` 少 key → 編譯錯誤。
+- `HIGHLIGHT_COLORS` 改用 `satisfies Record<HighlightColor, 0>` 的物件取 keys → 少色或多色都編譯錯誤。
+- dispatch switch 的 `default:` 有 `const unhandled: never = msg` → union 加指令但漏 case 即編譯錯誤(`ready` 由 `StoryboardProvider` 自己處理,已從 callback 型別排除)。
 
-**修法(可判定):**
-- 改 `HighlightColor` 後:`npm run build` 通過,**再手動確認新色票在 TraceCard 出現**(編譯器不會警告 TraceCard 陣列漏項)。
-- 加訊息指令後:同時 grep `src/types.ts` union 與 `src/extension.ts` switch,兩處都要有。
+**修法(可判定):** esbuild 不做型別檢查,`npm run lint` 目前也跑不了(eslint 未安裝)。改 `HighlightColor` 或訊息指令後跑 **`npm run typecheck`**(`tsc --noEmit`),綠才算同步完成。
 
 ## #3 — 未限定範圍的搜尋/讀取會吃進 build 產物(最漏 token)
 

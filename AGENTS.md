@@ -10,6 +10,7 @@ VS Code extension for collecting hierarchical code "trace points" with Markdown 
 npm run build   # esbuild both bundles
 npm run watch   # watch both
 npm run lint    # eslint src --ext ts,tsx
+npm run typecheck  # tsc --noEmit (esbuild doesn't type-check)
 npm test        # vitest run
 ```
 
@@ -23,7 +24,7 @@ Single vitest file: `npx vitest run <path>`. Tests that need `vscode` use `vi.mo
 
 **TraceManager (`src/traceManager.ts`) is the source of truth** for `TraceTree[]`, the active tree/group cursor, and fast-path index maps (`traceIndex`, `traceIdMap`, `parentIdMap`); `traceIndex` buckets are keyed only via `fileIndexKey()` (file-less note cards share one bucket). It also handles:
 - Range validation via token anchoring with a per-call `VALIDATION_BUDGET_MS`.
-- Persistence via `src/storage/FileStorageManager.ts` — atomic write (temp → rotate → rename) of `tracenotes.data.json` to workspace `storageUri` (fallback `globalStorageUri`). `deactivate()` awaits `flush()` to drain debounced saves.
+- Persistence via `src/storage/FileStorageManager.ts` — atomic write (temp → rotate → rename). With a folder open, trees go to a per-project shared file under `globalStorageUri/projects/` (shared across checkouts by project ID) and per-folder positions to `storageUri`; validation writes only positions (`persistPositions()`). See `docs/specs/shared-project-traces.md`. `deactivate()` awaits `flush()` to drain debounced saves.
 - `onDidChangeTraces` events drive debounced decoration repaints + `syncWorkspace` posts.
 
 Always mutate traces through TraceManager methods (`add`, `remove`, `reorder`, `relocateTrace`, `enterGroup`/`exitGroup`, `moveToChild`/`moveToParent`) so indexes and persistence stay in sync.

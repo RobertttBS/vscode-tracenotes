@@ -175,6 +175,11 @@ export function activate(context: vscode.ExtensionContext) {
                         payload: { trees: traceManager.getAllTrees() },
                     });
                     break;
+                default: {
+                    // Compile error when WebviewToExtensionMessage gains a command this switch misses.
+                    const unhandled: never = msg;
+                    console.warn('TraceNotes: unhandled webview message', unhandled);
+                }
             }
         },
     );

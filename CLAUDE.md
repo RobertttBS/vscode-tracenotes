@@ -12,6 +12,7 @@ VS Code extension for collecting hierarchical code "trace points" with Markdown 
 npm run build   # esbuild both bundles
 npm run watch   # watch both
 npm run lint    # eslint src --ext ts,tsx
+npm run typecheck  # tsc --noEmit (esbuild doesn't type-check)
 npm test        # vitest run
 ```
 

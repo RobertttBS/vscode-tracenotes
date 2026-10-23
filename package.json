@@ -126,6 +126,7 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint src --ext ts,tsx",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {

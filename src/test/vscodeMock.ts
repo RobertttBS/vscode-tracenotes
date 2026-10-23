@@ -21,7 +21,11 @@ export class Range {
     constructor(public readonly start: Position, public readonly end: Position) {}
 }
 
-export class Selection extends Range {}
+export class Selection extends Range {
+    constructor(a: Position | number, b: Position | number, c = 0, d = 0) {
+        super(typeof a === 'number' ? new Position(a, b as number) : a, typeof a === 'number' ? new Position(c, d) : b as Position);
+    }
+}
 
 export class EventEmitter<T> {
     private listeners = new Set<(e: T) => void>();
@@ -58,6 +62,7 @@ export const workspace = {
     onDidChangeTextDocument: () => noopDisposable,
     createFileSystemWatcher: () => ({ onDidChange() {}, onDidCreate() {}, dispose() {} }),
     findFiles: async () => [],
+    asRelativePath: (p: string | Uri) => typeof p === 'string' ? p : p.fsPath,
     openTextDocument: async () => { throw new Error('openTextDocument not mocked'); },
     fs: {
         stat: async (u: Uri) => {
@@ -82,3 +87,24 @@ export const window = {
     showWarningMessage: () => undefined,
     showInformationMessage: () => undefined,
 };
+
+/** Text document stand-in with real offset ↔ position math. */
+export function makeDoc(filePath: string, text: string, version = 1) {
+    const lineStarts = [0];
+    for (let i = 0; i < text.length; i++) { if (text[i] === '\n') { lineStarts.push(i + 1); } }
+    const positionAt = (offset: number) => {
+        let line = 0;
+        while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) { line++; }
+        return new Position(line, offset - lineStarts[line]);
+    };
+    const offsetAt = (p: Position) => lineStarts[p.line] + p.character;
+    return {
+        uri: Uri.file(filePath), version, languageId: 'typescript', lineCount: lineStarts.length,
+        getText: (r?: { start: Position; end: Position }) => r ? text.slice(offsetAt(r.start), offsetAt(r.end)) : text,
+        positionAt, offsetAt,
+        lineAt: (line: number) => {
+            const end = (lineStarts[line + 1] ?? text.length + 1) - 1;
+            return { text: text.slice(lineStarts[line], end), range: { end: positionAt(end) } };
+        },
+    } as any;
+}

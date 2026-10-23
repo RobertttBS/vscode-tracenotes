@@ -79,7 +79,8 @@ function serve(conn: net.Socket, token: string, tm: TraceManager): void {
     });
 }
 
-async function handle(tm: TraceManager, op: string, a: Record<string, string | undefined>): Promise<unknown> {
+/** Exported for tests. */
+export async function handle(tm: TraceManager, op: string, a: Record<string, string | undefined>): Promise<unknown> {
     await tm.ensureReady();
     switch (op) {
         case 'list':

@@ -23,4 +23,4 @@
 3. **別叫 agent 讀 `dist/`(minified)、`*.vsix`、`package-lock.json`** — 用 source / `git grep`。(diagnosis.md #3)
 
 ## 驗證(呼應全域「不自驗」)
-派出去的 trace/persistence 改動,回來後由**你或 fresh-context agent 重跑** `npm test`(讀 `Tests` 行)+ `npm run build` + `npm run lint`,不採信 agent 自報綠燈。高風險判斷(改動 guarded flow)加第二意見:全域 delegation.md「Verification is never self-verification」。
+派出去的 trace/persistence 改動,回來後由**你或 fresh-context agent 重跑** `npm test`(讀 `Tests` 行)+ `npm run build` + `npm run typecheck`,不採信 agent 自報綠燈。高風險判斷(改動 guarded flow)加第二意見:全域 delegation.md「Verification is never self-verification」。

@@ -64,8 +64,10 @@ const HighlightedCode = React.memo<{
 ));
 HighlightedCode.displayName = 'HighlightedCode';
 
-/** Context-menu display order for the highlight colours. */
-const HIGHLIGHT_COLORS: HighlightColor[] = ['red', 'blue', 'green', 'orange', 'purple', 'indigo', 'brown', 'yellow'];
+/** Context-menu display order for the highlight colours; `satisfies` fails to compile if one is missing. */
+const HIGHLIGHT_COLORS = Object.keys({
+    red: 0, blue: 0, green: 0, orange: 0, purple: 0, indigo: 0, brown: 0, yellow: 0,
+} satisfies Record<HighlightColor, 0>) as HighlightColor[];
 
 /** Map common VS Code languageIds to Prism language names */
 function mapLanguage(lang: string): string {

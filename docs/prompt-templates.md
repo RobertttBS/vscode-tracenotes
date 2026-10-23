@@ -36,7 +36,7 @@ CONSTRAINTS + BASELINE: {貼上上方「專案填空」}。
 ACCEPTANCE(回報前自己跑):
 1. `npm test` 全綠(0 failed)
 2. bugfix 需附一個重現該 bug 的測試,修前紅、修後綠
-3. `npm run build` 與 `npm run lint` 通過
+3. `npm run build` 與 `npm run typecheck` 通過
 4. 若動到 HighlightColor:手驗新色票在 TraceCard 出現(TS 不接住陣列漏項)
 REPORT BACK: 改了哪些檔各一行 what/why;acceptance 指令輸出末幾行。{+ 全域契約區塊}
 ```

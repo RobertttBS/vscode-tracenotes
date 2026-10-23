@@ -13,7 +13,7 @@ export class StoryboardProvider implements vscode.WebviewViewProvider {
     constructor(
         private readonly extensionUri: vscode.Uri,
         private readonly traceManager: TraceManager,
-        private readonly onMessage: (msg: WebviewToExtensionMessage) => void,
+        private readonly onMessage: (msg: Exclude<WebviewToExtensionMessage, { command: 'ready' }>) => void,
     ) {}
 
     resolveWebviewView(

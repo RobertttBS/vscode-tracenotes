@@ -5,8 +5,9 @@ vi.mock('vscode', () => import('./test/vscodeMock'));
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Uri, Position, workspace, config } from './test/vscodeMock';
+import { Uri, Position, workspace, config, makeDoc } from './test/vscodeMock';
 import { TraceManager } from './traceManager';
+import { resolveProjectId } from './storage/projectId';
 import { MAX_DEPTH, type TracePoint } from './types';
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -75,27 +76,6 @@ function expectIndexConsistent(m: TraceManager) {
     for (const [key, set] of expectedFiles) {
         expect([...fileIndex.get(key)!].every(t => set.has(t)) && fileIndex.get(key)!.size === set.size).toBe(true);
     }
-}
-
-/** Text document stand-in with real offset ↔ position math. */
-function makeDoc(filePath: string, text: string, version = 1) {
-    const lineStarts = [0];
-    for (let i = 0; i < text.length; i++) { if (text[i] === '\n') { lineStarts.push(i + 1); } }
-    const positionAt = (offset: number) => {
-        let line = 0;
-        while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) { line++; }
-        return new Position(line, offset - lineStarts[line]);
-    };
-    const offsetAt = (p: Position) => lineStarts[p.line] + p.character;
-    return {
-        uri: Uri.file(filePath), version, languageId: 'typescript', lineCount: lineStarts.length,
-        getText: (r?: { start: Position; end: Position }) => r ? text.slice(offsetAt(r.start), offsetAt(r.end)) : text,
-        positionAt, offsetAt,
-        lineAt: (line: number) => {
-            const end = (lineStarts[line + 1] ?? text.length + 1) - 1;
-            return { text: text.slice(lineStarts[line], end), range: { end: positionAt(end) } };
-        },
-    } as any;
 }
 
 beforeEach(() => {
@@ -454,6 +434,34 @@ describe('TraceManager anchoring', () => {
         expect(t.orphaned).toBe(true);
     });
 
+    it('a delete crossing the trace start leaves offsets for validation; validation orphans it (too little left to fuzzy-match)', async () => {
+        const file = path.join(workspace.workspaceFolders![0].uri.fsPath, 'a.ts');
+        const { m, t, start } = await managerWithTrace(file);
+        const cut = start + 'function'.length; // deletes `const a = 1;\nfunction`
+        const after = CODE.slice(cut);
+        m.handleTextDocumentChange({
+            document: makeDoc(file, after, 2),
+            contentChanges: [{ rangeOffset: 0, rangeLength: cut, text: '' }],
+        } as any);
+        expect(t.rangeOffset).toEqual([start, start + SNIPPET.length]); // not shifted or shrunk blindly
+        fs.writeFileSync(file, after);
+        await m.validateDocumentNow(makeDoc(file, after, 2));
+        expect(t.orphaned).toBe(true);
+    });
+
+    it('a delete swallowing the whole trace orphans it on validation', async () => {
+        const file = path.join(workspace.workspaceFolders![0].uri.fsPath, 'a.ts');
+        const { m, t, start } = await managerWithTrace(file);
+        const after = CODE.slice(0, start - 1) + CODE.slice(start + SNIPPET.length + 1);
+        m.handleTextDocumentChange({
+            document: makeDoc(file, after, 2),
+            contentChanges: [{ rangeOffset: start - 1, rangeLength: SNIPPET.length + 2, text: '' }],
+        } as any);
+        fs.writeFileSync(file, after);
+        await m.validateDocumentNow(makeDoc(file, after, 2));
+        expect(t.orphaned).toBe(true);
+    });
+
     it('getTracesForFile follows relocateTrace to the new file', async () => {
         const root = workspace.workspaceFolders![0].uri.fsPath;
         const [a, b] = [path.join(root, 'a.ts'), path.join(root, 'b.ts')];
@@ -553,5 +561,109 @@ describe('TraceManager persistence', () => {
         expect(fs.existsSync(path.join(tmp, 'global', 'projects'))).toBe(true); // dir is created on load
         const [hash] = fs.readdirSync(path.join(tmp, 'global', 'projects'));
         expect(fs.existsSync(path.join(tmp, 'global', 'projects', hash, 'tracenotes.data.json'))).toBe(false);
+    });
+
+    it('migrates a legacy flat array from workspaceState into a default tree, then clears it', async () => {
+        const ctx = makeContext();
+        await ctx.workspaceState.update('tracenotes.traces', [note('old')]);
+        const m = await makeManager(ctx);
+        expect(m.getActiveTreeData()!.name).toBe('Default Trace');
+        expect(names(m.getAll())).toEqual(['old']);
+        expect(ctx.workspaceState.get('tracenotes.traces')).toBeUndefined();
+        expectIndexConsistent(m);
+
+        const m2 = await makeManager(ctx); // now read back from the shared file
+        expect(names(m2.getAll())).toEqual(['old']);
+    });
+
+    it('folds this folder\'s pre-sharing data file into the shared file and renames it .migrated', async () => {
+        const legacyDir = path.join(tmp, 'ws-storage');
+        fs.mkdirSync(legacyDir, { recursive: true });
+        const legacy = [{ id: 'legacy', name: 'Legacy', createdAt: 0, updatedAt: 0, traces: [note('kept')] }];
+        fs.writeFileSync(path.join(legacyDir, 'tracenotes.data.json'), JSON.stringify(legacy));
+
+        const m = await makeManager();
+        expect(m.getTreeList().map(t => t.name)).toContain('Legacy');
+        expect(fs.existsSync(path.join(legacyDir, 'tracenotes.data.json'))).toBe(false);
+        expect(fs.existsSync(path.join(legacyDir, 'tracenotes.data.json.migrated'))).toBe(true);
+
+        const m2 = await makeManager(); // migration is one-time; the tree now comes from the shared file
+        expect(m2.getTreeList().filter(t => t.name === 'Legacy')).toHaveLength(1);
+    });
+
+    async function twoProjects() {
+        config.projectId = 'p2';
+        const other = await makeManager(makeContext('p2-window'));
+        other.add(note('theirs'));
+        await other.flush();
+        config.projectId = 'test-project';
+        const m = await makeManager();
+        m.add(note('mine'));
+        config.projectId = 'p2';
+        return m;
+    }
+    const allNames = (m: TraceManager) => m.getAllTrees().flatMap(t => names(t.traces));
+
+    it('switchProject without merge loads only the new project\'s traces', async () => {
+        const m = await twoProjects();
+        await m.switchProject(false);
+        expect(allNames(m)).toEqual(['theirs']);
+        expectIndexConsistent(m);
+    });
+
+    it('switchProject with merge carries this window\'s traces into the new project and saves them', async () => {
+        const m = await twoProjects();
+        await m.switchProject(true);
+        expect(allNames(m).sort()).toEqual(['mine', 'theirs']);
+        expectIndexConsistent(m);
+        const reloaded = await makeManager(makeContext('p2-window'));
+        expect(allNames(reloaded).sort()).toEqual(['mine', 'theirs']);
+    });
+
+    it('reloadFromDisk picks up another window\'s save and keeps this window\'s group cursor', async () => {
+        const m1 = await makeManager(makeContext('ws'));
+        const group = note('group');
+        m1.add(group);
+        m1.enterGroup(group.id);
+        await m1.flush();
+
+        const m2 = await makeManager(makeContext('ws2'));
+        m2.add(note('from-other-window'));
+        await m2.flush();
+
+        await (m1 as any).reloadFromDisk();
+        expect(names(m1.getAllTrees()[0].traces)).toEqual(['group', 'from-other-window']);
+        expect(m1.getActiveGroupId()).toBe(group.id);
+        expectIndexConsistent(m1);
+    });
+
+    it('reloadFromDisk does not drop this window\'s unsaved changes', async () => {
+        const m1 = await makeManager(makeContext('ws'));
+        const m2 = await makeManager(makeContext('ws2'));
+        m2.add(note('theirs'));
+        await m2.flush();
+        m1.add(note('mine')); // dirty, save still debounced
+
+        await (m1 as any).reloadFromDisk();
+        expect(names(m1.getAll())).toEqual(['mine']);
+    });
+
+    it('reads the git origin through a worktree\'s .git file and commondir', async () => {
+        delete config.projectId;
+        const main = path.join(tmp, 'main', '.git');
+        const wtGit = path.join(main, 'worktrees', 'wt');
+        fs.mkdirSync(wtGit, { recursive: true });
+        fs.writeFileSync(path.join(wtGit, 'commondir'), '../..\n');
+        fs.writeFileSync(path.join(main, 'config'), '[remote "origin"]\n\turl = git@github.com:me/proj.git\n');
+        const root = workspace.workspaceFolders![0].uri.fsPath;
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${wtGit}\n`);
+        expect(await resolveProjectId(Uri.file(root) as any)).toEqual({ id: 'github.com/me/proj', source: 'git origin' });
+
+        // Submodule: the gitdir holds config itself, no commondir.
+        const sub = path.join(tmp, 'super', '.git', 'modules', 'sub');
+        fs.mkdirSync(sub, { recursive: true });
+        fs.writeFileSync(path.join(sub, 'config'), '[remote "origin"]\n\turl = https://github.com/me/sub.git\n');
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${path.relative(root, sub)}\n`);
+        expect(await resolveProjectId(Uri.file(root) as any)).toEqual({ id: 'github.com/me/sub', source: 'git origin' });
     });
 });
