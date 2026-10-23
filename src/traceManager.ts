@@ -948,6 +948,11 @@ export class TraceManager implements vscode.Disposable {
         return structuredClone(this.trees);
     }
 
+    /** Live trees without the clone, for read-only lookups (the AI bridge). Never mutate — use the methods above. */
+    public getTreesReadonly(): readonly TraceTree[] {
+        return this.trees;
+    }
+
     public async importAllTrees(incoming: TraceTree[]): Promise<void> {
         if (incoming.length === 0) { return; }
         const existingIds = new Set(this.trees.map(t => t.id));

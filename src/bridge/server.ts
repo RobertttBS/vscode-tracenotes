@@ -85,13 +85,13 @@ async function handle(tm: TraceManager, op: string, a: Record<string, string | u
         case 'list':
             return tm.getTreeList();
         case 'show': {
-            const tree = a.tree ? findTree(tm, a.tree) : tm.getAllTrees().find(t => t.id === tm.getActiveTreeData()?.id);
+            const tree = treeOrActive(tm, a.tree);
             if (!tree) { throw new Error('No active trace tree.'); }
             return describeTree(tree);
         }
         case 'create': {
             await tm.importTraceTree(need(a.markdown, 'markdown'), need(a.name, '--name'));
-            const tree = tm.getAllTrees().find(t => t.id === tm.getActiveTreeData()?.id)!;
+            const tree = treeOrActive(tm)!;
             return withWarnings({ id: tree.id, name: tree.name, traces: tree.traces.map(brief) }, tree.traces);
         }
         case 'add': {
@@ -107,11 +107,11 @@ async function handle(tm: TraceManager, op: string, a: Record<string, string | u
             return withWarnings({ added: added.map(brief) }, added);
         }
         case 'check': {
-            const tree = a.tree ? findTree(tm, a.tree) : tm.getAllTrees().find(t => t.id === tm.getActiveTreeData()?.id);
+            const tree = treeOrActive(tm, a.tree);
             if (!tree) { throw new Error('No active trace tree.'); }
             activate(tm, tree);
             await tm.validateActiveTreeBackground(); // re-anchor after outside edits
-            const fresh = tm.getAllTrees().find(t => t.id === tree.id)!; // getAllTrees() is a snapshot
+            const fresh = tm.getTreesReadonly().find(t => t.id === tree.id) ?? tree; // re-read after validation; a disk reload may have swapped it
             const { warnings } = await withWarnings({}, fresh.traces);
             return { tree: tree.name, warnings: warnings ?? [] };
         }
@@ -162,7 +162,7 @@ async function handle(tm: TraceManager, op: string, a: Record<string, string | u
             return { removed };
         }
         case 'rename': {
-            const tree = a.tree ? findTree(tm, a.tree) : tm.getAllTrees().find(t => t.id === tm.getActiveTreeData()?.id);
+            const tree = treeOrActive(tm, a.tree);
             if (!tree) { throw new Error('No active trace tree.'); }
             activate(tm, tree);
             tm.renameActiveTree(need(a.name, 'new name'));
@@ -189,10 +189,17 @@ function need(v: string | undefined, what: string): string {
 }
 
 function findTree(tm: TraceManager, ref: string): TraceTree {
-    const trees = tm.getAllTrees();
+    const trees = tm.getTreesReadonly();
     const tree = trees.find(t => t.id === ref) ?? trees.find(t => t.name === ref);
     if (!tree) { throw new Error(`No trace tree "${ref}".`); }
     return tree;
+}
+
+/** The tree named by `ref` (id or name), else the active tree. */
+function treeOrActive(tm: TraceManager, ref?: string): TraceTree | undefined {
+    if (ref) { return findTree(tm, ref); }
+    const id = tm.getActiveTreeData()?.id;
+    return tm.getTreesReadonly().find(t => t.id === id);
 }
 
 function activate(tm: TraceManager, tree: TraceTree): void {
@@ -202,7 +209,7 @@ function activate(tm: TraceManager, tree: TraceTree): void {
 /** TraceManager's id lookups only cover the active tree, so switch to the tree holding `id`. */
 function focusTreeOf(tm: TraceManager, id: string): void {
     const has = (list: TracePoint[]): boolean => list.some(t => t.id === id || has(t.children ?? []));
-    const tree = tm.getAllTrees().find(t => has(t.traces));
+    const tree = tm.getTreesReadonly().find(t => has(t.traces));
     if (!tree) { throw new Error(`No trace with id ${id}.`); }
     activate(tm, tree);
 }
