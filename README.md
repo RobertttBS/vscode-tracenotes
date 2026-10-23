@@ -1,21 +1,32 @@
 # TraceNotes
 
-> An extension for code tracing and note-taking that supports exporting and importing in Markdown format.
+> Trace code flows into hierarchical notes that stay in sync with your code. Collect them by hand or let your AI agent build them. Export and import as Markdown.
 
-### Select code and press **`Opt+C`** or **`Alt+C`** to collect a trace. See [Features](#features) for the rest.
+### Select code and press **`Opt+C`** or **`Alt+C`** to collect a trace. Or ask Claude Code, Codex, or Cursor to *"trace the login flow into TraceNotes"*.
 
 ![UI explanation](images/UI_explanation.jpeg)
 
 TraceNotes is an extension for navigating and documenting code logic. It allows you to build a structured narrative of code flows that stay synchronized with the editor.
 
-## Features
+## AI Agents (Skill & CLI)
 
-### AI Agents (Skill & CLI)
+Let Claude Code, Codex, or Cursor read the code and write the trace tree for you. Cards appear live in the panel as the agent works.
 
-Let Claude Code, Codex, or Cursor build and edit trace trees for you — e.g. *"trace the login flow into TraceNotes"*.
+**Getting started**
 
-- **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window, and changes show up live in the panel. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide.
-- **Skill** – On first start, if `~/.claude`, `~/.codex`, or `~/.cursor` exists, TraceNotes offers to write a `tracenotes` skill to `<dir>/skills/tracenotes/SKILL.md` so the agent knows how to use the CLI. Installed skills are refreshed on every start to match the extension version.
+1. Install TraceNotes and open a project folder.
+2. On first start, if `~/.claude`, `~/.codex`, or `~/.cursor` exists, accept the prompt to install the `tracenotes` skill.
+3. Ask your agent, from inside that project, for example:
+   - *"Trace the login flow into TraceNotes."*
+   - *"Explain my last commit as a trace tree."* The agent reads `git diff` and picks the hunks worth a card.
+   - *"The code changed. Fix the TraceNotes tree."* The agent repairs the existing tree instead of rebuilding it.
+
+**Keeping trees up to date.** After the code changes, the agent runs `check` to find traces whose code no longer matches the file. It then runs `refresh` to re-read them, using the new line range if the code moved. Your notes are kept.
+
+**How it works**
+
+- **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide.
+- **Skill** – The skill is written to `<dir>/skills/tracenotes/SKILL.md` so the agent knows how to use the CLI. Installed skills are refreshed on every start to match the extension version.
 - **Installed an agent later?** Open it once (so its config folder exists), then run **`TraceNotes: Set Up AI Agents`**. With no agent config found, just tell your agent to run `~/.tracenotes/bin/tracenotes help`.
 
 | CLI command | What it does |
@@ -28,6 +39,8 @@ Let Claude Code, Codex, or Cursor build and edit trace trees for you — e.g. *"
 | `rename` / `delete-tree` | Rename or delete a tree |
 
 Input uses the same Markdown format as **Export to Markdown**; a code fence's info line is `<lang> <start>:<end>:<path>` (or `?:?` with the code pasted in, to let TraceNotes find it).
+
+## Features
 
 ### Collection & Recovery
 
