@@ -38,11 +38,14 @@ function request(entry: WindowEntry, op: string, args: Record<string, string | u
 
 /** Send to the window that has cwd open, discarding entries of windows that are gone. */
 async function send(op: string, args: Record<string, string | undefined>): Promise<unknown> {
+    // Set by the per-editor launcher (tracenotes-cursor, tracenotes-code, …).
+    const host = process.env.TRACENOTES_HOST || undefined;
+    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor' } as Record<string, string>)[host] ?? host : 'VS Code';
     let entries = readEntries();
     for (;;) {
-        const entry = pickEntry(entries, process.cwd());
+        const entry = pickEntry(entries, process.cwd(), host);
         if (!entry) {
-            throw new Error(`No VS Code window with TraceNotes has ${process.cwd()} open. Open the project in VS Code and retry.`);
+            throw new Error(`No ${editor} window with TraceNotes has ${process.cwd()} open. Open the project in ${editor} and retry.`);
         }
         try {
             return await request(entry, op, args);

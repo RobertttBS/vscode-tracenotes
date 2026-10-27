@@ -25,7 +25,7 @@ Let Claude Code, Codex, or Cursor read the code and write the trace tree for you
 
 **How it works**
 
-- **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide.
+- **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide. Each editor also installs its own launcher, `tracenotes-code` / `tracenotes-cursor`, which only talks to that editor's windows; Cursor's skill uses `tracenotes-cursor`, so it never lands in a VS Code window with the same folder open.
 - **Skill** – The skill is written to `<dir>/skills/tracenotes/SKILL.md` so the agent knows how to use the CLI. Installed skills are refreshed on every start to match the extension version.
 - **Installed an agent later?** Open it once (so its config folder exists), then run **`TraceNotes: Set Up AI Agents`**. With no agent config found, just tell your agent to run `~/.tracenotes/bin/tracenotes help`.
 

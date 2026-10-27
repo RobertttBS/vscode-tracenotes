@@ -22,6 +22,14 @@ describe('pickEntry', () => {
         expect(pickEntry([a, c], '/work/app-2/src')).toBe(c);
     });
 
+    it('with a host, only that editor\'s windows count', () => {
+        const code = { ...entry(10, '/work/app'), host: 'code' };
+        const cursor = { ...entry(11, '/work/app'), host: 'cursor' };
+        expect(pickEntry([code, cursor], '/work/app/src', 'cursor')).toBe(cursor);
+        expect(pickEntry([code, cursor], '/work/app/src', 'code')).toBe(code);
+        expect(pickEntry([code], '/work/app/src', 'cursor')).toBeUndefined();
+    });
+
     it('returns undefined when no window has cwd open', () => {
         expect(pickEntry([a, b], '/elsewhere')).toBeUndefined();
     });

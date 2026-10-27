@@ -6,7 +6,11 @@ import * as path from 'path';
 export const HOME_DIR = path.join(os.homedir(), '.tracenotes');
 export const RUN_DIR = path.join(HOME_DIR, 'run');
 export const BIN_DIR = path.join(HOME_DIR, 'bin');
-export const SHIM_PATH = path.join(BIN_DIR, process.platform === 'win32' ? 'tracenotes.cmd' : 'tracenotes');
+/** Launcher path; `host` gives the per-editor one that only talks to that editor's windows. */
+export function shimPath(host?: string): string {
+    return path.join(BIN_DIR, `tracenotes${host ? `-${host}` : ''}${process.platform === 'win32' ? '.cmd' : ''}`);
+}
+export const SHIM_PATH = shimPath();
 
 /** One VS Code window's IPC endpoint, written to `RUN_DIR/<pid>.json`. */
 export interface WindowEntry {
@@ -14,6 +18,8 @@ export interface WindowEntry {
     socket: string;
     token: string;
     folders: string[];
+    /** Editor that owns the window: `code`, `cursor`, … (from `vscode.env.uriScheme`). */
+    host?: string;
 }
 
 export function entryFile(pid: number, dir = RUN_DIR): string {
@@ -54,11 +60,12 @@ function isInside(child: string, parent: string): boolean {
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-/** The window whose workspace folder contains `cwd`; the deepest folder wins. */
-export function pickEntry(entries: WindowEntry[], cwd: string): WindowEntry | undefined {
+/** The window whose workspace folder contains `cwd`; the deepest folder wins. `host` limits it to one editor. */
+export function pickEntry(entries: WindowEntry[], cwd: string, host?: string): WindowEntry | undefined {
     let best: WindowEntry | undefined;
     let bestLen = -1;
     for (const e of entries) {
+        if (host && e.host !== host) { continue; }
         for (const f of e.folders) {
             if (f.length > bestLen && isInside(cwd, f)) {
                 best = e;

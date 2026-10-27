@@ -7,7 +7,7 @@ import * as path from 'path';
 import { TraceManager } from '../traceManager';
 import { TracePoint, TraceTree } from '../types';
 import { GUIDE } from './guide';
-import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, sweepStale, writeAtomic } from './registry';
+import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, shimPath, sweepStale, writeAtomic } from './registry';
 
 /**
  * Lets external AI agents (Claude Code, Codex, Cursor, …) edit trace trees through the
@@ -16,12 +16,14 @@ import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, sweep
  * Every mutation goes through TraceManager.
  */
 export function startBridge(context: vscode.ExtensionContext, traceManager: TraceManager): void {
+    const host = editorHost();
     // Registered first: the command must exist even if the socket setup fails.
-    context.subscriptions.push(vscode.commands.registerCommand('tracenotes.setupAgents', setupAgents));
+    context.subscriptions.push(vscode.commands.registerCommand('tracenotes.setupAgents', () => setupAgents(context.extensionPath)));
     try {
         fs.mkdirSync(RUN_DIR, { recursive: true, mode: 0o700 });
         sweepStale();
-        installShim(context.extensionPath);
+        installShim(context.extensionPath, SHIM_PATH);
+        installShim(context.extensionPath, shimPath(host), host);
     } catch (err) {
         console.error('TraceNotes: AI bridge setup failed', err);
         return;
@@ -36,6 +38,7 @@ export function startBridge(context: vscode.ExtensionContext, traceManager: Trac
         socket,
         token,
         folders: (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
+        host,
     });
     const register = () => writeAtomic(entryFile(process.pid), JSON.stringify(entry()), 0o600);
 
@@ -271,36 +274,44 @@ function describeTrace(t: TracePoint): object {
     };
 }
 
+/** `code` for VS Code, else the editor's URI scheme (`cursor`, `vscode-insiders`, …). */
+function editorHost(): string {
+    return vscode.env.uriScheme === 'vscode' ? 'code' : vscode.env.uriScheme;
+}
+
 /**
- * Stable entry point for agents. Rewritten on every activation so it follows
- * extension updates; runs the CLI with this editor's own Electron as Node.
+ * Stable entry points for agents. Rewritten on every activation so they follow
+ * extension updates; run the CLI with this editor's own Electron as Node.
+ * The generic `tracenotes` (no host) belongs to whichever editor started last;
+ * `tracenotes-<host>` only talks to that editor's windows.
  */
-function installShim(extensionPath: string): void {
+function installShim(extensionPath: string, file: string, host?: string): void {
     fs.mkdirSync(BIN_DIR, { recursive: true });
     const cli = path.join(extensionPath, 'dist', 'cli.js');
     const sh = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    // setlocal: keep the variables out of the caller's cmd session.
     const content = process.platform === 'win32'
-        ? `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" "${cli}" %*\r\n`
-        : `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${sh(process.execPath)} ${sh(cli)} "$@"\n`;
+        ? `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\nset TRACENOTES_HOST=${host ?? ''}\r\n"${process.execPath}" "${cli}" %*\r\n`
+        : `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 TRACENOTES_HOST=${host ?? ''} exec ${sh(process.execPath)} ${sh(cli)} "$@"\n`;
     let current = '';
-    try { current = fs.readFileSync(SHIM_PATH, 'utf8'); } catch { /* first install */ }
-    if (current !== content) { writeAtomic(SHIM_PATH, content, 0o755); }
+    try { current = fs.readFileSync(file, 'utf8'); } catch { /* first install */ }
+    if (current !== content) { writeAtomic(file, content, 0o755); }
 }
-
-const SKILL_BODY = `Use the TraceNotes CLI at \`${SHIM_PATH}\` (below: \`tracenotes\`).
-The project must be open in a VS Code window with the TraceNotes extension.
-
-${GUIDE}`;
 
 interface AgentTarget { name: string; file: string; installed: () => boolean; write: () => void }
 
-const SKILL_MD = `---
+function skillMd(shim: string, editor: string): string {
+    return `---
 name: tracenotes
-description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's VS Code TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes.
+description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's ${editor} TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes.
 ---
 
-${SKILL_BODY}
+Use the TraceNotes CLI at \`${shim}\` (below: \`tracenotes\`).
+The project must be open in a ${editor} window with the TraceNotes extension.
+
+${GUIDE}
 `;
+}
 
 function writeIfChanged(file: string, text: string): void {
     try { if (fs.readFileSync(file, 'utf8') === text) { return; } } catch { /* not written yet */ }
@@ -308,19 +319,34 @@ function writeIfChanged(file: string, text: string): void {
     fs.writeFileSync(file, text);
 }
 
-/** Agents whose config dir exists; each reads skills from <dir>/skills/<name>/SKILL.md. */
-function agentTargets(): AgentTarget[] {
+/**
+ * Agents whose config dir exists; each reads skills from <dir>/skills/<name>/SKILL.md.
+ * Cursor's agent lives in Cursor, so it gets the Cursor-only launcher; Claude Code and
+ * Codex run beside any editor and get the generic one.
+ */
+function agentTargets(extensionPath: string): AgentTarget[] {
     const home = os.homedir();
-    return ([['Claude Code', '.claude'], ['Codex', '.codex'], ['Cursor', '.cursor']] as const)
+    const skills = {
+        generic: skillMd(SHIM_PATH, 'VS Code'),
+        cursor: skillMd(shimPath('cursor'), 'Cursor'),
+    };
+    return ([['Claude Code', '.claude', 'generic'], ['Codex', '.codex', 'generic'], ['Cursor', '.cursor', 'cursor']] as const)
         .filter(([, dir]) => fs.existsSync(path.join(home, dir)))
-        .map(([name, dir]) => {
+        .map(([name, dir, skill]) => {
             const file = path.join(home, dir, 'skills', 'tracenotes', 'SKILL.md');
-            return { name, file, installed: () => fs.existsSync(file), write: () => writeIfChanged(file, SKILL_MD) };
+            const write = () => {
+                writeIfChanged(file, skills[skill]);
+                // Until Cursor runs TraceNotes itself, a stand-in so its skill gets the CLI's
+                // "no Cursor window" error instead of "not found". Cursor's own copy replaces it.
+                const cursorShim = shimPath('cursor');
+                if (skill === 'cursor' && !fs.existsSync(cursorShim)) { installShim(extensionPath, cursorShim, 'cursor'); }
+            };
+            return { name, file, installed: () => fs.existsSync(file), write };
         });
 }
 
-async function setupAgents(): Promise<void> {
-    const targets = agentTargets();
+async function setupAgents(extensionPath: string): Promise<void> {
+    const targets = agentTargets(extensionPath);
     if (!targets.length) {
         vscode.window.showInformationMessage(
             `TraceNotes: No Claude Code, Codex or Cursor config found. Tell your agent to run "${SHIM_PATH} help".`);
@@ -342,12 +368,12 @@ async function setupAgents(): Promise<void> {
 
 function offerSetupOnce(context: vscode.ExtensionContext): void {
     // Keep already-installed instructions in step with this version of the CLI.
-    try { agentTargets().filter(t => t.installed()).forEach(t => t.write()); } catch (err) {
+    try { agentTargets(context.extensionPath).filter(t => t.installed()).forEach(t => t.write()); } catch (err) {
         console.error('TraceNotes: refreshing agent instructions failed', err);
     }
     const key = 'tracenotes.agentSetupOffered';
-    if (context.globalState.get(key) || !agentTargets().length) { return; }
+    if (context.globalState.get(key) || !agentTargets(context.extensionPath).length) { return; }
     void context.globalState.update(key, true);
     vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor) create trace trees?', 'Set Up')
-        .then(choice => { if (choice) { void setupAgents(); } });
+        .then(choice => { if (choice) { void setupAgents(context.extensionPath); } });
 }
