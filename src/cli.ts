@@ -40,7 +40,7 @@ function request(entry: WindowEntry, op: string, args: Record<string, string | u
 async function send(op: string, args: Record<string, string | undefined>): Promise<unknown> {
     // Set by the per-editor launcher (tracenotes-cursor, tracenotes-code, …).
     const host = process.env.TRACENOTES_HOST || undefined;
-    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor' } as Record<string, string>)[host] ?? host : 'VS Code';
+    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor', antigravity: 'Antigravity' } as Record<string, string>)[host] ?? host : 'VS Code';
     let entries = readEntries();
     for (;;) {
         const entry = pickEntry(entries, process.cwd(), host);

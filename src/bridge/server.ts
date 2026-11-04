@@ -509,16 +509,18 @@ function writeIfChanged(file: string, text: string): void {
 
 /**
  * Agents whose config dir exists; each reads skills from <dir>/skills/<name>/SKILL.md.
- * Cursor's agent lives in Cursor, so it gets the Cursor-only launcher; Claude Code and
- * Codex run beside any editor and get the generic one.
+ * Cursor's agent lives in Cursor, so it gets the Cursor-only launcher; Claude Code,
+ * Codex and Antigravity get the generic one. Antigravity's IDE agent and its `agy` CLI
+ * share one global root, ~/.gemini/config/, and the CLI runs beside any editor.
  */
 function agentTargets(extensionPath: string): AgentTarget[] {
     const home = os.homedir();
     const skills = {
-        generic: skillMd(SHIM_PATH, 'VS Code'),
+        generic: skillMd(SHIM_PATH, 'VS Code / Antigravity'),
         cursor: skillMd(shimPath('cursor'), 'Cursor'),
     };
-    return ([['Claude Code', '.claude', 'generic'], ['Codex', '.codex', 'generic'], ['Cursor', '.cursor', 'cursor']] as const)
+    return ([['Claude Code', '.claude', 'generic'], ['Codex', '.codex', 'generic'], ['Cursor', '.cursor', 'cursor'],
+        ['Antigravity', path.join('.gemini', 'config'), 'generic']] as const)
         .filter(([, dir]) => fs.existsSync(path.join(home, dir)))
         .map(([name, dir, skill]) => {
             const file = path.join(home, dir, 'skills', 'tracenotes', 'SKILL.md');
@@ -537,7 +539,7 @@ async function setupAgents(extensionPath: string): Promise<void> {
     const targets = agentTargets(extensionPath);
     if (!targets.length) {
         vscode.window.showInformationMessage(
-            `TraceNotes: No Claude Code, Codex or Cursor config found. Tell your agent to run "${SHIM_PATH} help".`);
+            `TraceNotes: No Claude Code, Codex, Cursor or Antigravity config found. Tell your agent to run "${SHIM_PATH} help".`);
         return;
     }
     const ok = await vscode.window.showInformationMessage(
@@ -562,6 +564,6 @@ function offerSetupOnce(context: vscode.ExtensionContext): void {
     const key = 'tracenotes.agentSetupOffered';
     if (context.globalState.get(key) || !agentTargets(context.extensionPath).length) { return; }
     void context.globalState.update(key, true);
-    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor) create trace trees?', 'Set Up')
+    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor, Antigravity) create trace trees?', 'Set Up')
         .then(choice => { if (choice) { void setupAgents(context.extensionPath); } });
 }
