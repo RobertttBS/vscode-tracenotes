@@ -136,9 +136,9 @@ const LazyRender: React.FC<{ height?: number; forceVisible?: boolean; children: 
                 ref={ref}
                 style={{
                     minHeight: height,
-                    background: 'var(--vscode-editor-background, #1e1e1e)',
+                    background: 'var(--vscode-tracenotes-cardBackground, var(--vscode-editor-background, #1e1e1e))',
                     borderRadius: 6,
-                    border: '1px solid var(--vscode-panel-border, #333)',
+                    border: '1px solid var(--vscode-tracenotes-cardBorder, var(--vscode-panel-border, #333))',
                     opacity: 0.4,
                 }}
             />

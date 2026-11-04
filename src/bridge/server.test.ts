@@ -26,7 +26,8 @@ beforeEach(async () => {
     config.projectId = 'test-project';
     workspace.workspaceFolders = [{ uri: Uri.file(root), name: 'ws' }];
     files = {};
-    (workspace as any).openTextDocument = async (p: string) => {
+    (workspace as any).openTextDocument = async (arg: string | Uri) => {
+        const p = typeof arg === 'string' ? arg : arg.fsPath; // the importer passes a Uri
         if (!(p in files)) { throw new Error(`ENOENT ${p}`); }
         return makeDoc(p, files[p]);
     };
@@ -76,7 +77,8 @@ describe('bridge handle()', () => {
         m.add(a);
         m.createTree('Other');
         await expect(run('add', { tree: 'Other', parent: a.id, markdown: '## x' })).rejects.toThrow(/not in tree "Other"/);
-        expect(m.findTraceById(a.id)!.children ?? []).toEqual([]);
+        expect(activeName()).toBe('Other'); // a rejected add doesn't switch trees either
+        expect(m.getTreesReadonly().find(t => t.name === 'Default Trace')!.traces[0].children ?? []).toEqual([]);
         expect(m.getTreesReadonly().find(t => t.name === 'Other')!.traces).toEqual([]);
     });
 
@@ -144,6 +146,147 @@ describe('bridge handle()', () => {
         expect(about(orphan)).toEqual([expect.stringMatching(/orphaned/)]);
         expect(about(gone)).toHaveLength(1);
         expect(about(fine)).toEqual([]);
+    });
+
+    it('add replies with the first line of code read, the tag and the workspace root', async () => {
+        const file = path.join(root, 'a.ts');
+        files[file] = CODE;
+        fs.writeFileSync(file, CODE);
+        const res = await run('add', { markdown: '## %%Important%% 0. step\n```ts 2:2:a.ts\n```' });
+        expect(res.workspace).toEqual([root]);
+        expect(res.added[0]).toMatchObject({ title: 'step', tag: 'Important', code: SNIPPET });
+    });
+
+    it('add --dry-run parses and reads code but adds nothing', async () => {
+        const file = path.join(root, 'a.ts');
+        files[file] = CODE;
+        fs.writeFileSync(file, CODE);
+        const res = await run('add', { dryRun: 'true', markdown: '## step\n```ts 1:1:a.ts\n```' });
+        expect(res.wouldAdd[0]).toMatchObject({ title: 'step', code: 'const a = 1;' });
+        expect(m.getAll()).toEqual([]);
+    });
+
+    it('add --dry-run rejects what a real add would, without switching trees', async () => {
+        const a = card('a');
+        m.add(a);
+        m.createTree('Other');
+        const dry = (args: Record<string, string>) => run('add', { dryRun: 'true', markdown: '## x', ...args });
+        await expect(dry({ parent: a.id, after: a.id })).rejects.toThrow(/only one of/);
+        await expect(dry({ parent: 'nope' })).rejects.toThrow(/No trace with id nope/);
+        await expect(dry({ tree: 'Other', parent: a.id })).rejects.toThrow(/not in tree "Other"/);
+        const deep = Array.from({ length: 10 }, (_, i) => `${'#'.repeat(i + 2)} d${i}`).join('\n');
+        await expect(dry({ parent: a.id, markdown: deep })).rejects.toThrow(/maximum nesting depth/);
+        await dry({ parent: a.id });
+        expect(activeName()).toBe('Other');
+    });
+
+    it('title replaces only the first line; note and title drop a leading number', async () => {
+        const a = card('a', { note: 'old\nbody one\nbody two' });
+        m.add(a);
+        await run('title', { id: a.id, text: '4. new' });
+        expect(m.findTraceById(a.id)!.note).toBe('new\nbody one\nbody two');
+        await run('note', { id: a.id, text: '0. whole\nnote' });
+        expect(m.findTraceById(a.id)!.note).toBe('whole\nnote');
+        await run('note', { id: a.id, text: '1.\nSecond line' }); // never pulls line 2 up into the title
+        expect(m.findTraceById(a.id)!.note).toBe('\nSecond line');
+        await expect(run('title', { id: a.id, text: '   ' })).rejects.toThrow(/Missing title/);
+        await expect(run('title', { id: a.id, text: '3. ' })).rejects.toThrow(/Missing title/);
+        expect(m.findTraceById(a.id)!.note).toBe('\nSecond line');
+    });
+
+    it('show --id returns one trace with its children', async () => {
+        await run('create', { name: 'T', markdown: '## %%Tip%% one\n### two\n## three' });
+        const one = m.getAll()[0];
+        const res = await run('show', { id: one.id });
+        expect(res).toMatchObject({ id: one.id, note: 'one', tag: 'Tip', children: [{ note: 'two' }] });
+        m.createTree('Other');
+        await run('show', { id: one.id }); // read-only: the user's active tree stays put
+        expect(activeName()).toBe('Other');
+        await expect(run('show', { id: one.id, tree: 'Other' })).rejects.toThrow(/not in tree "Other"/);
+    });
+
+    it('move reorders, reparents and rejects moving into a descendant', async () => {
+        await run('create', { name: 'T', markdown: '## a\n### a1\n## b\n## c' });
+        const [a, b, c] = m.getAll();
+        const a1 = a.children![0];
+        await run('move', { id: c.id, before: a.id });
+        expect(m.getAll().map(t => t.note)).toEqual(['c', 'a', 'b']);
+        await run('move', { id: b.id, parent: a.id });
+        expect(m.findTraceById(a.id)!.children!.map(t => t.note)).toEqual(['a1', 'b']);
+        await run('move', { id: a1.id, root: 'true' });
+        expect(m.getAll().map(t => t.note)).toEqual(['c', 'a', 'a1']);
+        await expect(run('move', { id: a.id, parent: b.id })).rejects.toThrow(/descendant/);
+        await expect(run('move', { id: a.id })).rejects.toThrow(/exactly one/);
+        expect(m.getParentGroupId(b.id)).toBe(a.id);
+    });
+
+    it('find searches titles, notes and code across trees without switching trees', async () => {
+        const file = path.join(root, 'a.ts');
+        await run('create', { name: 'One', markdown: '## Login entry\nchecks the PASSWORD hash\n### child' });
+        const login = m.getAll()[0];
+        m.createTree('Two');
+        const t = codeCard('target fn', file);
+        m.add(t);
+        m.switchTree(m.getTreeList().find(x => x.name === 'One')!.id);
+
+        const byNote = await run('find', { text: 'password' });
+        expect(byNote.matches).toEqual([expect.objectContaining({ id: login.id, tree: 'One', title: 'Login entry', match: 'note: checks the PASSWORD hash' })]);
+        expect(byNote.matches[0].children).toBeUndefined();
+        const child = await run('find', { text: 'child' });
+        expect(child.matches[0]).toMatchObject({ parent: login.id, match: 'note: child' });
+        const byCode = await run('find', { text: 'return 42' });
+        expect(byCode.matches).toEqual([expect.objectContaining({ id: t.id, tree: 'Two', match: `code: ${SNIPPET}` })]);
+        expect((await run('find', { text: 'login', tree: 'Two' })).count).toBe(0);
+        expect(activeName()).toBe('One');
+        await expect(run('find', {})).rejects.toThrow(/Give search text/);
+    });
+
+    it('find --file matches the file, and with lines only overlapping traces', async () => {
+        const file = path.join(root, 'a.ts');
+        const t = codeCard('target fn', file); // line 2 (1-based)
+        m.add(t);
+        m.add(card('note only'));
+        const ids = async (f: string, text?: string) => (await run('find', { file: f, text })).matches.map((x: any) => x.id);
+        expect(await ids('a.ts')).toEqual([t.id]);
+        expect(await ids(file)).toEqual([t.id]);
+        expect(await ids('a.ts:2')).toEqual([t.id]);
+        expect(await ids('a.ts:1-3')).toEqual([t.id]);
+        expect(await ids('a.ts:3-9')).toEqual([]);
+        expect(await ids('a.ts:1')).toEqual([]);
+        expect(await ids('b.ts')).toEqual([]);
+        expect(await ids('a.ts', 'target')).toEqual([t.id]);
+        expect(await ids('a.ts', 'nope')).toEqual([]);
+        await expect(run('find', { file: 'a.ts:5-2' })).rejects.toThrow(/Bad line range/);
+    });
+
+    it('find matches all words in any order, by tag, and under a folder', async () => {
+        fs.mkdirSync(path.join(root, 'src', 'auth'), { recursive: true });
+        const inDir = codeCard('auth check', path.join(root, 'src', 'auth', 'x.ts'));
+        const outside = codeCard('other', path.join(root, 'srcx.ts')); // shares the "src" prefix, not the folder
+        await run('create', { name: 'T', markdown: '## %%Todo%% verify hash\nthe password is checked\n## %%Tip%% hash only' });
+        [inDir, outside].forEach(t => m.add(t));
+        const titles = async (args: Record<string, string>) => (await run('find', args)).matches.map((x: any) => x.title);
+
+        expect(await titles({ text: 'password hash' })).toEqual(['verify hash']); // words split across lines
+        expect((await run('find', { text: 'checked password' })).matches[0].match).toBe('note: the password is checked');
+        expect(await titles({ text: 'password nope' })).toEqual([]);
+        expect(await titles({ tag: 'todo' })).toEqual(['verify hash']);
+        expect(await titles({ tag: 'Tip', text: 'hash' })).toEqual(['hash only']);
+        await expect(run('find', { tag: 'Urgent' })).rejects.toThrow(/Unknown tag "Urgent". Tags: .*Todo/);
+        expect(await titles({ file: 'src' })).toEqual(['auth check']);
+        expect(await titles({ file: 'src/auth/' })).toEqual(['auth check']);
+        await expect(run('find', { file: 'src:3' })).rejects.toThrow(/is a folder/);
+    });
+
+    it('find speaks the panel search syntax: phrases, OR, NOT and -word', async () => {
+        await run('create', { name: 'T', markdown: '## bcrypt login\nhash the password\n## argon2 login\n## legacy md5 login' });
+        const titles = async (text: string) => (await run('find', { text })).matches.map((x: any) => x.title);
+        expect(await titles('"hash the"')).toEqual(['bcrypt login']);
+        expect(await titles('"the hash"')).toEqual([]);
+        expect(await titles('bcrypt OR argon2')).toEqual(['bcrypt login', 'argon2 login']);
+        expect(await titles('login -legacy')).toEqual(['bcrypt login', 'argon2 login']);
+        expect(await titles('login NOT (bcrypt OR argon2)')).toEqual(['legacy md5 login']);
+        await expect(run('find', { text: '-login' })).rejects.toThrow(/nothing to look for/);
     });
 
     it('create, rename and delete-tree address trees by name', async () => {

@@ -40,7 +40,7 @@ function request(entry: WindowEntry, op: string, args: Record<string, string | u
 async function send(op: string, args: Record<string, string | undefined>): Promise<unknown> {
     // Set by the per-editor launcher (tracenotes-cursor, tracenotes-code, …).
     const host = process.env.TRACENOTES_HOST || undefined;
-    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor' } as Record<string, string>)[host] ?? host : 'VS Code';
+    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor', antigravity: 'Antigravity' } as Record<string, string>)[host] ?? host : 'VS Code';
     let entries = readEntries();
     for (;;) {
         const entry = pickEntry(entries, process.cwd(), host);
@@ -58,17 +58,30 @@ async function send(op: string, args: Record<string, string | undefined>): Promi
     }
 }
 
-interface Outlined { note?: string; id?: string; name?: string; file?: string; lines?: string; orphaned?: boolean; children?: Outlined[]; traces?: Outlined[] }
+interface Outlined { note?: string; id?: string; name?: string; file?: string; lines?: string; tag?: string; orphaned?: boolean; workspace?: string[]; children?: Outlined[]; traces?: Outlined[] }
 
-/** `show --outline`: one indented line per trace — id, title, location. */
+/** `show --outline`: one indented line per trace — id, [tag], title, location. */
 function outline(tree: Outlined): string {
-    const lines = [`${tree.name}  (${tree.id})`];
+    // `show --id` returns a single trace (no `traces`, no tree name).
+    const lines = tree.traces ? [`${tree.name}  (${tree.id})${tree.workspace ? `  workspace: ${tree.workspace.join(', ')}` : ''}`] : [];
     const walk = (list: Outlined[] = [], depth: number) => list.forEach(t => {
         const where = t.file ? `  ${t.file}:${t.lines}${t.orphaned ? ' (orphaned)' : ''}` : '';
-        lines.push(`${'  '.repeat(depth)}${t.id}  ${(t.note ?? '').split('\n')[0]}${where}`);
+        const tag = t.tag ? `[${t.tag}] ` : '';
+        lines.push(`${'  '.repeat(depth)}${t.id}  ${tag}${(t.note ?? '').split('\n')[0]}${where}`);
         walk(t.children, depth + 1);
     });
-    walk(tree.traces, 1);
+    if (tree.traces) { walk(tree.traces, 1); } else { walk([tree], 0); }
+    return lines.join('\n') + '\n';
+}
+
+interface Found { count: number; truncated?: string; matches: { id: string; tree: string; title: string; tag?: string; at?: string; match?: string }[] }
+
+/** `find --outline`: one line per match — id, [tag], title, location, (tree), matching line. */
+function findOutline(r: Found): string {
+    const lines = r.matches.map(m => [`${m.id}  ${m.tag ? `[${m.tag}] ` : ''}${m.title}`, m.at, `(${m.tree})`, m.match && `— ${m.match}`]
+        .filter(Boolean).join('  '));
+    if (!r.count) { lines.push('No matches.'); }
+    if (r.truncated) { lines.push(r.truncated); }
     return lines.join('\n') + '\n';
 }
 
@@ -78,27 +91,36 @@ async function main(argv: string[]): Promise<void> {
         allowPositionals: true,
         options: {
             name: { type: 'string' }, tree: { type: 'string' }, parent: { type: 'string' },
-            after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
+            after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' },
+            id: { type: 'string' }, file: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
         },
     });
     const [cmd, id, ...rest] = positionals;
     if (!cmd || cmd === 'help' || values.help) { process.stdout.write(HELP); return; }
 
-    const args: Record<string, string | undefined> = { name: values.name, tree: values.tree, parent: values.parent, after: values.after, before: values.before, lines: values.lines, id };
+    const args: Record<string, string | undefined> = { name: values.name, tree: values.tree, parent: values.parent, after: values.after, before: values.before, lines: values.lines, id,
+        root: values.root ? 'true' : undefined, dryRun: values['dry-run'] ? 'true' : undefined };
+    if (cmd === 'show') { args.id = values.id; }
+    if (cmd === 'find') { args.text = [id, ...rest].join(' ') || undefined; args.id = undefined; args.file = values.file; args.tag = values.tag; }
+    if (cmd === 'title') { args.text = rest.join(' '); }
     if (cmd === 'rm' || cmd === 'refresh') { args.id = [id, ...rest].join(' '); }
     if (cmd === 'rename') { args.name = [id, ...rest].join(' '); }
+    if (cmd === 'color') { Object.assign(args, { action: id, id: undefined, text: rest.join(' '), scope: values.scope, theme: values.theme }); }
     if (cmd === 'create' && !values.name) { throw new Error('create needs --name <name>.'); }
     if (cmd === 'create' || cmd === 'add') { args.markdown = readStdin(); }
     if (cmd === 'note') { args.text = rest.length ? rest.join(' ') : readStdin().replace(/\n$/, ''); }
 
     let result = await send(cmd, args);
-    if (values.quiet && (cmd === 'create' || cmd === 'add')) {
+    if (values.quiet && (cmd === 'create' || cmd === 'add') && !values['dry-run']) {
         // `--quiet`: drop the per-trace list; ids are one `show --outline` away.
         const { traces, added, ...rest } = result as Outlined & { added?: Outlined[] };
         const count = (list: Outlined[] = []): number => list.reduce((n, t) => n + 1 + count(t.children), 0);
         result = { ...rest, count: count(traces ?? added) };
     }
-    process.stdout.write(cmd === 'show' && values.outline ? outline(result as Outlined) : JSON.stringify(result, null, 2) + '\n');
+    const out = values.outline && cmd === 'show' ? outline(result as Outlined)
+        : values.outline && cmd === 'find' ? findOutline(result as Found)
+        : JSON.stringify(result, null, 2) + '\n';
+    process.stdout.write(out);
 }
 
 main(process.argv.slice(2)).catch(err => {

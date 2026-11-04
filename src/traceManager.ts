@@ -2109,6 +2109,45 @@ export class TraceManager implements vscode.Disposable {
         return traces;
     }
 
+    /** Parse Markdown as `importTraces` would (reading the files), without changing anything. */
+    public async previewTraces(markdown: string): Promise<TracePoint[]> {
+        return this.parseMarkdown(markdown);
+    }
+
+    /**
+     * Move a trace (with its children) within the active tree: to the end of
+     * `parentId`'s children (null = tree root), or next to sibling `beside.id`.
+     */
+    public moveTrace(id: string, dest: { parentId: string | null } | { beside: string; after: boolean }): void {
+        const trace = this.findTraceById(id);
+        if (!trace) { throw new Error(`Trace ${id} not found in the active tree.`); }
+        const parentId = 'beside' in dest ? this.parentIdMap.get(dest.beside) : dest.parentId;
+        if (parentId === undefined) { throw new Error(`Trace ${(dest as { beside: string }).beside} not found in the active tree.`); }
+        if ('beside' in dest && dest.beside === id) { throw new Error('A trace cannot be moved next to itself.'); }
+        if (parentId !== null && !this.traceIdMap.has(parentId)) { throw new Error(`Trace ${parentId} not found in the active tree.`); }
+        if (parentId !== null && this.isDescendant(id, parentId)) { throw new Error('Cannot move a trace into itself or its own descendant.'); }
+        const baseDepth = parentId === null ? 0 : this.getDepth(parentId) + 1;
+        if (baseDepth + this.height([trace]) > MAX_DEPTH) {
+            throw new Error(`The move would exceed the maximum nesting depth of ${MAX_DEPTH}.`);
+        }
+
+        this.removeFromTree(id);
+        const target = parentId === null ? this.getActiveRootTraces() : (this.findTraceById(parentId)!.children ??= []);
+        const index = 'beside' in dest ? target.findIndex(t => t.id === dest.beside) + (dest.after ? 1 : 0) : target.length;
+        target.splice(index, 0, trace);
+        this.rebuildTraceIndex();
+        // The group cursor may have moved deeper with the subtree; keep it where
+        // enterGroup allows, so new cards can't land past MAX_DEPTH.
+        let group = this.activeGroupId;
+        while (group !== null && this.getDepth(group) >= MAX_DEPTH - 1) { group = this.findParentTraceId(group); }
+        if (group !== this.activeGroupId) {
+            this.activeGroupId = group;
+            this.persistActiveGroup();
+        }
+        this.persist();
+        this._onDidChangeTraces.fire();
+    }
+
     private height(list: TracePoint[]): number {
         return list.reduce((h, t) => Math.max(h, 1 + this.height(t.children ?? [])), 0);
     }
@@ -2142,8 +2181,8 @@ export class TraceManager implements vscode.Disposable {
         // The open code block is "?:?": it must carry the code to search for.
         let linesUnknown = false;
 
-        // "<n>." numbering is optional; captures an optional %%Tag%% right after it
-        const headerRegex = /^(#+)\s+(?:\d+\.(?:\s+|$))?(?:%%([^%]+)%%\s+)?(.*)/;
+        // "<n>." numbering is optional and dropped; an optional %%Tag%% may come before or after it
+        const headerRegex = /^(#+)\s+(?:\d+\.(?:\s+|$))?(?:%%([^%]+)%%\s+)?(?:\d+\.(?:\s+|$))?(.*)/;
         // lang may be c++, c#, objective-c, …
         const codeBlockStartRegex = /^```([\w+#.-]*)\s+(\d+|\?):(\d+|\?):(.+)$/;
 

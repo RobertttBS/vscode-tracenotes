@@ -51,16 +51,16 @@ kbd {
 /* ---- Trace Card ---- */
 .trace-card {
   position: relative;
-  border: 1px solid var(--vscode-panel-border, #555);
+  border: 1px solid var(--vscode-tracenotes-cardBorder, var(--vscode-panel-border, #555));
   border-radius: 6px;
   box-sizing: border-box; /* prevents solid→dashed swap from shifting layout */
   transition: border-color 0.15s ease;
-  background: var(--vscode-editor-background, #1e1e1e);
+  background: var(--vscode-tracenotes-cardBackground, var(--vscode-editor-background, #1e1e1e));
   /* overflow: hidden removed to allow tooltips to pop out */
 }
 
 .trace-card:hover {
-  border-color: #858585;
+  border-color: var(--vscode-tracenotes-cardHoverBorder, #858585);
 }
 
 /* ---- Drag and Drop Visuals ---- */
@@ -108,7 +108,7 @@ kbd {
   top: -12px;
   width: 2px;
   height: 12px;
-  background: var(--vscode-panel-border, #444);
+  background: var(--vscode-tracenotes-connector, var(--vscode-panel-border, #444));
 }
 
 .trace-card:first-child .connector-line {
@@ -121,7 +121,7 @@ kbd {
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
-  background: var(--vscode-sideBarSectionHeader-background, #252526);
+  background: var(--vscode-tracenotes-cardHeaderBackground, var(--vscode-sideBarSectionHeader-background, #252526));
   cursor: pointer;
   user-select: none;
   border-radius: 6px 6px 0 0;
@@ -148,7 +148,7 @@ kbd {
 .card-file {
   font-size: 12px;
   font-weight: 500;
-  color: var(--vscode-textLink-foreground, #3794ff);
+  color: var(--vscode-tracenotes-cardFileForeground, var(--vscode-textLink-foreground, #3794ff));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -200,20 +200,16 @@ kbd {
 
 .note-display {
   font-size: 12px;
-  color: #9ebeffff;
+  color: var(--vscode-tracenotes-noteForeground, #9ebeff);
   cursor: pointer;
   padding: 6px;
   min-height: 16px;
   line-height: 1.4;
-  border: 1px solid var(--vscode-widget-border, #4e4e4eff);
+  border: 1px solid var(--vscode-tracenotes-noteBorder, var(--vscode-widget-border, #4e4e4e));
   border-radius: 3px;
   margin-top: 2px;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-body.vscode-light .note-display {
-  color: #1f3a8a;
 }
 
 /* Rendered markdown notes */
@@ -491,7 +487,7 @@ body.vscode-light .note-display {
 /* ---- Orphan State Styles ---- */
 .trace-card.orphan {
   opacity: 0.5;
-  border-color: #ff000084 !important;
+  border-color: var(--vscode-tracenotes-orphanBorder, #ff000084) !important;
 }
 
 .trace-card.orphan:hover {
@@ -655,8 +651,8 @@ body.vscode-light .note-display {
 /* Focus Highlight Animation */
 @keyframes trace-focus-pulse {
   0% {
-    box-shadow: 0 0 0 0 #858585;
-    background-color: rgba(133, 133, 133, 0.3);
+    box-shadow: 0 0 0 0 var(--vscode-tracenotes-cardActiveBorder, #858585);
+    background-color: color-mix(in srgb, var(--vscode-tracenotes-cardActiveBorder, #858585) 30%, transparent);
   }
   70% {
     box-shadow: 0 0 0 4px transparent;
@@ -674,7 +670,7 @@ body.vscode-light .note-display {
 }
 
 .highlight-active .trace-card {
-  border: 3px solid #858585 !important;
+  border: 3px solid var(--vscode-tracenotes-cardActiveBorder, #858585) !important;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
@@ -962,11 +958,6 @@ code {
   color: var(--vscode-editor-foreground);
 }
 
-/* Force high-contrast borders if the user is using a HC theme */
-body.vscode-high-contrast .trace-card {
-  outline: 1px solid var(--vscode-contrastActiveBorder);
-}
-
 /* Optional: Subtle scrollbar styling to match VS Code */
 ::-webkit-scrollbar {
   width: 10px;
@@ -1029,7 +1020,7 @@ body.vscode-high-contrast .trace-card {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: var(--vscode-editor-background);
+  background: var(--vscode-tracenotes-minimapBackground, var(--vscode-editor-background));
   overflow: hidden;
   cursor: grab;
   user-select: none;
@@ -1050,9 +1041,9 @@ body.vscode-high-contrast .trace-card {
 }
 
 .toolbar-btn.float-close-btn {
-  background: #d4d4d4;
-  border-color: #000000;
-  color: #000000;
+  background: var(--vscode-tracenotes-minimapControlBackground, #d4d4d4);
+  border-color: var(--vscode-tracenotes-minimapControlBorder, #000000);
+  color: var(--vscode-tracenotes-minimapControlForeground, #000000);
 }
 
 .float-canvas {
@@ -1085,7 +1076,7 @@ body.vscode-high-contrast .trace-card {
   top: -12px;
   bottom: 0;
   width: 1px;
-  background: var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.35));
+  background: var(--vscode-tracenotes-minimapConnector, var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.35)));
   pointer-events: none;
 }
 
@@ -1101,7 +1092,7 @@ body.vscode-high-contrast .trace-card {
   top: 18px;
   width: var(--float-col-gap, 60px);
   height: 1px;
-  background: var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.35));
+  background: var(--vscode-tracenotes-minimapConnector, var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.35)));
   pointer-events: none;
 }
 
@@ -1111,7 +1102,7 @@ body.vscode-high-contrast .trace-card {
   position: relative;
   width: var(--float-card-width, 380px);
   margin-bottom: 12px;
-  border: 1px solid var(--vscode-widget-border);
+  border: 1px solid var(--vscode-tracenotes-minimapCardBorder, var(--vscode-widget-border));
   border-radius: 4px;
   padding: 8px 10px;
   background: var(--vscode-editor-background);
@@ -1134,8 +1125,8 @@ body.vscode-high-contrast .trace-card {
 
 .float-card-active-arrow {
   font-size: 40px;
-  color: var(--vscode-charts-orange, #ff8c00);
-  filter: drop-shadow(0 0 6px var(--vscode-charts-orange, #ff8c00));
+  color: var(--vscode-tracenotes-minimapActiveArrow, var(--vscode-charts-orange, #ff8c00));
+  filter: drop-shadow(0 0 6px var(--vscode-tracenotes-minimapActiveArrow, var(--vscode-charts-orange, #ff8c00)));
   line-height: 1;
 }
 
@@ -1222,8 +1213,8 @@ body.vscode-high-contrast .trace-card {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: #d4d4d4;
-  border: 1px solid #000000;
+  background: var(--vscode-tracenotes-minimapControlBackground, #d4d4d4);
+  border: 1px solid var(--vscode-tracenotes-minimapControlBorder, #000000);
   border-radius: 6px;
   padding: 2px 2px 2px 8px;
   width: 320px;
@@ -1236,7 +1227,7 @@ body.vscode-high-contrast .trace-card {
   background: none;
   border: none;
   outline: none;
-  color: #000000;
+  color: var(--vscode-tracenotes-minimapControlForeground, #000000);
   font-size: 13px;
   font-family: var(--vscode-font-family, inherit);
   padding: 4px 0;
@@ -1245,14 +1236,14 @@ body.vscode-high-contrast .trace-card {
 }
 
 .float-search-input::placeholder {
-  color: rgba(0, 0, 0, 0.45);
+  color: color-mix(in srgb, var(--vscode-tracenotes-minimapControlForeground, #000000) 45%, transparent);
 }
 
 .float-search-clear {
   flex-shrink: 0;
   font-size: 12px;
   padding: 4px 6px;
-  color: #000000;
+  color: var(--vscode-tracenotes-minimapControlForeground, #000000);
 }
 
 /* ─── Float Search Results ────────────────────────────────────────────────── */
@@ -1282,7 +1273,7 @@ body.vscode-high-contrast .trace-card {
 }
 
 .float-search-highlight {
-  background: rgba(255, 200, 0, 0.35);
+  background: var(--vscode-tracenotes-searchMatchBackground, rgba(255, 200, 0, 0.35));
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;

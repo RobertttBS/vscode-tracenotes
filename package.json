@@ -2,7 +2,7 @@
   "name": "tracenotes",
   "displayName": "TraceNotes",
   "description": "An extension for code tracing and note-taking.",
-  "version": "0.0.69",
+  "version": "0.0.70",
   "publisher": "RobertttBS",
   "icon": "images/icon.png",
   "repository": {
@@ -45,6 +45,188 @@
         }
       }
     },
+    "colors": [
+      {
+        "id": "tracenotes.cardBackground",
+        "description": "Background of a trace card in the panel.",
+        "defaults": {
+          "dark": "editor.background",
+          "light": "editor.background",
+          "highContrast": "editor.background",
+          "highContrastLight": "editor.background"
+        }
+      },
+      {
+        "id": "tracenotes.cardBorder",
+        "description": "Border of a trace card in the panel.",
+        "defaults": {
+          "dark": "panel.border",
+          "light": "panel.border",
+          "highContrast": "contrastBorder",
+          "highContrastLight": "contrastBorder"
+        }
+      },
+      {
+        "id": "tracenotes.cardHoverBorder",
+        "description": "Border of a trace card under the mouse.",
+        "defaults": {
+          "dark": "#858585",
+          "light": "#858585",
+          "highContrast": "contrastActiveBorder",
+          "highContrastLight": "contrastActiveBorder"
+        }
+      },
+      {
+        "id": "tracenotes.cardActiveBorder",
+        "description": "Border (and flash) of the card for the code under the cursor. Tagged cards keep their tag colour.",
+        "defaults": {
+          "dark": "#858585",
+          "light": "#858585",
+          "highContrast": "contrastActiveBorder",
+          "highContrastLight": "contrastActiveBorder"
+        }
+      },
+      {
+        "id": "tracenotes.cardHeaderBackground",
+        "description": "Background of a trace card's header row (number, file, buttons).",
+        "defaults": {
+          "dark": "sideBarSectionHeader.background",
+          "light": "sideBarSectionHeader.background",
+          "highContrast": "sideBarSectionHeader.background",
+          "highContrastLight": "sideBarSectionHeader.background"
+        }
+      },
+      {
+        "id": "tracenotes.cardFileForeground",
+        "description": "File name in a trace card's header.",
+        "defaults": {
+          "dark": "textLink.foreground",
+          "light": "textLink.foreground",
+          "highContrast": "textLink.foreground",
+          "highContrastLight": "textLink.foreground"
+        }
+      },
+      {
+        "id": "tracenotes.noteForeground",
+        "description": "Note text on a trace card.",
+        "defaults": {
+          "dark": "#9ebeff",
+          "light": "#1f3a8a",
+          "highContrast": "#9ebeff",
+          "highContrastLight": "#1f3a8a"
+        }
+      },
+      {
+        "id": "tracenotes.noteBorder",
+        "description": "Border around the note on a trace card.",
+        "defaults": {
+          "dark": "widget.border",
+          "light": "widget.border",
+          "highContrast": "widget.border",
+          "highContrastLight": "widget.border"
+        }
+      },
+      {
+        "id": "tracenotes.orphanBorder",
+        "description": "Border of a card whose code can no longer be found in its file.",
+        "defaults": {
+          "dark": "#ff000084",
+          "light": "#ff000084",
+          "highContrast": "#ff000084",
+          "highContrastLight": "#ff000084"
+        }
+      },
+      {
+        "id": "tracenotes.connector",
+        "description": "Line joining consecutive cards in the panel.",
+        "defaults": {
+          "dark": "panel.border",
+          "light": "panel.border",
+          "highContrast": "panel.border",
+          "highContrastLight": "panel.border"
+        }
+      },
+      {
+        "id": "tracenotes.minimapBackground",
+        "description": "Background of the minimap.",
+        "defaults": {
+          "dark": "editor.background",
+          "light": "editor.background",
+          "highContrast": "editor.background",
+          "highContrastLight": "editor.background"
+        }
+      },
+      {
+        "id": "tracenotes.minimapCardBorder",
+        "description": "Border of an untagged card in the minimap and in cross-tree search results.",
+        "defaults": {
+          "dark": "widget.border",
+          "light": "widget.border",
+          "highContrast": "widget.border",
+          "highContrastLight": "widget.border"
+        }
+      },
+      {
+        "id": "tracenotes.minimapConnector",
+        "description": "Lines joining parent and child cards in the minimap.",
+        "defaults": {
+          "dark": "editorIndentGuide.background",
+          "light": "editorIndentGuide.background",
+          "highContrast": "editorIndentGuide.background",
+          "highContrastLight": "editorIndentGuide.background"
+        }
+      },
+      {
+        "id": "tracenotes.minimapActiveArrow",
+        "description": "Arrow pointing at the active card in the minimap.",
+        "defaults": {
+          "dark": "charts.orange",
+          "light": "charts.orange",
+          "highContrast": "charts.orange",
+          "highContrastLight": "charts.orange"
+        }
+      },
+      {
+        "id": "tracenotes.minimapControlBackground",
+        "description": "Background of the minimap's search bar and close button.",
+        "defaults": {
+          "dark": "#d4d4d4",
+          "light": "#d4d4d4",
+          "highContrast": "#d4d4d4",
+          "highContrastLight": "#d4d4d4"
+        }
+      },
+      {
+        "id": "tracenotes.minimapControlForeground",
+        "description": "Text and icons in the minimap's search bar and close button.",
+        "defaults": {
+          "dark": "#000000",
+          "light": "#000000",
+          "highContrast": "#000000",
+          "highContrastLight": "#000000"
+        }
+      },
+      {
+        "id": "tracenotes.minimapControlBorder",
+        "description": "Border of the minimap's search bar and close button.",
+        "defaults": {
+          "dark": "#000000",
+          "light": "#000000",
+          "highContrast": "#000000",
+          "highContrastLight": "#000000"
+        }
+      },
+      {
+        "id": "tracenotes.searchMatchBackground",
+        "description": "Background behind search matches in minimap and cross-tree search results.",
+        "defaults": {
+          "dark": "#ffc80059",
+          "light": "#ffc80059",
+          "highContrast": "#ffc80059",
+          "highContrastLight": "#ffc80059"
+        }
+      }
+    ],
     "commands": [
       {
         "command": "tracenotes.collectTrace",

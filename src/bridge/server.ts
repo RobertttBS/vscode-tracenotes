@@ -5,7 +5,9 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { TraceManager } from '../traceManager';
-import { TracePoint, TraceTree } from '../types';
+import { HIGHLIGHT_TO_TAG, MAX_DEPTH, TracePoint, TraceTree } from '../types';
+import { SearchNode, collectHighlightTargets, matchTrace as matchQuery, parseQuery } from '../webview/utils/search';
+import { colorCommand } from './colors';
 import { GUIDE } from './guide';
 import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, shimPath, sweepStale, writeAtomic } from './registry';
 
@@ -89,34 +91,89 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
         case 'list':
             return tm.getTreeList();
         case 'show': {
+            if (a.id) {
+                // Read-only: look the trace up without switching the user's active tree.
+                const hit = locate(tm, a.id);
+                if (!hit) { throw new Error(`No trace with id ${a.id}.`); }
+                if (a.tree && findTree(tm, a.tree).id !== hit.tree.id) { throw new Error(`Trace ${a.id} is not in tree "${a.tree}".`); }
+                return describeTrace(hit.trace);
+            }
             const tree = treeOrActive(tm, a.tree);
             if (!tree) { throw new Error('No active trace tree.'); }
-            return describeTree(tree);
+            return { workspace: workspaceRoots(), ...describeTree(tree) };
+        }
+        case 'find': {
+            // Read-only, across every tree (or --tree): never switches the user's active tree.
+            // The panel's search syntax and fields (note + code), so both find the same cards.
+            const query = a.text?.trim() ? parseQuery(a.text) : null;
+            if (a.text?.trim() && !query) { throw new Error(`"${a.text}" has nothing to look for: give at least one word that isn't negated.`); }
+            const file = a.file ? parseFileRef(a.file) : undefined;
+            const tag = a.tag ? parseTag(a.tag) : undefined;
+            if (!query && !file && !tag) { throw new Error('Give search text, --file <path>[:<line>[-<line>]], --tag <tag>, or a mix.'); }
+            const trees = a.tree ? [findTree(tm, a.tree)] : tm.getTreesReadonly();
+            const matches: object[] = [];
+            const visit = (tree: TraceTree, list: TracePoint[], parent: string | undefined) => {
+                for (const t of list) {
+                    const hit = (!tag || tagOf(t) === tag) && matchTrace(t, query, file);
+                    if (hit) {
+                        const { children: _, ...b } = brief(t) as { children?: unknown };
+                        matches.push({ tree: tree.name, parent, ...b, match: hit === true ? undefined : hit });
+                    }
+                    visit(tree, t.children ?? [], t.id);
+                }
+            };
+            trees.forEach(tree => visit(tree, tree.traces, undefined));
+            const LIMIT = 50;
+            return {
+                count: matches.length,
+                matches: matches.slice(0, LIMIT),
+                truncated: matches.length > LIMIT ? `Showing the first ${LIMIT}; narrow the search with --tree, --file, --tag or more words.` : undefined,
+            };
         }
         case 'create': {
             await tm.importTraceTree(need(a.markdown, 'markdown'), need(a.name, '--name'));
             const tree = treeOrActive(tm)!;
-            return withWarnings({ id: tree.id, name: tree.name, traces: tree.traces.map(brief) }, tree.traces);
+            return withWarnings({ id: tree.id, name: tree.name, workspace: workspaceRoots(), traces: tree.traces.map(brief) }, tree.traces);
         }
         case 'add': {
             const sibling = a.after ?? a.before;
             if ([a.parent, a.after, a.before].filter(Boolean).length > 1) { throw new Error('Use only one of --parent, --after, --before.'); }
             const anchor = a.parent ?? sibling;
+            // Resolve the target read-only first, so --dry-run rejects what a real add would.
+            const named = a.tree ? findTree(tm, a.tree) : undefined;
+            let target: TraceTree | undefined;
+            let baseDepth = 0;
             if (anchor) {
-                focusTreeOf(tm, anchor);
-                if (a.tree && findTree(tm, a.tree).id !== tm.getActiveTreeData()?.id) { throw new Error(`Trace ${anchor} is not in tree "${a.tree}".`); }
-            } else if (a.tree) { activate(tm, findTree(tm, a.tree)); }
+                const hit = locate(tm, anchor);
+                if (!hit) { throw new Error(`No trace with id ${anchor}.`); }
+                if (named && named.id !== hit.tree.id) { throw new Error(`Trace ${anchor} is not in tree "${a.tree}".`); }
+                target = hit.tree;
+                baseDepth = a.parent ? hit.depth + 1 : hit.depth;
+            } else {
+                target = named ?? treeOrActive(tm);
+                if (!target) { throw new Error('No active trace tree.'); }
+            }
+            if (a.dryRun) {
+                // Same parsing and file reads as a real add; nothing is inserted.
+                const parsed = await tm.previewTraces(need(a.markdown, 'markdown'));
+                if (baseDepth + height(parsed) > MAX_DEPTH) { throw new Error(`Traces would exceed the maximum nesting depth of ${MAX_DEPTH}.`); }
+                return withWarnings({ dryRun: true, workspace: workspaceRoots(), wouldAdd: parsed.map(brief) }, parsed);
+            }
+            activate(tm, target);
             const added = await tm.importTraces(need(a.markdown, 'markdown'), a.parent ?? null,
                 sibling ? { id: sibling, after: !!a.after } : undefined);
-            return withWarnings({ added: added.map(brief) }, added);
+            return withWarnings({ workspace: workspaceRoots(), added: added.map(brief) }, added);
         }
         case 'check': {
             const tree = treeOrActive(tm, a.tree);
             if (!tree) { throw new Error('No active trace tree.'); }
             activate(tm, tree);
+            const before = new Map<string, string>();
+            const remember = (list: TracePoint[]) => list.forEach(t => { if (t.lineRange) { before.set(t.id, lineSpan(t.lineRange)); } remember(t.children ?? []); });
+            remember(tree.traces);
             await tm.validateActiveTreeBackground(); // re-anchor after outside edits
             const fresh = tm.getTreesReadonly().find(t => t.id === tree.id) ?? tree; // re-read after validation; a disk reload may have swapped it
-            const { warnings } = await withWarnings({}, fresh.traces);
+            const { warnings } = await withWarnings({}, fresh.traces, before);
             return { tree: tree.name, warnings: warnings ?? [] };
         }
         case 'refresh': {
@@ -151,8 +208,28 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             const id = need(a.id, 'trace id');
             focusTreeOf(tm, id);
             if (a.text === undefined) { throw new Error('Missing note text.'); } // "" clears the note
-            tm.updateNote(id, a.text);
+            tm.updateNote(id, stripNumber(a.text));
             return brief(tm.findTraceById(id)!);
+        }
+        case 'title': {
+            const id = need(a.id, 'trace id');
+            focusTreeOf(tm, id);
+            const title = need(stripNumber((a.text ?? '').split('\n')[0]).trim(), 'title');
+            const t = tm.findTraceById(id)!;
+            const body = t.note.split('\n').slice(1);
+            tm.updateNote(id, [title, ...body].join('\n'));
+            return brief(t);
+        }
+        case 'move': {
+            const id = need(a.id, 'trace id');
+            const dests = [a.parent, a.after, a.before, a.root].filter(Boolean);
+            if (dests.length !== 1) { throw new Error('move needs exactly one of --parent <id>, --after <id>, --before <id>, --root.'); }
+            focusTreeOf(tm, id);
+            const anchor = a.parent ?? a.after ?? a.before;
+            if (anchor && !tm.findTraceById(anchor)) { throw new Error(`Trace ${anchor} is not in the same tree as ${id}.`); }
+            const sibling = a.after ?? a.before;
+            tm.moveTrace(id, sibling ? { beside: sibling, after: !!a.after } : { parentId: a.parent ?? null });
+            return { moved: id, parent: tm.getParentGroupId(id) ?? null };
         }
         case 'rm': {
             const list = ids(a.id);
@@ -177,6 +254,8 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             tm.deleteTree(tree.id);
             return { deleted: tree.id, name: tree.name };
         }
+        case 'color':
+            return colorCommand(a);
         default:
             throw new Error(`Unknown command "${op}".`);
     }
@@ -185,6 +264,103 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
 /** Several trace ids arrive space-separated in one argument. */
 function ids(v: string | undefined): string[] {
     return need(v, 'trace id').split(/\s+/).filter(Boolean);
+}
+
+/** Drop a leading "<n>. " from a title line, as `add` does for headings: the panel numbers cards itself. */
+function stripNumber(note: string): string {
+    // Horizontal whitespace only: never eat the newline and promote line 2 to the title.
+    return note.replace(/^\d+\.(?:[ \t]+|(?=\r?\n|$))/, '');
+}
+
+/** Where a trace lives, found without switching trees (unlike focusTreeOf). Depth 0 = tree root. */
+function locate(tm: TraceManager, id: string): { tree: TraceTree; trace: TracePoint; depth: number } | undefined {
+    const find = (list: TracePoint[], depth: number): { trace: TracePoint; depth: number } | undefined => {
+        for (const t of list) {
+            if (t.id === id) { return { trace: t, depth }; }
+            const hit = find(t.children ?? [], depth + 1);
+            if (hit) { return hit; }
+        }
+        return undefined;
+    };
+    for (const tree of tm.getTreesReadonly()) {
+        const hit = find(tree.traces, 0);
+        if (hit) { return { tree, ...hit }; }
+    }
+    return undefined;
+}
+
+/** `paths` are files, or folder prefixes (ending in a separator) when `dir`. */
+interface FileRef { paths: string[]; dir: boolean; lines?: [number, number] }
+
+/** `path`, `path:40` or `path:40-52` (1-based), or a folder; relative to a workspace root or absolute. */
+function parseFileRef(ref: string): FileRef {
+    const m = /^(.*?):(\d+)(?:-(\d+))?$/.exec(ref);
+    const p = m ? m[1] : ref;
+    let lines: [number, number] | undefined;
+    if (m) {
+        const [s, e] = [Number(m[2]), Number(m[3] ?? m[2])];
+        if (s < 1 || e < s) { throw new Error(`Bad line range in "${ref}": use <line> or <start>-<end>, 1-based.`); }
+        lines = [s - 1, e - 1];
+    }
+    const paths = path.isAbsolute(p) ? [p] : workspaceRoots().map(r => path.join(r, p));
+    const isDir = (q: string) => { try { return fs.statSync(q).isDirectory(); } catch { return false; } };
+    const dir = /[\\/]$/.test(p) || p === '.' || paths.some(isDir);
+    if (dir && lines) { throw new Error(`"${p}" is a folder; line numbers only work with a file.`); }
+    return { paths: paths.map(q => dir ? path.join(samePath(q), path.sep) : samePath(q)), dir, lines };
+}
+
+/** A colour tag name, case-insensitive, as the canonical spelling. */
+function parseTag(ref: string): string {
+    const name = ref.replace(/^%%|%%$/g, '');
+    const all = Object.values(HIGHLIGHT_TO_TAG);
+    const tag = all.find(x => x.toLowerCase() === name.toLowerCase());
+    if (!tag) { throw new Error(`Unknown tag "${ref}". Tags: ${all.join(', ')}.`); }
+    return tag;
+}
+
+/** Normalized for comparison; Windows paths are case-insensitive. */
+function samePath(p: string): string {
+    const n = path.normalize(p);
+    return process.platform === 'win32' ? n.toLowerCase() : n;
+}
+
+/**
+ * Whether a trace matches: false, true (nothing to show), or the line holding the
+ * most search words, prefixed by where it was found ("note: …" / "code: …").
+ */
+function matchTrace(t: TracePoint, query: SearchNode | null, file: FileRef | undefined): string | boolean {
+    if (file) {
+        const p = t.filePath ? samePath(t.filePath) : undefined;
+        if (!p || !(file.dir ? file.paths.some(d => p.startsWith(d)) : file.paths.includes(p))) { return false; }
+        if (file.lines && (!t.lineRange || t.lineRange[1] < file.lines[0] || t.lineRange[0] > file.lines[1])) { return false; }
+    }
+    if (!query) { return true; }
+    if (!matchQuery(query, `${t.note ?? ''}\n${t.content ?? ''}`)) { return false; }
+    const words = collectHighlightTargets(query).map(w => w.toLowerCase());
+    let best = { score: 0, text: '' };
+    for (const [where, body] of [['note', t.note], ['code', t.content]] as const) {
+        for (const line of body.split('\n')) {
+            const score = words.filter(w => line.toLowerCase().includes(w)).length;
+            if (score > best.score) {
+                const s = line.trim();
+                best = { score, text: `${where}: ${s.length > 80 ? s.slice(0, 77) + '...' : s}` };
+            }
+        }
+    }
+    return best.text || true;
+}
+
+function height(list: TracePoint[]): number {
+    return list.reduce((h, t) => Math.max(h, 1 + height(t.children ?? [])), 0);
+}
+
+function lineSpan(r: [number, number]): string {
+    return `${r[0] + 1}-${r[1] + 1}`;
+}
+
+/** Folders the CLI's relative paths resolve against. */
+function workspaceRoots(): string[] {
+    return (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
 }
 
 function need(v: string | undefined, what: string): string {
@@ -219,7 +395,7 @@ function focusTreeOf(tm: TraceManager, id: string): void {
 }
 
 /** Flags traces whose code doesn't match the file where they were anchored (stale or miscopied). */
-async function withWarnings<T extends object>(result: T, traces: TracePoint[]): Promise<T & { warnings?: string[] }> {
+async function withWarnings<T extends object>(result: T, traces: TracePoint[], before?: Map<string, string>): Promise<T & { warnings?: string[] }> {
     const warnings: string[] = [];
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     const visit = async (t: TracePoint): Promise<void> => {
@@ -232,7 +408,10 @@ async function withWarnings<T extends object>(result: T, traces: TracePoint[]): 
                     const doc = await vscode.workspace.openTextDocument(t.filePath);
                     const text = doc.getText(new vscode.Range(doc.positionAt(t.rangeOffset[0]), doc.positionAt(t.rangeOffset[1])));
                     if (norm(text) !== norm(t.content)) {
-                        warnings.push(`${where}: code differs from the file at lines ${t.lineRange![0] + 1}-${t.lineRange![1] + 1} (stale or miscopied); anchored to the closest match. Run \`tracenotes refresh ${t.id}\` to re-read these lines, or add --lines <start>:<end>.`);
+                        const now = lineSpan(t.lineRange!);
+                        const was = before?.get(t.id);
+                        const match = was && was !== now ? `re-anchored from lines ${was} to the closest match at ${now}` : `closest match is lines ${now}`;
+                        warnings.push(`${where}: code differs from the file (stale or miscopied); ${match}, which now starts "${preview(text)}". To accept lines ${now}, run \`tracenotes refresh ${t.id}\`; otherwise add --lines <start>:<end>.`);
                     }
                 } catch {
                     warnings.push(`${where}: the file can't be read (deleted or moved?). Run \`tracenotes refresh ${t.id} --lines <start>:<end>\` once it's back, or rm the trace.`);
@@ -256,9 +435,21 @@ function brief(t: TracePoint): object {
         id: t.id,
         title: t.note.split('\n')[0],
         at: t.filePath && t.lineRange ? `${vscode.workspace.asRelativePath(t.filePath, false)}:${t.lineRange[0] + 1}-${t.lineRange[1] + 1}` : undefined,
+        tag: tagOf(t),
+        code: t.filePath ? preview(t.content) : undefined, // first line actually read: catches off-by-one line numbers
         orphaned: t.orphaned || undefined,
         children: t.children?.length ? t.children.map(brief) : undefined,
     };
+}
+
+function tagOf(t: TracePoint): string | undefined {
+    return t.highlight ? HIGHLIGHT_TO_TAG[t.highlight] : undefined;
+}
+
+/** First non-blank line of some code, trimmed and cut to fit one line. */
+function preview(code: string): string {
+    const line = code.split('\n').find(l => l.trim())?.trim() ?? '';
+    return line.length > 60 ? line.slice(0, 57) + '...' : line;
 }
 
 // Code content is omitted: agents can read the file at `file`/`lines` themselves.
@@ -268,7 +459,7 @@ function describeTrace(t: TracePoint): object {
         note: t.note,
         file: t.filePath ? vscode.workspace.asRelativePath(t.filePath, false) : undefined,
         lines: t.filePath && t.lineRange ? `${t.lineRange[0] + 1}-${t.lineRange[1] + 1}` : undefined,
-        highlight: t.highlight ?? undefined,
+        tag: tagOf(t),
         orphaned: t.orphaned || undefined,
         children: t.children?.length ? t.children.map(describeTrace) : undefined,
     };
@@ -303,7 +494,7 @@ interface AgentTarget { name: string; file: string; installed: () => boolean; wr
 function skillMd(shim: string, editor: string): string {
     return `---
 name: tracenotes
-description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's ${editor} TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes.
+description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's ${editor} TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes, or change the TraceNotes panel's colours.
 ---
 
 Use the TraceNotes CLI at \`${shim}\` (below: \`tracenotes\`).
@@ -321,16 +512,18 @@ function writeIfChanged(file: string, text: string): void {
 
 /**
  * Agents whose config dir exists; each reads skills from <dir>/skills/<name>/SKILL.md.
- * Cursor's agent lives in Cursor, so it gets the Cursor-only launcher; Claude Code and
- * Codex run beside any editor and get the generic one.
+ * Cursor's agent lives in Cursor, so it gets the Cursor-only launcher; Claude Code,
+ * Codex and Antigravity get the generic one. Antigravity's IDE agent and its `agy` CLI
+ * share one global root, ~/.gemini/config/, and the CLI runs beside any editor.
  */
 function agentTargets(extensionPath: string): AgentTarget[] {
     const home = os.homedir();
     const skills = {
-        generic: skillMd(SHIM_PATH, 'VS Code'),
+        generic: skillMd(SHIM_PATH, 'VS Code / Antigravity'),
         cursor: skillMd(shimPath('cursor'), 'Cursor'),
     };
-    return ([['Claude Code', '.claude', 'generic'], ['Codex', '.codex', 'generic'], ['Cursor', '.cursor', 'cursor']] as const)
+    return ([['Claude Code', '.claude', 'generic'], ['Codex', '.codex', 'generic'], ['Cursor', '.cursor', 'cursor'],
+        ['Antigravity', path.join('.gemini', 'config'), 'generic']] as const)
         .filter(([, dir]) => fs.existsSync(path.join(home, dir)))
         .map(([name, dir, skill]) => {
             const file = path.join(home, dir, 'skills', 'tracenotes', 'SKILL.md');
@@ -349,7 +542,7 @@ async function setupAgents(extensionPath: string): Promise<void> {
     const targets = agentTargets(extensionPath);
     if (!targets.length) {
         vscode.window.showInformationMessage(
-            `TraceNotes: No Claude Code, Codex or Cursor config found. Tell your agent to run "${SHIM_PATH} help".`);
+            `TraceNotes: No Claude Code, Codex, Cursor or Antigravity config found. Tell your agent to run "${SHIM_PATH} help".`);
         return;
     }
     const ok = await vscode.window.showInformationMessage(
@@ -374,6 +567,6 @@ function offerSetupOnce(context: vscode.ExtensionContext): void {
     const key = 'tracenotes.agentSetupOffered';
     if (context.globalState.get(key) || !agentTargets(context.extensionPath).length) { return; }
     void context.globalState.update(key, true);
-    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor) create trace trees?', 'Set Up')
+    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor, Antigravity) create trace trees?', 'Set Up')
         .then(choice => { if (choice) { void setupAgents(context.extensionPath); } });
 }

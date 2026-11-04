@@ -52,12 +52,28 @@ export enum FileType { File = 1, Directory = 2 }
 /** Settings read through workspace.getConfiguration; tests may mutate it. */
 export const config: Record<string, unknown> = {};
 
+export enum ConfigurationTarget { Global = 1, Workspace = 2, WorkspaceFolder = 3 }
+export enum ColorThemeKind { Light = 1, Dark = 2, HighContrast = 3, HighContrastLight = 4 }
+
+/** Per-scope values behind `inspect`/`update`, keyed by full name ("workbench.colorCustomizations"). */
+export const settings = { global: {} as Record<string, unknown>, workspace: {} as Record<string, unknown> };
+
 const noopDisposable = { dispose() {} };
 
 export const workspace = {
     workspaceFolders: undefined as { uri: Uri; name: string }[] | undefined,
     textDocuments: [] as unknown[],
-    getConfiguration: () => ({ get: (key: string) => config[key] }),
+    getConfiguration: (section?: string) => {
+        const full = (key: string) => section ? `${section}.${key}` : key;
+        return {
+            get: (key: string) => config[key],
+            inspect: (key: string) => ({ key: full(key), globalValue: settings.global[full(key)], workspaceValue: settings.workspace[full(key)] }),
+            update: async (key: string, value: unknown, target: ConfigurationTarget) => {
+                const store = target === ConfigurationTarget.Global ? settings.global : settings.workspace;
+                if (value === undefined) { delete store[full(key)]; } else { store[full(key)] = value; }
+            },
+        };
+    },
     onDidCloseTextDocument: () => noopDisposable,
     onDidChangeTextDocument: () => noopDisposable,
     createFileSystemWatcher: () => ({ onDidChange() {}, onDidCreate() {}, dispose() {} }),
@@ -80,8 +96,12 @@ export const workspace = {
     },
 };
 
+/** Installed extensions; tests may push `{ packageJSON }` stand-ins. */
+export const extensions = { all: [] as { packageJSON: any }[] };
+
 export const window = {
     visibleTextEditors: [] as unknown[],
+    activeColorTheme: { kind: ColorThemeKind.Dark },
     createOutputChannel: () => ({ appendLine() {}, info() {}, warn() {}, error() {}, show() {}, dispose() {} }),
     showErrorMessage: () => undefined,
     showWarningMessage: () => undefined,

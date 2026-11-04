@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as path from 'path';
 
 vi.mock('vscode', () => ({}));
 
@@ -58,8 +59,9 @@ describe('toShared / fromShared', () => {
 
     it('resolves relative paths against another checkout', () => {
         const moved = fromShared(toShared(trees, '/issue1'), '/issue2');
-        expect(moved[0].traces.map(t => t.filePath)).toEqual(['/issue2/src/a.ts', '/elsewhere/c.ts', '']);
-        expect(moved[0].traces[0].children![0].filePath).toBe('/issue2/lib/b.ts');
+        // fromShared yields native paths (backslashes on Windows) to match vscode's fsPath.
+        expect(moved[0].traces.map(t => t.filePath)).toEqual([path.join('/issue2', 'src/a.ts'), '/elsewhere/c.ts', '']);
+        expect(moved[0].traces[0].children![0].filePath).toBe(path.join('/issue2', 'lib/b.ts'));
     });
 });
 
