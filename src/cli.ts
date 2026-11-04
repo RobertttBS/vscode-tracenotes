@@ -92,7 +92,7 @@ async function main(argv: string[]): Promise<void> {
         options: {
             name: { type: 'string' }, tree: { type: 'string' }, parent: { type: 'string' },
             after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' },
-            id: { type: 'string' }, file: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
+            id: { type: 'string' }, file: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
         },
     });
     const [cmd, id, ...rest] = positionals;
@@ -105,6 +105,7 @@ async function main(argv: string[]): Promise<void> {
     if (cmd === 'title') { args.text = rest.join(' '); }
     if (cmd === 'rm' || cmd === 'refresh') { args.id = [id, ...rest].join(' '); }
     if (cmd === 'rename') { args.name = [id, ...rest].join(' '); }
+    if (cmd === 'color') { Object.assign(args, { action: id, id: undefined, text: rest.join(' '), scope: values.scope, theme: values.theme }); }
     if (cmd === 'create' && !values.name) { throw new Error('create needs --name <name>.'); }
     if (cmd === 'create' || cmd === 'add') { args.markdown = readStdin(); }
     if (cmd === 'note') { args.text = rest.length ? rest.join(' ') : readStdin().replace(/\n$/, ''); }

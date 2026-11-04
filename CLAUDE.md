@@ -35,6 +35,8 @@ Always mutate traces through TraceManager methods (`add`, `remove`, `reorder`, `
 
 **Webview.** React 18 + `@dnd-kit`. Components in `src/webview/components/`, hooks in `src/webview/hooks/`. Strict CSP with per-load nonce from `crypto.randomBytes` (`getNonce()` in `webviewProvider.ts`); only `dist/` in `localResourceRoots`.
 
+**Panel colours.** Contributed theme colours (`tracenotes.<key>`, one dot) listed in `THEME_COLORS` (`src/bridge/colors.ts`) and mirrored in `contributes.colors`; the webview reads them as `var(--vscode-tracenotes-<key>, <old fallback>)`. Users override via `workbench.colorCustomizations`; `tracenotes color list|set|reset` edits that (only `tracenotes.*` keys). `src/bridge/colors.test.ts` fails if package.json, the list and webview usage drift apart.
+
 **Markdown round-trip.** `src/exporter.ts` uses heading depth = trace depth + 2 and encodes colors as `%%Tag%%` (`HIGHLIGHT_TO_TAG` in `types.ts`). Adding a color requires updating the `HighlightColor` union + `HIGHLIGHT_TO_TAG` in `types.ts`, `HIGHLIGHT_STYLES` in `decorationManager.ts`, and `HIGHLIGHT_COLORS` in `TraceCard.tsx`.
 
 ## Conventions

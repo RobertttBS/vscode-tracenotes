@@ -7,6 +7,7 @@ import * as path from 'path';
 import { TraceManager } from '../traceManager';
 import { HIGHLIGHT_TO_TAG, MAX_DEPTH, TracePoint, TraceTree } from '../types';
 import { SearchNode, collectHighlightTargets, matchTrace as matchQuery, parseQuery } from '../webview/utils/search';
+import { colorCommand } from './colors';
 import { GUIDE } from './guide';
 import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, shimPath, sweepStale, writeAtomic } from './registry';
 
@@ -253,6 +254,8 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             tm.deleteTree(tree.id);
             return { deleted: tree.id, name: tree.name };
         }
+        case 'color':
+            return colorCommand(a);
         default:
             throw new Error(`Unknown command "${op}".`);
     }
@@ -491,7 +494,7 @@ interface AgentTarget { name: string; file: string; installed: () => boolean; wr
 function skillMd(shim: string, editor: string): string {
     return `---
 name: tracenotes
-description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's ${editor} TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes.
+description: Create or edit TraceNotes trace trees (hierarchical code-reading notes shown in the user's ${editor} TraceNotes panel). Use when the user asks to build a trace tree, trace a code flow into TraceNotes, or add/edit/remove trace notes, or change the TraceNotes panel's colours.
 ---
 
 Use the TraceNotes CLI at \`${shim}\` (below: \`tracenotes\`).

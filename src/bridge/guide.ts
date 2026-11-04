@@ -38,6 +38,17 @@ export const GUIDE = `Commands (run from inside the project folder; output is JS
   rename [--tree <id|name>] <new name>  Rename a tree (default: the active tree).
   delete-tree --tree <id|name>          Delete a whole tree. Only for trees you created or
                                         the user asked you to delete.
+  color [list]                          The panel's colours: key, what it paints, default (a
+                                        hex colour or the VS Code theme colour it follows)
+                                        and any overrides, plus the active theme.
+  color set <key> <#colour> [<key> <#colour> …] [--scope user|workspace] [--theme <name>]
+                                        Override colours (hex: #rgb, #rgba, #rrggbb,
+                                        #rrggbbaa; quote it, or drop the "#"). Writes
+                                        workbench.colorCustomizations, default --scope user;
+                                        --theme limits it to that colour theme. Applies at once.
+  color reset [<key> …] [--scope user|workspace] [--theme <name>]
+                                        Remove overrides (all TraceNotes ones if no key).
+                                        Only change colours when the user asks.
 create/add reply with only ids, titles, tags, locations and "code" (the first line
 read at those lines: compare it with what you meant, to catch off-by-one line
 numbers); use \`show\` for the notes. "workspace" is the root that relative paths
