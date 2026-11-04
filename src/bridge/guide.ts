@@ -1,32 +1,59 @@
 // Shared by the CLI's `help` and the agent skill written by "Set Up AI Agents".
 export const GUIDE = `Commands (run from inside the project folder; output is JSON)
   list                                  Trees: [{id, name, active}].
-  show [--tree <id|name>] [--outline]   A tree (default: the active tree) with the trace ids
-                                        used below. --outline prints one line per trace.
+  show [--tree <id|name>] [--id <traceId>] [--outline]
+                                        A tree (default: the active tree) with the trace ids
+                                        used below, or just one trace and its children (--id).
+                                        --outline prints one line per trace: id, [Tag], title.
+  find [<query>] [--file <path>[:<line>[-<line>]]] [--tag <tag>] [--tree <id|name>] [--outline]
+                                        Search every tree (or --tree) without switching trees.
+                                        <query>: the panel's search, over title, note and code,
+                                        case-insensitive: words (all must appear, any order),
+                                        "exact phrase", OR, NOT or -word, ( ). Quote it as one
+                                        argument. If it starts with "-", put the flags first,
+                                        then --, then the query (all after -- is query):
+                                        find --tag Todo -- '-legacy "password hash" (bcrypt OR argon2)'
+                                        --file: traces anchored in that file (with lines: only
+                                        those overlapping them), or anywhere under a folder.
+                                        --tag: traces with that colour tag, e.g. Todo.
+                                        Combine freely; at least one is needed. Each match:
+                                        tree, parent id, id, title, location, and "match"
+                                        (the line holding the most search words).
   create --name <name>                  Create a tree from Markdown on stdin; it becomes active.
-  add [--tree <id|name>] [--parent <id> | --after <id> | --before <id>]
+  add [--tree <id|name>] [--parent <id> | --after <id> | --before <id>] [--dry-run]
                                         Add traces from Markdown on stdin: under --parent, next
                                         to a sibling, or at the end of the tree's root.
-  note <id> [text]                      Replace a trace's note (argument, or stdin).
+                                        --dry-run parses and reads the code but adds nothing.
+  note <id> [text]                      Replace a trace's whole note, title included
+                                        (argument, or stdin).
+  title <id> <text>                     Replace only a trace's title (the note's first line).
+  move <id> (--parent <id> | --after <id> | --before <id> | --root)
+                                        Move a trace and its children within its tree.
   rm <id> [<id> …]                      Remove traces and their children.
   check [--tree <id|name>]              List traces whose code no longer matches the file.
   refresh <id> [<id> …] [--lines <start>:<end>]
-                                        Re-read a trace's code from its current lines (or
-                                        --lines, single id only); the note is kept.
+                                        Re-read a trace's code from its current lines (the
+                                        closest match \`check\` reports), or from --lines
+                                        (single id only); the note is kept.
   rename [--tree <id|name>] <new name>  Rename a tree (default: the active tree).
   delete-tree --tree <id|name>          Delete a whole tree. Only for trees you created or
                                         the user asked you to delete.
-create/add reply with only ids, titles and locations; use \`show\` for the notes.
+create/add reply with only ids, titles, tags, locations and "code" (the first line
+read at those lines: compare it with what you meant, to catch off-by-one line
+numbers); use \`show\` for the notes. "workspace" is the root that relative paths
+resolved against.
 Add --quiet (-q) to create/add to get just a count (plus the tree id/name for create)
 and any warnings, for big trees.
 A "warnings" list (always first in the reply) flags traces whose code no longer
 matches the file (stale or miscopied) or could not be anchored; fix them with refresh.
 
 Markdown format (the same as TraceNotes "Export to Markdown")
-  - Each trace is a heading "<title>" ("<n>. <title>" as exports write it also
-    works). Heading level = depth + 2:
+  - Each trace is a heading "<title>". A leading "<n>. " (as exports write it,
+    0 included) is dropped, since the panel numbers cards itself; \`note\` and
+    \`title\` drop it from the first line too. Heading level = depth + 2:
     ## root, ### child, #### grandchild … (at most 10 levels).
-  - Optional colour tag right after the number: %%Important%% %%Faq%% %%Note%%
+  - Optional colour tag at the start of the title (before or after the number):
+    %%Important%% %%Faq%% %%Note%%
     %%Tip%% %%Remark%% %%Info%% %%Warning%% %%Todo%%
   - The heading is the card title. Put more note lines directly under it; they
     follow the title. (A "<!-- tracenote -->" … "<!-- /tracenote -->" block
@@ -57,9 +84,12 @@ Workflow
   - Pipe Markdown with a heredoc: tracenotes create --name "X" <<'EOF' … EOF
     (no temp files).
   - Get line numbers from the file right before create/add (or use "?:?"), then
-    check the reply's warnings.
+    check the reply's warnings and each trace's "code" line.
   - After the code changes, fix an existing tree instead of rebuilding it:
     check → refresh <ids> (add --lines if the range moved) → note <id> if needed → check.
+    \`check\` only catches code that no longer matches; to find notes a change made
+    wrong, run \`find --file <path>:<start>-<end>\` for each \`git diff\` hunk.
+  - To find a card by topic, use \`find <text>\` instead of reading whole trees.
   - To explain a change, read \`git diff\` first and pick the hunks worth a card.
   - Write titles and notes in the user's language; keep notes to about 3 lines.
   - For explaining a change or feature, a good shape is: background → entry

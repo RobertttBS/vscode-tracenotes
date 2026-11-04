@@ -109,6 +109,37 @@ describe('TraceManager CRUD', () => {
         expectIndexConsistent(m);
     });
 
+    it('moveTrace moves a subtree beside a sibling or under a parent, keeping indexes', async () => {
+        const m = await makeManager();
+        const [a, b, c, child] = [note('a'), note('b'), note('c'), note('child')];
+        [a, b, c].forEach(t => m.add(t));
+        m.moveTrace(c.id, { beside: a.id, after: false });
+        expect(names(m.getAll())).toEqual(['c', 'a', 'b']);
+        m.enterGroup(b.id);
+        m.add(child);
+        m.exitGroup();
+        m.moveTrace(b.id, { parentId: a.id });
+        expect(names(m.findTraceById(a.id)!.children!)).toEqual(['b']);
+        expect(m.getParentGroupId(child.id)).toBe(b.id);
+        expect(() => m.moveTrace(a.id, { parentId: child.id })).toThrow(/descendant/);
+        m.moveTrace(child.id, { parentId: null });
+        expect(names(m.getAll())).toEqual(['c', 'a', 'child']);
+        expectIndexConsistent(m);
+    });
+
+    it('moveTrace pulls the group cursor back when it lands where enterGroup would refuse', async () => {
+        const m = await makeManager();
+        const chain = Array.from({ length: MAX_DEPTH - 1 }, (_, i) => note(`n${i}`)); // depths 0 … MAX_DEPTH-2
+        chain.forEach((t, i) => { m.add(t); if (i < chain.length - 1) { m.enterGroup(t.id); } });
+        m.jumpToGroup(null);
+        const leaf = note('leaf');
+        m.add(leaf);
+        expect(m.enterGroup(leaf.id)).toBe(true);
+        m.moveTrace(leaf.id, { parentId: chain[chain.length - 1].id }); // leaf now at MAX_DEPTH-1
+        expect(m.getActiveGroupId()).toBe(chain[chain.length - 1].id);
+        expectIndexConsistent(m);
+    });
+
     it('addEmptyTrace adds a blank card and reports it via focusId', async () => {
         const m = await makeManager();
         const events: unknown[] = [];
