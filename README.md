@@ -15,7 +15,7 @@ Let Claude Code, Codex, Cursor, or Antigravity (IDE or `agy` CLI) read the code 
 **Getting started**
 
 1. Install TraceNotes and open a project folder.
-2. On first start, if `~/.claude`, `~/.codex`, `~/.cursor`, or `~/.gemini/config` (Antigravity) exists, accept the prompt to install the `tracenotes` skill.
+2. On every start, if `~/.claude`, `~/.codex`, `~/.cursor`, or `~/.gemini/config` (Antigravity) exists, the `tracenotes` skill is installed there automatically and kept up to date.
 3. Ask your agent, from inside that project, for example:
    - *"Trace the login flow into TraceNotes."*
    - *"Explain my last commit as a trace tree."* The agent reads `git diff` and picks the hunks worth a card.
@@ -26,8 +26,8 @@ Let Claude Code, Codex, Cursor, or Antigravity (IDE or `agy` CLI) read the code 
 **How it works**
 
 - **CLI** – The extension installs `~/.tracenotes/bin/tracenotes` (`tracenotes.cmd` on Windows). Run it from inside a project folder that is open in VS Code; it talks to that window. Output is JSON. Run `~/.tracenotes/bin/tracenotes help` for the full guide. Each editor also installs its own launcher, `tracenotes-code` / `tracenotes-cursor`, which only talks to that editor's windows; Cursor's skill uses `tracenotes-cursor`, so it never lands in a VS Code window with the same folder open.
-- **Skill** – The skill is written to `<dir>/skills/tracenotes/SKILL.md` (for Antigravity, `~/.gemini/config/skills/…`, read by both the IDE agent and `agy`) so the agent knows how to use the CLI. Installed skills are refreshed on every start to match the extension version.
-- **Installed an agent later?** Open it once (so its config folder exists), then run **`TraceNotes: Set Up AI Agents`**. With no agent config found, just tell your agent to run `~/.tracenotes/bin/tracenotes help`.
+- **Skill** – The skill is written to `<dir>/skills/tracenotes/SKILL.md` (for Antigravity, `~/.gemini/config/skills/…`, read by both the IDE agent and `agy`) so the agent knows how to use the CLI. Skills are written on every start for each agent whose config folder exists, matching the extension version.
+- **Installed an agent later?** Open it once (so its config folder exists), then reload the window or run **`TraceNotes: Set Up AI Agents`**, which also shows where the skills were written. With no agent config found, just tell your agent to run `~/.tracenotes/bin/tracenotes help`.
 
 | CLI command | What it does |
 | :-- | :-- |

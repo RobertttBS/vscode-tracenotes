@@ -8,7 +8,7 @@ import * as path from 'path';
 import { Uri, workspace, config, makeDoc } from '../test/vscodeMock';
 import { TraceManager } from '../traceManager';
 import type { TracePoint } from '../types';
-import { handle } from './server';
+import { handle, syncAgentSkills } from './server';
 
 const CODE = 'const a = 1;\nfunction target() { return 42; }\nconst z = 2;\n';
 const SNIPPET = 'function target() { return 42; }';
@@ -299,5 +299,29 @@ describe('bridge handle()', () => {
         expect(m.getTreeList().map(t => t.name)).not.toContain('Login flow');
         await expect(run('delete-tree', { tree: 'Login flow' })).rejects.toThrow(/No trace tree/);
         await expect(run('bogus')).rejects.toThrow(/Unknown command/);
+    });
+});
+
+describe('syncAgentSkills()', () => {
+    it('writes skills only for agents whose config dir exists, and refreshes stale ones', () => {
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tn-home-'));
+        try {
+            fs.mkdirSync(path.join(home, '.claude'));
+            fs.mkdirSync(path.join(home, '.gemini', 'config'), { recursive: true });
+            const skill = (dir: string) => path.join(home, dir, 'skills', 'tracenotes', 'SKILL.md');
+
+            syncAgentSkills('/ext', home);
+            const fresh = fs.readFileSync(skill('.claude'), 'utf8');
+            expect(fresh).toContain('name: tracenotes');
+            expect(fs.readFileSync(skill(path.join('.gemini', 'config')), 'utf8')).toBe(fresh);
+            expect(fs.existsSync(path.join(home, '.codex'))).toBe(false);
+            expect(fs.existsSync(path.join(home, '.cursor'))).toBe(false);
+
+            fs.writeFileSync(skill('.claude'), 'old version');
+            syncAgentSkills('/ext', home);
+            expect(fs.readFileSync(skill('.claude'), 'utf8')).toBe(fresh);
+        } finally {
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 });

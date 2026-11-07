@@ -53,7 +53,7 @@ export function startBridge(context: vscode.ExtensionContext, traceManager: Trac
         vscode.workspace.onDidChangeWorkspaceFolders(register),
         { dispose: () => { server.close(); removeEntry(entry()); } },
     );
-    offerSetupOnce(context);
+    syncAgentSkills(context.extensionPath);
 }
 
 // Requests run one at a time: handlers switch the active tree and await file reads.
@@ -489,7 +489,7 @@ function installShim(extensionPath: string, file: string, host?: string): void {
     if (current !== content) { writeAtomic(file, content, 0o755); }
 }
 
-interface AgentTarget { name: string; file: string; installed: () => boolean; write: () => void }
+interface AgentTarget { name: string; file: string; write: () => void }
 
 function skillMd(shim: string, editor: string): string {
     return `---
@@ -516,8 +516,7 @@ function writeIfChanged(file: string, text: string): void {
  * Codex and Antigravity get the generic one. Antigravity's IDE agent and its `agy` CLI
  * share one global root, ~/.gemini/config/, and the CLI runs beside any editor.
  */
-function agentTargets(extensionPath: string): AgentTarget[] {
-    const home = os.homedir();
+function agentTargets(extensionPath: string, home = os.homedir()): AgentTarget[] {
     const skills = {
         generic: skillMd(SHIM_PATH, 'VS Code / Antigravity'),
         cursor: skillMd(shimPath('cursor'), 'Cursor'),
@@ -534,39 +533,28 @@ function agentTargets(extensionPath: string): AgentTarget[] {
                 const cursorShim = shimPath('cursor');
                 if (skill === 'cursor' && !fs.existsSync(cursorShim)) { installShim(extensionPath, cursorShim, 'cursor'); }
             };
-            return { name, file, installed: () => fs.existsSync(file), write };
+            return { name, file, write };
         });
 }
 
-async function setupAgents(extensionPath: string): Promise<void> {
+function setupAgents(extensionPath: string): void {
     const targets = agentTargets(extensionPath);
     if (!targets.length) {
         vscode.window.showInformationMessage(
             `TraceNotes: No Claude Code, Codex, Cursor or Antigravity config found. Tell your agent to run "${SHIM_PATH} help".`);
         return;
     }
-    const ok = await vscode.window.showInformationMessage(
-        `TraceNotes: Teach ${targets.map(t => t.name).join(', ')} to create trace trees?`,
-        { modal: true, detail: `This writes:\n${targets.map(t => t.file).join('\n')}` },
-        'Write',
-    );
-    if (ok !== 'Write') { return; }
     try {
         targets.forEach(t => t.write());
-        vscode.window.showInformationMessage(`TraceNotes: Set up ${targets.map(t => t.name).join(', ')}.`);
+        vscode.window.showInformationMessage(`TraceNotes: Set up ${targets.map(t => t.name).join(', ')} (${targets.map(t => t.file).join(', ')}).`);
     } catch (err) {
         vscode.window.showErrorMessage(`TraceNotes: Agent setup failed. ${err}`);
     }
 }
 
-function offerSetupOnce(context: vscode.ExtensionContext): void {
-    // Keep already-installed instructions in step with this version of the CLI.
-    try { agentTargets(context.extensionPath).filter(t => t.installed()).forEach(t => t.write()); } catch (err) {
-        console.error('TraceNotes: refreshing agent instructions failed', err);
+/** On every start, install or refresh the skill for each agent whose config dir exists. */
+export function syncAgentSkills(extensionPath: string, home?: string): void {
+    for (const t of agentTargets(extensionPath, home)) {
+        try { t.write(); } catch (err) { console.error(`TraceNotes: syncing ${t.name} skill failed`, err); }
     }
-    const key = 'tracenotes.agentSetupOffered';
-    if (context.globalState.get(key) || !agentTargets(context.extensionPath).length) { return; }
-    void context.globalState.update(key, true);
-    vscode.window.showInformationMessage('TraceNotes: Let AI agents (Claude Code, Codex, Cursor, Antigravity) create trace trees?', 'Set Up')
-        .then(choice => { if (choice) { void setupAgents(context.extensionPath); } });
 }
