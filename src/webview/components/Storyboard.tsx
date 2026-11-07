@@ -617,7 +617,10 @@ const Storyboard: React.FC = () => {
     // sequence of visited cards. For code cards we also dispatch jumpToCode;
     // for empty cards we just take focus.
     const handleCardClick = useCallback((trace: TracePoint) => {
-        pushNavigation(currentNavEntry());
+        // Re-clicking the focused card (to re-center the editor) is not a new visit.
+        if (navStateRef.current.focusedId !== trace.id) {
+            pushNavigation(currentNavEntry());
+        }
         setFocusedId(trace.id);
         if (trace.filePath) {
             postMessage({

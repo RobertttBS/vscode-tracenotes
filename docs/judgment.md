@@ -11,7 +11,7 @@
 本專案「完成」= 三個都綠、且在**最後一次編輯後**跑過:
 1. `npm test` **全綠**(0 failed,見 [diagnosis.md](diagnosis.md) #1)
 2. `npm run build` 通過
-3. `npm run typecheck` 通過(`npm run lint` 目前跑不了:eslint 未安裝)
+3. `npm run typecheck` 通過
 - ✅ 正例:改完顏色後跑 `npm run typecheck` + `npm run build` + `npm test` 全綠(`TraceCard` 的 `HIGHLIGHT_COLORS` 漏項會被 typecheck 抓到)。
 - ❌ 反例:`npm test` 有 1 個 failed 就宣稱「那個測試跟我無關,完成」——基線已全綠,任何紅字都是你的回歸。
 

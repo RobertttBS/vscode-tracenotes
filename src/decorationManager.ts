@@ -85,9 +85,12 @@ export async function handleJump(message: { filePath: string; range: [number, nu
             preview: false,
         });
 
-        const endLine = message.range[1];
+        // An orphaned card's stored range can lie past EOF; clamp instead of throwing.
+        const lastLine = Math.max(0, doc.lineCount - 1);
+        const startLine = Math.min(Math.max(0, message.range[0]), lastLine);
+        const endLine = Math.min(Math.max(startLine, message.range[1]), lastLine);
         const lineContent = doc.lineAt(endLine);
-        const range = new vscode.Range(message.range[0], 0, endLine, lineContent.text.length);
+        const range = new vscode.Range(startLine, 0, endLine, lineContent.text.length);
 
         // Scroll to center
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);

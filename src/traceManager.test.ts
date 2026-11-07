@@ -493,6 +493,35 @@ describe('TraceManager anchoring', () => {
         expect(t.orphaned).toBe(true);
     });
 
+    it('recovers a trace whose old range now lies past EOF instead of orphaning it', async () => {
+        const file = path.join(workspace.workspaceFolders![0].uri.fsPath, 'a.ts');
+        const { m, t } = await managerWithTrace(file);
+        const shrunk = SNIPPET + '\n'; // lines above deleted outside a live edit stream
+        await m.validateDocumentNow(makeDoc(file, shrunk, 2));
+        expect(t.orphaned).toBeFalsy();
+        expect(t.rangeOffset).toEqual([0, SNIPPET.length]);
+        expect(t.lineRange).toEqual([0, 0]);
+    });
+
+    it('validateActiveTreeBackground keeps traceIndex in sync after cross-file recovery', async () => {
+        const root = workspace.workspaceFolders![0].uri.fsPath;
+        const [a, b] = [path.join(root, 'a.ts'), path.join(root, 'b.ts')];
+        fs.writeFileSync(a, 'nothing here anymore\n');
+        fs.writeFileSync(b, '// moved\n' + SNIPPET + '\n');
+        const { m, t } = await managerWithTrace(a);
+        const findFiles = workspace.findFiles;
+        workspace.findFiles = (async () => [Uri.file(b)]) as typeof findFiles;
+        try {
+            await m.validateActiveTreeBackground();
+        } finally {
+            workspace.findFiles = findFiles;
+        }
+        expect(t).toMatchObject({ filePath: b, orphaned: false, lineRange: [1, 1] });
+        expect(m.getTracesForFile(a)).toEqual([]);
+        expect(m.getTracesForFile(b)).toEqual([t]);
+        expectIndexConsistent(m);
+    });
+
     it('getTracesForFile follows relocateTrace to the new file', async () => {
         const root = workspace.workspaceFolders![0].uri.fsPath;
         const [a, b] = [path.join(root, 'a.ts'), path.join(root, 'b.ts')];

@@ -816,11 +816,12 @@ function runTests() {
         await manager.validateDocumentNow(doc); // must not throw
     });
 
-    test("validateDocumentNow: marks trace orphaned when offsets fall outside the document", async () => {
+    test("validateDocumentNow: marks trace orphaned when offsets fall outside the document and its content is gone", async () => {
         const p = '/workspace/src/orphan.md'; // .md → cross-file search mock returns [] (no false recovery)
         const doc = makeDoc(LINES_TEXT, p);
         const uriStr = doc.uri.toString();
-        const trace = makeTrace({ id: 'o0', content: 'line0', rangeOffset: [0, 999999], orphaned: false });
+        // Content still in the file would be recovered (see traceManager.test.ts); this one is not.
+        const trace = makeTrace({ id: 'o0', content: 'removedLine', rangeOffset: [0, 999999], orphaned: false });
         (manager as any).traceIndex.set(uriStr, new Set([trace]));
 
         try {

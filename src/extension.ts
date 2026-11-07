@@ -156,8 +156,12 @@ export function activate(context: vscode.ExtensionContext) {
                     traceManager.moveToParent(msg.traceId);
                     break;
                 case 'navigateToTrace': {
-                    traceManager.switchTree(msg.treeId);
-                    if (msg.groupId !== null) {
+                    // Same-tree Back/Forward must not re-run switchTree (resets group, revalidates the whole tree).
+                    const sameTree = traceManager.getActiveTreeData()?.id === msg.treeId;
+                    if (!sameTree) {
+                        traceManager.switchTree(msg.treeId);
+                    }
+                    if ((sameTree || msg.groupId !== null) && msg.groupId !== traceManager.getActiveGroupId()) {
                         traceManager.jumpToGroup(msg.groupId);
                     }
                     if (msg.focusId) {
@@ -319,7 +323,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (uri) {
                 await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(trees, null, 2)));
-                vscode.window.showInformationMessage(`TraceNotes: Exported ${trees.length} tree(s) to ${uri.fsPath.split('/').pop()}.`);
+                vscode.window.showInformationMessage(`TraceNotes: Exported ${trees.length} tree(s) to ${path.basename(uri.fsPath)}.`);
             }
         }),
     );

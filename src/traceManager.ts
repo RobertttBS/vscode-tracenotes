@@ -504,8 +504,15 @@ export class TraceManager implements vscode.Disposable {
             const originalOrphaned = trace.orphaned;
             const originalHighlight = trace.highlight;
             const originalLineRange = trace.lineRange ? [...trace.lineRange] : null;
+            const originalFilePath = trace.filePath;
 
             await this.validateAndRecover(trace, true, token);
+
+            // Cross-file recovery rewrites filePath; keep traceIndex bucketed by it.
+            const filePathChanged = originalFilePath !== trace.filePath;
+            if (filePathChanged) {
+                this.moveTraceInFileIndex(trace, this.fileIndexKey(originalFilePath), this.fileIndexKey(trace.filePath));
+            }
 
             if (token.isCancellationRequested) {
                 return;
@@ -518,7 +525,7 @@ export class TraceManager implements vscode.Disposable {
             const lineRangeChanged = (!originalLineRange && !!trace.lineRange) || 
                                      (!!originalLineRange && !!trace.lineRange && (originalLineRange[0] !== trace.lineRange[0] || originalLineRange[1] !== trace.lineRange[1]));
 
-            if (offsetChanged || orphanedChanged || highlightChanged || lineRangeChanged) {
+            if (offsetChanged || orphanedChanged || highlightChanged || lineRangeChanged || filePathChanged) {
                 stateChanged = true;
             }
 
@@ -1298,29 +1305,28 @@ export class TraceManager implements vscode.Disposable {
 
             const [startOffset, endOffset] = trace.rangeOffset;
 
-            if (startOffset < 0 || endOffset > docLength) {
-                if (!trace.orphaned) {
-                    trace.orphaned = true;
+            // File shrank past the stored range (e.g. lines above deleted on a branch
+            // switch): skip the in-place check but still try to recover the content.
+            const outOfRange = startOffset < 0 || endOffset > docLength;
+            let currentContent = '';
+            if (!outOfRange) {
+                const startPos = document.positionAt(startOffset);
+                const endPos = document.positionAt(endOffset);
+
+                const newStartLine = startPos.line;
+                const newEndLine = endPos.line;
+
+                if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
+                    trace.lineRange = [newStartLine, newEndLine];
                     stateChanged = true;
                 }
-                continue;
+
+                currentContent = document.getText(new vscode.Range(startPos, endPos));
             }
 
-            const startPos = document.positionAt(startOffset);
-            const endPos = document.positionAt(endOffset);
-
-            const newStartLine = startPos.line;
-            const newEndLine = endPos.line;
-
-            if (!trace.lineRange || trace.lineRange[0] !== newStartLine || trace.lineRange[1] !== newEndLine) {
-                trace.lineRange = [newStartLine, newEndLine];
-                stateChanged = true;
-            }
-
-            const currentContent = document.getText(new vscode.Range(startPos, endPos));
-
-            if (!this.contentMatches(currentContent, trace.content)) {
-                const recovered = await this.recoverTracePoints(document, trace.content, startOffset, document.uri, token);
+            if (outOfRange || !this.contentMatches(currentContent, trace.content)) {
+                const estimate = Math.max(0, Math.min(startOffset, docLength));
+                const recovered = await this.recoverTracePoints(document, trace.content, estimate, document.uri, token);
                 if (token.isCancellationRequested) return { changed: stateChanged };
 
                 if (recovered) {
