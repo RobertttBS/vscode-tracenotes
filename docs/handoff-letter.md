@@ -13,7 +13,7 @@
 (2026-10-23 更新)原本的基線紅字已解決:`recoverTracePoints.test.ts` 改成 vitest,並新增 `src/traceManager.test.ts` 覆蓋 TraceManager 核心。任何 failed 都是你造成的,見 [diagnosis.md](diagnosis.md) #1。
 
 ### 2. TypeScript 是你 fan-out 編輯的安全網,但 build 不跑它
-改一個概念要同步多檔(顏色 4 處、訊息 2 處)。(2026-10-23 更新)漏項現在全會編譯錯 —— `HIGHLIGHT_COLORS` 用 `satisfies`、dispatch switch 有 `never` 檢查。但 esbuild 不做型別檢查、`npm run lint` 也跑不了(eslint 未安裝),所以**一定要跑 `npm run typecheck`**,不然錯誤只出現在編輯器裡。(diagnosis.md #2)
+改一個概念要同步多檔(顏色 4 處、訊息 2 處)。(2026-10-23 更新)漏項現在全會編譯錯 —— `HIGHLIGHT_COLORS` 用 `satisfies`、dispatch switch 有 `never` 檢查。但 esbuild 不做型別檢查(專案沒有 lint),所以**一定要跑 `npm run typecheck`**,不然錯誤只出現在編輯器裡。(diagnosis.md #2)
 
 ### 3. persistence/index 不變式是承重牆,壞了不會 crash
 TraceManager 是 `TraceTree[]` 的唯一合法變更者,`ensureReady()` 是唯一合法入口 gate,atomic-write 是唯一合法存檔法。破壞它們不會丟例外 —— 只會讓 index 與磁碟悄悄不同步,幾個 session 後才顯現成資料錯亂。CLAUDE.md「When uncertain」把它們列為 STOP。**把那條守則當絕對**,別聰明繞過。

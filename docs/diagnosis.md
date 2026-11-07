@@ -33,7 +33,7 @@ Test Files  12 passed (12)
 - `HIGHLIGHT_COLORS` 改用 `satisfies Record<HighlightColor, 0>` 的物件取 keys → 少色或多色都編譯錯誤。
 - dispatch switch 的 `default:` 有 `const unhandled: never = msg` → union 加指令但漏 case 即編譯錯誤(`ready` 由 `StoryboardProvider` 自己處理,已從 callback 型別排除)。
 
-**修法(可判定):** esbuild 不做型別檢查,`npm run lint` 目前也跑不了(eslint 未安裝)。改 `HighlightColor` 或訊息指令後跑 **`npm run typecheck`**(`tsc --noEmit`),綠才算同步完成。
+**修法(可判定):** esbuild 不做型別檢查,專案也沒有 lint 腳本。改 `HighlightColor` 或訊息指令後跑 **`npm run typecheck`**(`tsc --noEmit`),綠才算同步完成。
 
 ## #3 — 未限定範圍的搜尋/讀取會吃進 build 產物(最漏 token)
 

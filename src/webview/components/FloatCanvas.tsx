@@ -36,7 +36,7 @@ interface FloatCardProps {
 }
 
 export const FloatCard: React.FC<FloatCardProps> = React.memo(({ trace, parentId, onNavigate, highlightTargets, idPrefix = 'float-card', headerSlot, isActive }) => {
-    const fileName = trace.filePath ? trace.filePath.split('/').pop() ?? trace.filePath : '';
+    const fileName = trace.filePath ? trace.filePath.replace(/\\/g, '/').split('/').pop() ?? trace.filePath : '';
 
     const classNames = [
         'float-card',
