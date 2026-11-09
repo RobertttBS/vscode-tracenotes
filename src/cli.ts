@@ -5,15 +5,22 @@ import * as net from 'net';
 import { parseArgs } from 'util';
 import { GUIDE } from './bridge/guide';
 import { WindowEntry, pickEntry, readEntries, removeEntry } from './bridge/registry';
+import { asciiSafe, decodeText } from './bridge/text';
 
 const HELP = `tracenotes — create and edit TraceNotes trace trees in the VS Code window
 that has the current folder open.
 
 ${GUIDE}`;
 
-function readStdin(): string {
-    if (process.stdin.isTTY) { throw new Error('Pipe the Markdown in on stdin, e.g. `tracenotes create --name X < tree.md`.'); }
-    return fs.readFileSync(0, 'utf8');
+/** Markdown from --input <path> or stdin. Reading the file here skips the shell's re-encoding. */
+function readInput(input: string | undefined): string {
+    if (!input && process.stdin.isTTY) { throw new Error('Pipe the Markdown in on stdin or pass --input <file>, e.g. `tracenotes create --name X --input tree.md`.'); }
+    return decodeText(fs.readFileSync(input ?? 0)).replace(/\r\n/g, '\n');
+}
+
+/** Windows shells decode piped output with the console code page, so keep it ASCII there. */
+function emit(stream: NodeJS.WriteStream, text: string): void {
+    stream.write(process.platform === 'win32' && !stream.isTTY ? asciiSafe(text) : text);
 }
 
 function request(entry: WindowEntry, op: string, args: Record<string, string | undefined>): Promise<unknown> {
@@ -92,7 +99,7 @@ async function main(argv: string[]): Promise<void> {
         options: {
             name: { type: 'string' }, tree: { type: 'string' }, parent: { type: 'string' },
             after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' },
-            id: { type: 'string' }, file: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
+            id: { type: 'string' }, file: { type: 'string' }, input: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
         },
     });
     const [cmd, id, ...rest] = positionals;
@@ -107,8 +114,8 @@ async function main(argv: string[]): Promise<void> {
     if (cmd === 'rename') { args.name = [id, ...rest].join(' '); }
     if (cmd === 'color') { Object.assign(args, { action: id, id: undefined, text: rest.join(' '), scope: values.scope, theme: values.theme }); }
     if (cmd === 'create' && !values.name) { throw new Error('create needs --name <name>.'); }
-    if (cmd === 'create' || cmd === 'add') { args.markdown = readStdin(); }
-    if (cmd === 'note') { args.text = rest.length ? rest.join(' ') : readStdin().replace(/\n$/, ''); }
+    if (cmd === 'create' || cmd === 'add') { args.markdown = readInput(values.input); }
+    if (cmd === 'note') { args.text = rest.length ? rest.join(' ') : readInput(values.input).replace(/\n$/, ''); }
 
     let result = await send(cmd, args);
     if (values.quiet && (cmd === 'create' || cmd === 'add') && !values['dry-run']) {
@@ -120,10 +127,10 @@ async function main(argv: string[]): Promise<void> {
     const out = values.outline && cmd === 'show' ? outline(result as Outlined)
         : values.outline && cmd === 'find' ? findOutline(result as Found)
         : JSON.stringify(result, null, 2) + '\n';
-    process.stdout.write(out);
+    emit(process.stdout, out);
 }
 
 main(process.argv.slice(2)).catch(err => {
-    process.stderr.write(`tracenotes: ${err instanceof Error ? err.message : err}\n`);
+    emit(process.stderr, `tracenotes: ${err instanceof Error ? err.message : err}\n`);
     process.exit(1);
 });

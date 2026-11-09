@@ -19,13 +19,15 @@ export const GUIDE = `Commands (run from inside the project folder; output is JS
                                         Combine freely; at least one is needed. Each match:
                                         tree, parent id, id, title, location, and "match"
                                         (the line holding the most search words).
-  create --name <name>                  Create a tree from Markdown on stdin; it becomes active.
+  create --name <name>                  Create a tree from Markdown on stdin (or --input
+                                        <file>); it becomes active.
   add [--tree <id|name>] [--parent <id> | --after <id> | --before <id>] [--dry-run]
-                                        Add traces from Markdown on stdin: under --parent, next
+                                        Add traces from Markdown on stdin (or --input <file>):
+                                        under --parent, next
                                         to a sibling, or at the end of the tree's root.
                                         --dry-run parses and reads the code but adds nothing.
   note <id> [text]                      Replace a trace's whole note, title included
-                                        (argument, or stdin).
+                                        (argument, stdin, or --input <file>).
   title <id> <text>                     Replace only a trace's title (the note's first line).
   move <id> (--parent <id> | --after <id> | --before <id> | --root)
                                         Move a trace and its children within its tree.
@@ -94,6 +96,12 @@ Example
 Workflow
   - Pipe Markdown with a heredoc: tracenotes create --name "X" <<'EOF' … EOF
     (no temp files).
+  - Windows PowerShell has no heredoc and re-encodes piped text (non-ASCII becomes
+    "?"). There, write the Markdown to a UTF-8 file with your file-writing tool
+    (not Set-Content/Out-File) and pass it: tracenotes create --name "X" --input tree.md
+    Delete the file afterwards.
+    Output piped on Windows (JSON, --outline, errors) writes non-ASCII as \\uXXXX;
+    read it as-is (JSON stays valid).
   - Get line numbers from the file right before create/add (or use "?:?"), then
     check the reply's warnings and each trace's "code" line.
   - After the code changes, fix an existing tree instead of rebuilding it:
