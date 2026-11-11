@@ -2,32 +2,64 @@
 
 - 審查日期：2026-11-12，基準 commit `6600fd6`（0.0.72）。
 - 目的：列出 code→trace 錨定演算法與 CLI/bridge 的缺陷，供後續逐項修復。
-- 用法：修完一項就勾選該項，並在該項下方補上 commit 與回歸測試名稱。
+- 用法：修完一項就更新總表的修復狀態，並在「修復紀錄」補上做法與回歸測試。
 - 行號以基準 commit 為準。行號過期時，先用函式名稱重新定位。
 
 狀態詞：**已驗證** = 審查時用暫存測試重現（測試檔已刪除，重現方法見各項）。**未驗證** = 僅由讀碼推得，修之前必須先寫測試重現。
 
 ## 總表
 
-| 編號 | 摘要 | 狀態 | 後果 | 修復 |
-|---|---|---|---|---|
-| A1 | Tier B 用錯座標系選最近副本 | 已驗證 | 錯誤錨點，不標 orphaned | [ ] |
-| A2 | 超過約 60 行的 trace 改一個識別字就 orphaned | 已驗證 | 誤判 orphaned | [ ] |
-| A3 | 被刪除的區塊跳到同檔結構相似區塊 | 已驗證 | 錯誤錨點，不標 orphaned | [ ] |
-| A4 | 短 trace 被編輯後跳到別處相同字串（含跨檔） | 已驗證 | 錯誤錨點，不標 orphaned | [ ] |
-| A5 | Tier C 視窗起點落在字串內時復原失敗 | 已驗證 | 誤判 orphaned | [ ] |
-| A6 | Tier C 同步阻塞 extension host | 已驗證 | 卡頓 0.6–2 秒 | [ ] |
-| A7 | 尾端 token 被改時復原範圍縮短 | 已驗證 | 範圍少一段 | [ ] |
-| A8 | 有 orphaned trace 時反覆掃整個 workspace | 未驗證 | 大量磁碟讀取 | [ ] |
-| A9 | 編輯 B 檔會取消 A 檔的驗證且不重排 | 未驗證 | A 檔狀態過期 | [ ] |
-| A10 | 跨檔搜尋沒有歧義保護 | 未驗證 | 錯誤檔案 | [ ] |
-| C1 | CLI 寫入指令會切換使用者的 active tree | 已驗證（讀碼） | 面板跳走 | [ ] |
-| C2 | `create`/`add` 用 `openTextDocument` 開每個檔案 | 未驗證 | didOpen 風暴 | [ ] |
-| C3 | `check` 每個 orphaned trace 掃一次 workspace | 未驗證 | 可能超過 60 秒逾時 | [ ] |
-| C4 | 找不到視窗時錯誤訊息的編輯器名稱不準 | 已驗證 | 訊息誤導 | [ ] |
+| 編號 | 摘要 | 審查時狀態 | 修復狀態（2026-11-12） |
+|---|---|---|---|
+| A1 | Tier B 用錯座標系選最近副本 | 已驗證 | 已完成，已驗證 |
+| A2 | 超過約 60 行的 trace 改一個識別字就 orphaned | 已驗證 | 已完成，已驗證。上限提高到約 250 行 |
+| A3 | 被刪除的區塊跳到同檔結構相似區塊 | 已驗證 | 已完成，已驗證 |
+| A4 | 短 trace 被編輯後跳到別處相同字串（含跨檔） | 已驗證 | 部分完成。跨檔重複由 A10 處理；同檔未開始，需先提案 |
+| A5 | Tier C 視窗起點落在字串內時復原失敗 | 已驗證 | 已完成，已驗證 |
+| A6 | Tier C 同步阻塞 extension host | 已驗證 | 已完成，已驗證 |
+| A7 | 尾端 token 被改時復原範圍縮短 | 已驗證 | 跳過。原因見 A7 |
+| A8 | 有 orphaned trace 時反覆掃整個 workspace | 未驗證 | 部分完成，已驗證。`findFiles` 的 exclude 未改 |
+| A9 | 編輯 B 檔會取消 A 檔的驗證且不重排 | 未驗證 | 已完成，已驗證 |
+| A10 | 跨檔搜尋沒有歧義保護 | 未驗證 | 已完成，已驗證 |
+| C1 | CLI 寫入指令會切換使用者的 active tree | 已驗證（讀碼） | 跳過。這是刻意行為，原因見 C1 |
+| C2 | `create`/`add` 用 `openTextDocument` 開每個檔案 | 未驗證 | 未開始。原因見 C2 |
+| C3 | `check` 每個 orphaned trace 掃一次 workspace | 未驗證 | 未開始 |
+| C4 | 找不到視窗時錯誤訊息的編輯器名稱不準 | 已驗證 | 已完成，未驗證（無測試，僅 typecheck 與 build） |
 
-建議順序：A1 → A2 → A3 → A5 → A7 → A8/C3 → A9 → A6 → A10 → A4 → C1 → C2 → C4。
-A4 與 C1 涉及設計決策，動手前必須先與使用者確認。
+回歸測試在 `src/anchoringReview.test.ts`，每個測試名稱以項目編號開頭。
+
+## 修復紀錄（2026-11-12）
+
+驗證：`npm test` 15 個檔案、247 個測試全綠；`npm run typecheck` 與 `npm run build` 通過。新測試在修之前全部為紅。
+
+- **A1**：`findNormalized` 把每個命中位置換算回原文座標，再與 `preferredOffset` 比距離。原本兩段重複的回推迴圈合併成一個 `walk` closure。第一版改成「全部換算到正規化座標」，結果既有測試「Tier B orphans an ambiguous normalized-duplicate tie」變紅，因為空白間隔在正規化座標內會消失。所以距離必須在原文座標內計算。
+- **A2**：視窗改由 anchor 在內容中的位置推算，大小約為內容的 2 倍（原本 3 倍）。單一視窗上限從 200k 提高到 `MAX_WINDOW_DP_OPS`（20M）。超過約 250 行密集程式碼的 trace 仍然放不進視窗，程式碼內有 `ponytail:` 註解標明。
+- **A3**：兩項改動。anchor 改為整字比對。`fuzzyValidateBounds` 通過距離門檻後，另外要求目標的「字」（3 字元以上、非關鍵字，與 anchor 的定義相同）至少 40% 出現在命中範圍內。門檻 40% 的來源：50% 會讓既有測試「Distance Boundary Recovery」變紅（函式與一個變數同時改名，剩 2/5）。
+- **A5**：`"` 與 `'` 字串的 regex 不再跨行。
+- **A6**：整次搜尋的 DP 運算量上限為 `MAX_SEARCH_DP_OPS`（20M，約 65 ms）。候選依距離排序，最近的一個必定執行。超過預算的遠處候選不會被檢查，程式碼內有 `ponytail:` 註解標明。測試斷言 `dpOps`，不斷言時間。
+- **A7（跳過）**：試過同分時取較晚的結束位置（`<=`）。結果範圍會多吃下一行的第一個 token。三種結束位置的編輯距離相同，沒有可靠的判斷依據。影響小，維持原樣。
+- **A8**：`validateDocumentTraces` 對已 orphaned 的 trace 記錄上次跨檔搜尋失敗的時間（`crossFileMisses`，`WeakMap`），30 秒內不重掃。同檔搜尋不受影響。未改的部分：`findFiles` 的 exclude 仍是 `undefined`，`node_modules` 仍會被讀；`validateActiveTreeBackground`（CLI `check`、切換 tree）不經過這個快取。
+- **A9**：`processValidationQueue` 被取消時把文件放回 `pendingValidationDocs`，並改用 `break`，讓已修正的位置仍會持久化與通知。
+- **A10**：`searchAcrossWorkspace` 掃完所有檔案，第二個檔案也命中就回傳 null。另外跳過正在驗證的檔案本身：它的即時內容剛搜過，磁碟上的版本可能是舊的。代價：找到之後不再提早結束。
+- **C4**：`TRACENOTES_HOST` 為空時，訊息改成「No editor window…Open the project in VS Code, Cursor or Antigravity」。
+
+### 第二輪審查（針對以上修正，`npm test` 250 個全綠）
+
+A2 把視窗縮小後，`anchorThenSellers` 出現三個問題，測試名稱以 R1、R2 開頭。
+
+- **R1 候選座標**：候選的 `pos` 原本是 anchor 位置，但 `preferredOffset` 是 trace 起點。anchor 在內容尾端時，trace 前方一個同名識別字會排在前面，並把真正的候選去重掉。`pos` 改為推算的起點；去重半徑改為 `min(len, slack)`。
+- **R1 原位保護**：歧義判定的 `prox` 改用實際復原起點 `bounds[0]`，與 Tier A、Tier B 一致。原本 anchor 離起點超過 256 字元時，沒移動的 trace 會輸給另一份相同副本。
+- **R2 縮排**：`content` 已 dedent，檔案內的副本每行多出縮排。視窗依 anchor 所在行量出的縮排量（`dent`）乘以行數加寬。假設各行縮排量相同；不一致時只剩 `slack` 緩衝，程式碼內有 `ponytail:` 註解標明。
+
+## 尚未處理
+
+- **A4 同檔**：短內容的唯一命中仍然一律信任。只靠內容無法區分「這行被搬走」與「這行被刪除，別處剛好有一樣的」。可行解法是擷取時多存前後文指紋，這會改動 `TracePoint` 與持久化格式，依 `CLAUDE.md` 必須先提案。
+- **C1**：`src/bridge/server.test.ts` 有 4 處斷言 CLI 指令會切換 active tree（第 66、180、240、295 行附近）。這是刻意行為，不是缺陷。要改必須由使用者決定。
+- **C2**：未驗證，且改用讀檔 adapter 會改變編碼處理（只看 `files.encoding`）。需要在真實視窗確認 didOpen 問題存在後再動。
+- **C3**：`check` 路徑仍是每個 orphaned trace 掃一次 workspace。
+- **A8 的 exclude**：傳入自訂 exclude 是否會取代 `files.exclude`，未確認。
+
+以下各節是審查當時的原始紀錄，行號以基準 commit `6600fd6` 為準。
 
 ## 重現用測試骨架
 

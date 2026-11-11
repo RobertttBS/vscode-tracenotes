@@ -110,6 +110,9 @@ export class TraceManager implements vscode.Disposable {
     // validateDocumentNow calls (e.g. rapid tab switches) so the same document's
     // traces aren't mutated by two concurrent passes.
     private inFlightValidations: Map<string, Promise<void>> = new Map();
+    // When each orphaned trace last failed a cross-workspace search (see validateDocumentTraces).
+    private crossFileMisses = new WeakMap<TracePoint, number>();
+    private static readonly CROSS_FILE_RETRY_MS = 30_000;
 
     // Initialization readiness
     private _readyPromise: Promise<void>;
@@ -1232,7 +1235,8 @@ export class TraceManager implements vscode.Disposable {
         // resume from nextIndex. (Per spec the iterator would revisit the re-added
         // key, but the budget break short-circuits before it does any work.)
         for (const [uri, docData] of this.pendingValidationDocs) {
-            if (token.isCancellationRequested) return;
+            // break, not return: positions already fixed in this pass still get published.
+            if (token.isCancellationRequested) break;
 
             if (Date.now() - startTime > TraceManager.VALIDATION_BUDGET_MS) {
                 if (this.validationDebounceTimer) { clearTimeout(this.validationDebounceTimer); }
@@ -1250,6 +1254,14 @@ export class TraceManager implements vscode.Disposable {
             const result = await this.validateDocumentTraces(document, token, startTime, docData.nextIndex ?? 0);
             if (result.changed) {
                 stateChanged = true;
+            }
+            if (token.isCancellationRequested) {
+                // Cancelled mid-document (an edit elsewhere restarts the debounce): put it
+                // back, or its remaining traces wait for the next edit or tab switch.
+                if (!this.pendingValidationDocs.has(uri)) {
+                    this.pendingValidationDocs.set(uri, { uri: docData.uri, version: docData.version });
+                }
+                break;
             }
             if (result.nextIndex !== undefined) {
                 // Budget tripped mid-document — re-enqueue with the resume position.
@@ -1326,8 +1338,14 @@ export class TraceManager implements vscode.Disposable {
 
             if (outOfRange || !this.contentMatches(currentContent, trace.content)) {
                 const estimate = Math.max(0, Math.min(startOffset, docLength));
-                const recovered = await this.recoverTracePoints(document, trace.content, estimate, document.uri, token);
+                // An orphan re-validates on every edit pause and tab switch; don't read the
+                // whole workspace each time for content that was not there a moment ago.
+                // ponytail: time-based; a file watcher would retry exactly when files change.
+                const missedAt = this.crossFileMisses.get(trace);
+                const crossFile = !(trace.orphaned && missedAt !== undefined && Date.now() - missedAt < TraceManager.CROSS_FILE_RETRY_MS);
+                const recovered = await this.recoverTracePoints(document, trace.content, estimate, document.uri, token, crossFile);
                 if (token.isCancellationRequested) return { changed: stateChanged };
+                if (!recovered && crossFile) { this.crossFileMisses.set(trace, Date.now()); }
 
                 if (recovered) {
                     trace.rangeOffset = recovered.offset;
@@ -1467,7 +1485,8 @@ export class TraceManager implements vscode.Disposable {
         storedContent: string,
         lastKnownStart: number,
         originalUri: vscode.Uri,
-        token?: vscode.CancellationToken
+        token?: vscode.CancellationToken,
+        crossFile: boolean = true
     ): Promise<{ offset: [number, number], uri: vscode.Uri } | null> {
         const fullText = document.getText();
         const cleanContent = storedContent.trim();
@@ -1489,6 +1508,7 @@ export class TraceManager implements vscode.Disposable {
         }
 
         // Level 2: cross-workspace search
+        if (!crossFile) return null;
         return await this.searchAcrossWorkspace(originalUri, cleanContent, token);
     }
 
@@ -1593,16 +1613,50 @@ export class TraceManager implements vscode.Disposable {
         const normContent = cleanContent.replace(RE_ZERO_WIDTH, '').replace(RE_WHITESPACE, ' ').replace(RE_DIGIT_RUN, '#');
         const normText = this.normalizeFullText(fullText);
 
+        // Maps a normalized-space position back to the original text: walks from a known
+        // (origPos, normPos) pair until normPos reaches `target`. Both strings collapse
+        // whitespace/digit runs and strip zero-width chars identically.
+        const len = fullText.length;
+        const walk = (origPos: number, normPos: number, target: number): number => {
+            while (normPos < target && origPos < len) {
+                const code = fullText.charCodeAt(origPos);
+                if (isZeroWidthCode(code)) {
+                    // zero-width char: skip in original, no normPos advance (was stripped).
+                    // MUST precede the whitespace check: U+FEFF is both zero-width and a
+                    // \s match, and normalizeFullText strips zero-width *before* folding
+                    // whitespace — so a lone FEFF contributes nothing, not a space.
+                    origPos++;
+                } else if (isWSCode(code)) {
+                    // skip the whole whitespace run in original (zero-width chars merge into it)
+                    while (origPos < len && isWSOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
+                    normPos++; // one space in normalized
+                } else if (isDigitCode(code)) {
+                    // consume the entire digit run in original; normalized has a single '#'
+                    while (origPos < len && isDigitOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
+                    normPos++; // one '#' in normalized
+                } else {
+                    origPos++;
+                    normPos++;
+                }
+            }
+            return origPos;
+        };
+
+        // Distances are measured in the original text, like preferredOffset: normalized
+        // space shrinks indentation, so a mixed comparison picks a copy further down.
+        // Matches come in increasing order, so one forward walk maps them all.
         let bestNormIdx = -1;
+        let bestOrig = 0;
         let bestDist = Infinity;
         let runnerUpDist = Infinity;
+        let walkedOrig = 0;
+        let walkedNorm = 0;
         let idx = normText.indexOf(normContent);
         while (idx >= 0) {
-            // Distance mixes normalized-space idx with original-space preferredOffset,
-            // same approximation the tier already uses to pick the closest copy; the
-            // ratio guard below stays valid since both sides shrink identically.
-            const dist = Math.abs(idx - preferredOffset);
-            if (dist < bestDist) { runnerUpDist = bestDist; bestDist = dist; bestNormIdx = idx; }
+            walkedOrig = walk(walkedOrig, walkedNorm, idx);
+            walkedNorm = idx;
+            const dist = Math.abs(walkedOrig - preferredOffset);
+            if (dist < bestDist) { runnerUpDist = bestDist; bestDist = dist; bestNormIdx = idx; bestOrig = walkedOrig; }
             else if (dist < runnerUpDist) { runnerUpDist = dist; }
             idx = normText.indexOf(normContent, idx + 1);
         }
@@ -1619,66 +1673,15 @@ export class TraceManager implements vscode.Disposable {
             return AMBIGUOUS_DUPLICATE;
         }
 
-        // Map normalized index back to original text offset.
-        // Both strings collapse whitespace runs and strip zero-width chars identically.
-        const len = fullText.length;
-        let origPos = 0;
-        let normPos = 0;
-        while (normPos < bestNormIdx && origPos < len) {
-            const code = fullText.charCodeAt(origPos);
-            if (isZeroWidthCode(code)) {
-                // zero-width char: skip in original, no normPos advance (was stripped).
-                // MUST precede the whitespace check: U+FEFF is both zero-width and a
-                // \s match, and normalizeFullText strips zero-width *before* folding
-                // whitespace — so a lone FEFF contributes nothing, not a space.
-                origPos++;
-            } else if (isWSCode(code)) {
-                // skip the whole whitespace run in original (zero-width chars merge into it)
-                while (origPos < len && isWSOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
-                normPos++; // one space in normalized
-            } else if (isDigitCode(code)) {
-                // consume the entire digit run in original; normalized has a single '#'
-                while (origPos < len && isDigitOrZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
-                normPos++; // one '#' in normalized
-            } else {
-                origPos++;
-                normPos++;
-            }
-        }
-        // The loop can exit with origPos resting on a zero-width char that precedes
-        // the first retained char of the match: zero-width chars advance origPos
-        // without advancing normPos, so once normPos reaches bestNormIdx the loop
-        // stops before stepping over them. Skip them so origStart lands on the first
-        // retained char, keeping the span tight and symmetric with the end walk
-        // (which likewise stops before any trailing zero-width chars). The round-trip
-        // holds either way since these chars normalize away — this just avoids an
-        // extraneous leading zero-width char in the recovered offset.
-        while (origPos < len && isZeroWidthCode(fullText.charCodeAt(origPos))) origPos++;
-        const origStart = origPos;
+        // The walk can stop on a zero-width char that precedes the first retained char
+        // of the match (zero-width chars advance origPos without advancing normPos).
+        // Skip them so origStart lands on the first retained char, keeping the span
+        // tight and symmetric with the end walk (which likewise stops before any
+        // trailing zero-width chars).
+        let origStart = bestOrig;
+        while (origStart < len && isZeroWidthCode(fullText.charCodeAt(origStart))) origStart++;
 
-        // Walk forward to find end: match normContent.length chars in normalized space
-        let endNormPos = bestNormIdx;
-        let endOrigPos = origPos;
-        const normEnd = bestNormIdx + normContent.length;
-        while (endNormPos < normEnd && endOrigPos < len) {
-            const code = fullText.charCodeAt(endOrigPos);
-            if (isZeroWidthCode(code)) {
-                // zero-width first — see the start-map loop above (U+FEFF is also \s).
-                endOrigPos++;
-            } else if (isWSCode(code)) {
-                while (endOrigPos < len && isWSOrZeroWidthCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
-                endNormPos++;
-            } else if (isDigitCode(code)) {
-                // consume the entire digit run in original; normalized has a single '#'
-                while (endOrigPos < len && isDigitOrZeroWidthCode(fullText.charCodeAt(endOrigPos))) endOrigPos++;
-                endNormPos++; // one '#' in normalized
-            } else {
-                endOrigPos++;
-                endNormPos++;
-            }
-        }
-
-        return [origStart, endOrigPos];
+        return [origStart, walk(origStart, bestNormIdx, bestNormIdx + normContent.length)];
     }
 
     /**
@@ -1720,8 +1723,14 @@ export class TraceManager implements vscode.Disposable {
                 .map(t => ({ ...t, text: t.text.toLowerCase() })),
         };
 
+        // Every file is checked, not just up to the first hit: content that turns up in
+        // two files (vendored copy, build output) has no clear home, so it orphans, the
+        // same call the same-file tiers make for duplicates.
+        let hit: { offset: [number, number], uri: vscode.Uri } | null = null;
         for (const fileUri of allFiles) {
             if (token?.isCancellationRequested) return null;
+            // The caller just searched this file's live text; its on-disk copy may be stale.
+            if (fileUri.fsPath === fsPath) continue;
             try {
                 const bytes = await vscode.workspace.fs.readFile(fileUri);
                 const text = this.decodeFileContent(fileUri, bytes);
@@ -1737,13 +1746,16 @@ export class TraceManager implements vscode.Disposable {
                 const found = this.searchInText(text, cleanContent, 0, anchorCtx);
                 // Ambiguity detection is off here (preferredOffset 0 is meaningless
                 // cross-file), so `found` is never AMBIGUOUS_DUPLICATE — guard narrows the type.
-                if (found && found !== AMBIGUOUS_DUPLICATE) return { offset: found, uri: fileUri };
+                if (found && found !== AMBIGUOUS_DUPLICATE) {
+                    if (hit) return null;
+                    hit = { offset: found, uri: fileUri };
+                }
             } catch {
                 // skip unreadable files silently
             }
         }
 
-        return null;
+        return hit;
     }
 
     /**
@@ -1753,22 +1765,23 @@ export class TraceManager implements vscode.Disposable {
      */
     private fuzzyValidateBounds(
         fullText: string,
-        tokenBounds: [number, number],
+        window: [number, number],
         cleanContent: string,
-        precomputedTargetTokens?: { text: string; offset: number; type: string }[]
+        precomputedTargetTokens?: { text: string; offset: number; type: string }[],
+        capCenter?: number
     ): { bounds: [number, number]; distance: number } | null {
-        const buffer = Math.max(100, Math.floor(cleanContent.length * 0.5));
-        let searchStart = Math.max(0, tokenBounds[0] - buffer);
-        let searchEnd = Math.min(fullText.length, tokenBounds[1] + buffer);
+        let searchStart = Math.max(0, window[0]);
+        let searchEnd = Math.min(fullText.length, window[1]);
 
-        // Guard: cap the search window so S * T stays within ~200k DP ops.
-        // avgCharsPerToken ≈ 6 is conservative across C/JS/Python/TS.
+        // Guard: one window's S * T stays within MAX_WINDOW_DP_OPS. A window that must
+        // be cut is kept around capCenter (default: its middle).
+        // ponytail: content past ~250 dense lines no longer fits and won't fuzzy-match;
+        // a banded DP or head/tail matching lifts that if such traces matter.
         const T_est = (precomputedTargetTokens ?? []).length || Math.max(1, Math.floor(cleanContent.length / 6));
-        const MAX_DP_OPS = 200_000;
-        const AVG_CHARS_PER_TOKEN = 6;
-        const budgetChars = Math.floor(MAX_DP_OPS / T_est) * AVG_CHARS_PER_TOKEN;
+        const AVG_CHARS_PER_TOKEN = 4;
+        const budgetChars = Math.floor(TraceManager.MAX_WINDOW_DP_OPS / T_est) * AVG_CHARS_PER_TOKEN;
         if (searchEnd - searchStart > budgetChars) {
-            const mid = Math.floor((searchStart + searchEnd) / 2);
+            const mid = Math.min(searchEnd, Math.max(searchStart, capCenter ?? Math.floor((searchStart + searchEnd) / 2)));
             const half = Math.floor(budgetChars / 2);
             searchStart = Math.max(0, mid - half);
             searchEnd = Math.min(fullText.length, mid + half);
@@ -1779,7 +1792,7 @@ export class TraceManager implements vscode.Disposable {
         const targetTokens = precomputedTargetTokens ?? this.tokenize(cleanContent)
             .filter(t => t.type !== 'comment')
             .map(t => ({ ...t, text: t.text.toLowerCase() }));
-        if (targetTokens.length === 0) return { bounds: tokenBounds, distance: 0 };
+        if (targetTokens.length === 0) return { bounds: [searchStart, searchEnd], distance: 0 };
 
         const searchTokens = this.tokenize(localArea)
             .filter(t => t.type !== 'comment')
@@ -1788,6 +1801,7 @@ export class TraceManager implements vscode.Disposable {
 
         const T = targetTokens.length;
         const S = searchTokens.length;
+        this.dpOps += S * T;
 
         // Current column of the DP matrix as two flat arrays (cost + match start
         // index) — avoids allocating an object per cell across the S×T sweep.
@@ -1855,6 +1869,22 @@ export class TraceManager implements vscode.Disposable {
         const maxAllowedDistance = T <= 10 ? 0 : T <= 18 ? 1 : Math.max(2, Math.floor(T * 0.4));
         
         if (bestDistance <= maxAllowedDistance && bestStartIdx >= 0 && bestEndIdx >= 0) {
+            // Punctuation is over half of all tokens, so two blocks of the same shape
+            // pass the distance test with no name in common. Also require 40% of the
+            // target's words (what an anchor may be: 3+ chars, not a keyword) in the range.
+            const isWord = (t: string) => t.length >= 3 && /^[\w$#"'`]/.test(t) && !TraceManager.ANCHOR_FORBIDDEN.has(t);
+            const wanted = new Map<string, number>();
+            let wantedCount = 0;
+            for (const t of targetTokens) {
+                if (isWord(t.text)) { wanted.set(t.text, (wanted.get(t.text) ?? 0) + 1); wantedCount++; }
+            }
+            let shared = 0;
+            for (let k = bestStartIdx; k <= bestEndIdx; k++) {
+                const left = wanted.get(searchTokens[k].text);
+                if (left) { wanted.set(searchTokens[k].text, left - 1); shared++; }
+            }
+            if (shared * 5 < wantedCount * 2) { return null; }
+
             // Map token indices back to absolute text offsets
             const absoluteStart = searchTokens[bestStartIdx].offset + searchStart;
             const endToken = searchTokens[bestEndIdx];
@@ -1872,7 +1902,9 @@ export class TraceManager implements vscode.Disposable {
      * Extracts identifiers, keywords, AND numeric literals.
      */
     private tokenize(text: string): Token[] {
-        const tokenRegex = /(\/\*[\s\S]*?\*\/)|(\/\/[^\r\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|([a-zA-Z_$][a-zA-Z0-9_$]*|#\w+|::|->|[*&]|\b\d+\b|[{}()\[\];,.=+\-*/<>!?:|~^%])/g;
+        // "…" and '…' stop at a line end: a window that starts inside a string (or a
+        // stray apostrophe) would otherwise flip string/code for everything after it.
+        const tokenRegex = /(\/\*[\s\S]*?\*\/)|(\/\/[^\r\n]*)|("(?:\\[^\r\n]|[^"\\\r\n])*"|'(?:\\[^\r\n]|[^'\\\r\n])*'|`(?:\\.|[^`\\])*`)|([a-zA-Z_$][a-zA-Z0-9_$]*|#\w+|::|->|[*&]|\b\d+\b|[{}()\[\];,.=+\-*/<>!?:|~^%])/g;
         const tokens: Token[] = [];
         let match;
         
@@ -1893,8 +1925,9 @@ export class TraceManager implements vscode.Disposable {
      * Anchor-Then-Sellers (Tier C)
      *
      * 1. Extract the 3 most distinctive tokens from cleanContent as anchors.
-     * 2. Find every occurrence of each anchor in fullText.
-     * 3. For each occurrence, run fuzzyValidateBounds on a window centered there.
+     * 2. Find every whole-word occurrence of each anchor in fullText.
+     * 3. For each occurrence, run fuzzyValidateBounds on the window the content would
+     *    occupy around it, nearest first, until the DP op budget is spent.
      * 4. Resolve the winner. Without detectAmbiguity (cross-file): return the first
      *    candidate that passes the Sellers' threshold (deduped is proximity-sorted).
      *    With detectAmbiguity (same-file): score every candidate by Sellers edit
@@ -1917,45 +1950,83 @@ export class TraceManager implements vscode.Disposable {
             .filter(t => t.type !== 'comment')
             .map(t => ({ ...t, text: t.text.toLowerCase() }));
 
-        // Collect candidate center positions from all anchor occurrences
-        const candidates: number[] = [];
+        // Candidates: whole-word occurrences of an anchor ("ret" must not hit "return").
+        // The anchor's place inside the content says where the content would sit around
+        // each occurrence, so the window is ~2x the content, wherever the anchor is.
+        // cleanContent is dedented, so the file copy is longer by its indent on every
+        // line; the anchor's own line tells how much (`dent`).
+        // ponytail: one indent for all lines; a block re-indented unevenly only has `slack`.
+        const len = cleanContent.length;
+        const slack = Math.max(100, len >> 1);
+        const indentAt = (s: string, i: number) => {
+            const from = s.lastIndexOf('\n', i - 1) + 1;
+            let k = from;
+            while (s.charCodeAt(k) === 32 || s.charCodeAt(k) === 9) { k++; }
+            return k - from;
+        };
+        const newlinesIn = (s: string, to: number) => { let n = 0; for (let i = s.indexOf('\n'); i >= 0 && i < to; i = s.indexOf('\n', i + 1)) { n++; } return n; };
+        const isWordChar = (c: number) => (c >= 48 && c <= 57) || (c >= 97 && c <= 122) || c === 95 || c === 36;
+        const candidates: { pos: number; window: [number, number] }[] = [];
         if (anchors.length > 0) {
             const lowerText = this.lowerFullText(fullText);
+            const lowerContent = cleanContent.toLowerCase();
             for (const anchor of anchors) {
-                const lowerAnchor = anchor.toLowerCase();
-                let idx = lowerText.indexOf(lowerAnchor);
+                const a = anchor.toLowerCase();
+                const first = Math.max(0, lowerContent.indexOf(a));
+                const last = Math.max(0, lowerContent.lastIndexOf(a));
+                const linesBeforeFirst = newlinesIn(lowerContent, first);
+                const linesBeforeLast = newlinesIn(lowerContent, last);
+                const linesAfterFirst = newlinesIn(lowerContent, len) - linesBeforeFirst;
+                const contentIndent = indentAt(lowerContent, first);
+                let idx = lowerText.indexOf(a);
                 while (idx >= 0) {
-                    candidates.push(idx);
-                    idx = lowerText.indexOf(lowerAnchor, idx + 1);
+                    const end = idx + a.length;
+                    if (!(idx > 0 && isWordChar(lowerText.charCodeAt(idx - 1))) && !(end < lowerText.length && isWordChar(lowerText.charCodeAt(end)))) {
+                        const dent = Math.max(0, indentAt(lowerText, idx) - contentIndent);
+                        // pos = where the content would start, the same thing preferredOffset is.
+                        candidates.push({
+                            pos: idx - first - dent * linesBeforeFirst,
+                            window: [idx - last - dent * linesBeforeLast - slack, idx - first + len + dent * linesAfterFirst + slack],
+                        });
+                    }
+                    idx = lowerText.indexOf(a, idx + 1);
                 }
             }
         }
 
         if (candidates.length === 0) {
-            // No anchor hits — run Sellers' over the full text (single window, no tie possible)
-            const whole = this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent, targetTokens);
+            // No anchor hits: one Sellers' pass over the file, or over the part of it
+            // around preferredOffset when the file is too big (single window, no tie possible).
+            const whole = this.fuzzyValidateBounds(fullText, [0, fullText.length], cleanContent, targetTokens, preferredOffset);
             return whole ? whole.bounds : null;
         }
 
         // Sort by proximity to preferredOffset so the most-likely hit is tried first
-        candidates.sort((a, b) => Math.abs(a - preferredOffset) - Math.abs(b - preferredOffset));
+        candidates.sort((a, b) => Math.abs(a.pos - preferredOffset) - Math.abs(b.pos - preferredOffset));
 
-        // Deduplicate: skip positions within cleanContent.length of an already-queued one
-        const deduped: number[] = [];
-        for (const pos of candidates) {
-            if (!deduped.some(p => Math.abs(p - pos) < cleanContent.length)) {
-                deduped.push(pos);
+        // Deduplicate: skip a start that an already-queued window covers (it reaches
+        // `slack` past its own start), but never one a whole content length away.
+        const radius = Math.min(len, slack);
+        const deduped: typeof candidates = [];
+        for (const c of candidates) {
+            if (!deduped.some(d => Math.abs(d.pos - c.pos) < radius)) {
+                deduped.push(c);
             }
         }
 
-        // For each anchor position, validate a window centered around it.
-        const half = cleanContent.length;
+        // The DP runs on the extension host thread and nothing interrupts it, so the
+        // search as a whole gets an op budget. The nearest candidate always runs.
+        // ponytail: candidates past the budget are never looked at, so a better or
+        // tying copy far from preferredOffset can go unseen; chunk the scan across
+        // event-loop turns if that matters.
+        this.dpOps = 0;
+        const overBudget = (i: number) => i > 0 && this.dpOps >= TraceManager.MAX_SEARCH_DP_OPS;
 
         // Cross-file / no-ambiguity path keeps the original short-circuit: the first
         // validating window (deduped is proximity-sorted) wins, behavior unchanged.
         if (!detectAmbiguity) {
-            for (const center of deduped) {
-                const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
+            for (let i = 0; i < deduped.length && !overBudget(i); i++) {
+                const result = this.fuzzyValidateBounds(fullText, deduped[i].window, cleanContent, targetTokens);
                 if (result) return result.bounds;
             }
             return null;
@@ -1966,10 +2037,10 @@ export class TraceManager implements vscode.Disposable {
         // the proximity-closest, and (b) orphan when two distinct locations match equally
         // well with no clear proximity winner — the Tier A guard, extended to fuzzy ties.
         const matches: { bounds: [number, number]; editDist: number; prox: number }[] = [];
-        for (const center of deduped) {
-            const result = this.fuzzyValidateBounds(fullText, [center - half, center + half], cleanContent, targetTokens);
+        for (let i = 0; i < deduped.length && !overBudget(i); i++) {
+            const result = this.fuzzyValidateBounds(fullText, deduped[i].window, cleanContent, targetTokens);
             if (result) {
-                matches.push({ bounds: result.bounds, editDist: result.distance, prox: Math.abs(center - preferredOffset) });
+                matches.push({ bounds: result.bounds, editDist: result.distance, prox: Math.abs(result.bounds[0] - preferredOffset) });
             }
         }
         if (matches.length === 0) return null;
@@ -1985,7 +2056,7 @@ export class TraceManager implements vscode.Disposable {
         const runnerUp = matches.find(m =>
             m !== best &&
             m.editDist === best.editDist &&
-            Math.abs(m.bounds[0] - best.bounds[0]) >= cleanContent.length
+            Math.abs(m.bounds[0] - best.bounds[0]) >= len
         );
         if (
             runnerUp &&
@@ -1997,6 +2068,11 @@ export class TraceManager implements vscode.Disposable {
 
         return best.bounds;
     }
+
+    // Sellers' DP cost caps, in cell updates (roughly 300M/s): one window, and one whole search.
+    private static readonly MAX_WINDOW_DP_OPS = 20_000_000;
+    private static readonly MAX_SEARCH_DP_OPS = 20_000_000;
+    private dpOps = 0;
 
     private static readonly ANCHOR_FORBIDDEN = new Set(['void', 'int', 'char', 'long', 'float', 'double', 'short', 'signed', 'unsigned', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'default', 'const', 'static', 'extern', 'volatile', 'register', 'typedef', 'struct', 'union', 'enum', 'inline', 'restrict', 'alignas', 'alignof', 'atomic', 'bool', 'complex', 'generic', 'imaginary', 'noreturn', 'static_assert', 'thread_local', 'public', 'private', 'protected', 'class', 'interface', 'namespace', 'using', 'function', 'async', 'await', 'export', 'import', 'from', 'as', 'any', 'any', 'number', 'string', 'boolean', 'symbol', 'undefined', 'null', 'true', 'false', 'let', 'var', 'const', 'new', 'this', 'throw', 'try', 'catch', 'finally', 'super', 'extends', 'implements', 'module', 'package', 'type', 'declare', 'abstract', 'readonly', 'keyof', 'typeof', 'in', 'of', 'instanceof']);
 

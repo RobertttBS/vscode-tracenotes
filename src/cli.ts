@@ -47,12 +47,13 @@ function request(entry: WindowEntry, op: string, args: Record<string, string | u
 async function send(op: string, args: Record<string, string | undefined>): Promise<unknown> {
     // Set by the per-editor launcher (tracenotes-cursor, tracenotes-code, …).
     const host = process.env.TRACENOTES_HOST || undefined;
-    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor', antigravity: 'Antigravity' } as Record<string, string>)[host] ?? host : 'VS Code';
+    // The generic launcher belongs to whichever editor started last, so it names none.
+    const editor = host ? ({ code: 'VS Code', cursor: 'Cursor', antigravity: 'Antigravity' } as Record<string, string>)[host] ?? host : 'editor';
     let entries = readEntries();
     for (;;) {
         const entry = pickEntry(entries, process.cwd(), host);
         if (!entry) {
-            throw new Error(`No ${editor} window with TraceNotes has ${process.cwd()} open. Open the project in ${editor} and retry.`);
+            throw new Error(`No ${editor} window with TraceNotes has ${process.cwd()} open. Open the project in ${host ? editor : 'VS Code, Cursor or Antigravity'} and retry.`);
         }
         try {
             return await request(entry, op, args);
