@@ -100,18 +100,20 @@ async function main(argv: string[]): Promise<void> {
         options: {
             name: { type: 'string' }, tree: { type: 'string' }, parent: { type: 'string' },
             after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' },
-            id: { type: 'string' }, file: { type: 'string' }, input: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
+            id: { type: 'string' }, file: { type: 'string' }, input: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, all: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
         },
     });
     const [cmd, id, ...rest] = positionals;
     if (!cmd || cmd === 'help' || values.help) { process.stdout.write(HELP); return; }
 
     const args: Record<string, string | undefined> = { name: values.name, tree: values.tree, parent: values.parent, after: values.after, before: values.before, lines: values.lines, id,
-        root: values.root ? 'true' : undefined, dryRun: values['dry-run'] ? 'true' : undefined };
+        root: values.root ? 'true' : undefined, all: values.all ? 'true' : undefined, dryRun: values['dry-run'] ? 'true' : undefined };
     if (cmd === 'show') { args.id = values.id; }
     if (cmd === 'find') { args.text = [id, ...rest].join(' ') || undefined; args.id = undefined; args.file = values.file; args.tag = values.tag; }
     if (cmd === 'title') { args.text = rest.join(' '); }
-    if (cmd === 'rm' || cmd === 'refresh') { args.id = [id, ...rest].join(' '); }
+    if (cmd === 'rm' || cmd === 'refresh') { args.id = [id, ...rest].join(' ') || undefined; }
+    if (cmd === 'tag') { args.tag = id; args.id = rest.join(' ') || undefined; }
+    if (cmd === 'export') { args.id = values.id; }
     if (cmd === 'rename') { args.name = [id, ...rest].join(' '); }
     if (cmd === 'color') { Object.assign(args, { action: id, id: undefined, text: rest.join(' '), scope: values.scope, theme: values.theme }); }
     if (cmd === 'create' && !values.name) { throw new Error('create needs --name <name>.'); }
@@ -127,6 +129,7 @@ async function main(argv: string[]): Promise<void> {
     }
     const out = values.outline && cmd === 'show' ? outline(result as Outlined)
         : values.outline && cmd === 'find' ? findOutline(result as Found)
+        : cmd === 'export' ? (result as { markdown: string }).markdown
         : JSON.stringify(result, null, 2) + '\n';
     emit(process.stdout, out);
 }

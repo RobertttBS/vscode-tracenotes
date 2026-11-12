@@ -390,6 +390,29 @@ describe('TraceManager trees', () => {
         expect(m.getActiveTreeData()!.id).toBe(first);
         expectIndexConsistent(m);
     });
+
+    it('moveTraceToTree takes a subtree out of the active tree and resets a group cursor that left with it', async () => {
+        const m = await makeManager();
+        const first = m.getActiveTreeData()!.id;
+        m.createTree('Second');
+        const second = m.getActiveTreeData()!.id;
+        const [g, kid, keep] = [note('g'), note('kid'), note('keep')];
+        m.add(keep);
+        m.add(g);
+        m.enterGroup(g.id);
+        m.add(kid);
+
+        m.moveTraceToTree(g.id, first);
+        expect(m.getActiveGroupId()).toBeNull();
+        expect(names(m.getAll())).toEqual(['keep']);
+        expectIndexConsistent(m);
+
+        m.switchTree(first);
+        expect(names(m.getAll())).toEqual(['g']);
+        expect(names(m.findTraceById(g.id)!.children!)).toEqual(['kid']);
+        expectIndexConsistent(m);
+        expect(() => m.moveTraceToTree(keep.id, second)).toThrow(/not found in the active tree/);
+    });
 });
 
 // ── Edits & anchoring ────────────────────────────────────────────

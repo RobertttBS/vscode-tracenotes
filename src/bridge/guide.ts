@@ -29,14 +29,26 @@ export const GUIDE = `Commands (run from inside the project folder; output is JS
   note <id> [text]                      Replace a trace's whole note, title included
                                         (argument, stdin, or --input <file>).
   title <id> <text>                     Replace only a trace's title (the note's first line).
-  move <id> (--parent <id> | --after <id> | --before <id> | --root)
-                                        Move a trace and its children within its tree.
+  tag <tag|none> <id> [<id> …]          Set (or with "none", clear) a trace's colour tag,
+                                        e.g. tag Todo <id>. The note is kept.
+  move <id> (--parent <id> | --after <id> | --before <id> | --root | --tree <id|name>)
+                                        Move a trace and its children; ids are kept. The
+                                        destination trace may be in another tree; --tree
+                                        moves to the end of that tree, --root to the root
+                                        of its own.
   rm <id> [<id> …]                      Remove traces and their children.
+  undo                                  Put back the last removed trace and its children
+                                        (run again for the one before; the last 50 are kept).
+  export [--tree <id|name>] [--id <traceId>]
+                                        A tree (default: the active tree), or one trace and
+                                        its children, as Markdown that create/add take back.
   check [--tree <id|name>]              List traces whose code no longer matches the file.
   refresh <id> [<id> …] [--lines <start>:<end>]
                                         Re-read a trace's code from its current lines (the
                                         closest match \`check\` reports), or from --lines
                                         (single id only); the note is kept.
+  refresh --all [--tree <id|name>]      Refresh every trace \`check\` reports with a closest
+                                        match. Orphaned ones stay in "warnings".
   rename [--tree <id|name>] <new name>  Rename a tree (default: the active tree).
   delete-tree --tree <id|name>          Delete a whole tree. Only for trees you created or
                                         the user asked you to delete.

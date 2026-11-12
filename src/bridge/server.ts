@@ -5,7 +5,8 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { TraceManager } from '../traceManager';
-import { HIGHLIGHT_TO_TAG, MAX_DEPTH, TracePoint, TraceTree } from '../types';
+import { generateMarkdown } from '../exporter';
+import { HIGHLIGHT_TO_TAG, HighlightColor, MAX_DEPTH, TracePoint, TraceTree } from '../types';
 import { SearchNode, collectHighlightTargets, matchTrace as matchQuery, parseQuery } from '../webview/utils/search';
 import { colorCommand } from './colors';
 import { GUIDE } from './guide';
@@ -102,6 +103,18 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             if (!tree) { throw new Error('No active trace tree.'); }
             return { workspace: workspaceRoots(), ...describeTree(tree) };
         }
+        case 'export': {
+            // Read-only: the Markdown `create`/`add` take back.
+            if (a.id) {
+                const hit = locate(tm, a.id);
+                if (!hit) { throw new Error(`No trace with id ${a.id}.`); }
+                if (a.tree && findTree(tm, a.tree).id !== hit.tree.id) { throw new Error(`Trace ${a.id} is not in tree "${a.tree}".`); }
+                return { markdown: generateMarkdown([hit.trace]) };
+            }
+            const tree = treeOrActive(tm, a.tree);
+            if (!tree) { throw new Error('No active trace tree.'); }
+            return { markdown: generateMarkdown(tree.traces) };
+        }
         case 'find': {
             // Read-only, across every tree (or --tree): never switches the user's active tree.
             // The panel's search syntax and fields (note + code), so both find the same cards.
@@ -177,11 +190,28 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             return { tree: tree.name, warnings: warnings ?? [] };
         }
         case 'refresh': {
-            const list = ids(a.id);
+            if (a.all && (a.id || a.lines)) { throw new Error('--all takes no trace ids and no --lines.'); }
+            const validated = new Set<string>();
+            let list: string[];
+            let all: TraceTree | undefined;
+            if (a.all) {
+                // Every trace `check` would say differs from the file at its closest match.
+                all = treeOrActive(tm, a.tree);
+                if (!all) { throw new Error('No active trace tree.'); }
+                activate(tm, all);
+                await tm.validateActiveTreeBackground();
+                validated.add(all.id);
+                list = [];
+                for (const t of tm.getAllFlat()) {
+                    if (!t.filePath || t.orphaned) { continue; }
+                    try { if (norm(await codeAt(t)) !== norm(t.content)) { list.push(t.id); } } catch { /* unreadable: reported below */ }
+                }
+            } else {
+                list = ids(a.id);
+            }
             if (a.lines && list.length > 1) { throw new Error('--lines takes a single trace id.'); }
             // Check every id before changing any, like `rm`.
             const plan: [string, vscode.TextDocument, vscode.Selection][] = [];
-            const validated = new Set<string>();
             for (const id of list) {
                 focusTreeOf(tm, id);
                 const treeId = tm.getActiveTreeData()!.id;
@@ -202,7 +232,23 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
                 tm.relocateTrace(id, doc, sel);
                 done.push(tm.findTraceById(id)!);
             }
-            return { refreshed: done.map(t => brief({ ...t, children: undefined })) };
+            const result = { refreshed: done.map(t => brief({ ...t, children: undefined })) };
+            // --all: what it could not fix (orphaned, unreadable) is still listed.
+            return all ? withWarnings(result, (tm.getTreesReadonly().find(t => t.id === all.id) ?? all).traces) : result;
+        }
+        case 'tag': {
+            const list = ids(a.id);
+            const name = need(a.tag, 'tag');
+            const colour = /^none$/i.test(name) ? null
+                : (Object.keys(HIGHLIGHT_TO_TAG) as HighlightColor[]).find(c => HIGHLIGHT_TO_TAG[c] === parseTag(name))!;
+            list.forEach(id => focusTreeOf(tm, id)); // fail before changing anything
+            return { tagged: list.map(id => { focusTreeOf(tm, id); tm.updateHighlight(id, colour); return brief({ ...tm.findTraceById(id)!, children: undefined }); }) };
+        }
+        case 'undo': {
+            // The panel's Ctrl+Z stack: the last removed card and its children, back where it was.
+            const id = tm.undoRemove();
+            if (!id) { throw new Error('Nothing to undo: no removed trace is left to restore.'); }
+            return { restored: brief(tm.findTraceById(id)!), tree: tm.getActiveTreeData()?.name };
         }
         case 'note': {
             const id = need(a.id, 'trace id');
@@ -222,14 +268,26 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
         }
         case 'move': {
             const id = need(a.id, 'trace id');
-            const dests = [a.parent, a.after, a.before, a.root].filter(Boolean);
-            if (dests.length !== 1) { throw new Error('move needs exactly one of --parent <id>, --after <id>, --before <id>, --root.'); }
-            focusTreeOf(tm, id);
+            const dests = [a.parent, a.after, a.before, a.root, a.tree].filter(Boolean);
+            if (dests.length !== 1) { throw new Error('move needs exactly one of --parent <id>, --after <id>, --before <id>, --root, --tree <id|name>.'); }
             const anchor = a.parent ?? a.after ?? a.before;
-            if (anchor && !tm.findTraceById(anchor)) { throw new Error(`Trace ${anchor} is not in the same tree as ${id}.`); }
             const sibling = a.after ?? a.before;
-            tm.moveTrace(id, sibling ? { beside: sibling, after: !!a.after } : { parentId: a.parent ?? null });
-            return { moved: id, parent: tm.getParentGroupId(id) ?? null };
+            // Resolve everything read-only first: a rejected move changes nothing.
+            const from = locate(tm, id);
+            if (!from) { throw new Error(`No trace with id ${id}.`); }
+            const to = anchor ? locate(tm, anchor) : undefined;
+            if (anchor && !to) { throw new Error(`No trace with id ${anchor}.`); }
+            const target = a.tree ? findTree(tm, a.tree) : to?.tree ?? from.tree;
+            const baseDepth = to ? to.depth + (a.parent ? 1 : 0) : 0;
+            if (baseDepth + height([from.trace]) > MAX_DEPTH) { throw new Error(`The move would exceed the maximum nesting depth of ${MAX_DEPTH}.`); }
+            focusTreeOf(tm, id);
+            if (target.id !== from.tree.id || a.tree) {
+                // Another tree: to its root first, then into place (depth already checked above).
+                tm.moveTraceToTree(id, target.id);
+                activate(tm, target);
+            }
+            if (!a.tree) { tm.moveTrace(id, sibling ? { beside: sibling, after: !!a.after } : { parentId: a.parent ?? null }); }
+            return { moved: id, tree: target.name, parent: tm.getParentGroupId(id) ?? null };
         }
         case 'rm': {
             const list = ids(a.id);
@@ -394,10 +452,17 @@ function focusTreeOf(tm: TraceManager, id: string): void {
     activate(tm, tree);
 }
 
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+/** The file's text at a trace's range now; throws when the file can't be read. */
+async function codeAt(t: TracePoint): Promise<string> {
+    const doc = await vscode.workspace.openTextDocument(t.filePath);
+    return doc.getText(new vscode.Range(doc.positionAt(t.rangeOffset[0]), doc.positionAt(t.rangeOffset[1])));
+}
+
 /** Flags traces whose code doesn't match the file where they were anchored (stale or miscopied). */
 async function withWarnings<T extends object>(result: T, traces: TracePoint[], before?: Map<string, string>): Promise<T & { warnings?: string[] }> {
     const warnings: string[] = [];
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     const visit = async (t: TracePoint): Promise<void> => {
         if (t.filePath) {
             const where = `${t.id} (${vscode.workspace.asRelativePath(t.filePath, false)})`;
@@ -405,8 +470,7 @@ async function withWarnings<T extends object>(result: T, traces: TracePoint[], b
                 warnings.push(`${where}: code not found in the file; the trace is orphaned. Run \`tracenotes refresh ${t.id} --lines <start>:<end>\`.`);
             } else {
                 try {
-                    const doc = await vscode.workspace.openTextDocument(t.filePath);
-                    const text = doc.getText(new vscode.Range(doc.positionAt(t.rangeOffset[0]), doc.positionAt(t.rangeOffset[1])));
+                    const text = await codeAt(t);
                     if (norm(text) !== norm(t.content)) {
                         const now = lineSpan(t.lineRange!);
                         const was = before?.get(t.id);

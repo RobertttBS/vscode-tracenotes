@@ -2230,6 +2230,26 @@ export class TraceManager implements vscode.Disposable {
         this._onDidChangeTraces.fire();
     }
 
+    /** Move a trace (with its children) from the active tree to the end of another tree's root. */
+    public moveTraceToTree(id: string, treeId: string): void {
+        if (treeId === this.activeTreeId) { return this.moveTrace(id, { parentId: null }); }
+        const trace = this.findTraceById(id);
+        if (!trace) { throw new Error(`Trace ${id} not found in the active tree.`); }
+        const tree = this.trees.find(t => t.id === treeId);
+        if (!tree) { throw new Error(`No trace tree ${treeId}.`); }
+
+        this.removeFromTree(id);
+        tree.traces.push(trace);
+        tree.updatedAt = Date.now();
+        this.rebuildTraceIndex();
+        if (this.activeGroupId && !this.findTraceById(this.activeGroupId)) {
+            this.activeGroupId = null;
+            this.persistActiveGroup();
+        }
+        this.persist();
+        this._onDidChangeTraces.fire();
+    }
+
     private height(list: TracePoint[]): number {
         return list.reduce((h, t) => Math.max(h, 1 + this.height(t.children ?? [])), 0);
     }

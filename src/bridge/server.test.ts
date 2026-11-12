@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { Uri, workspace, config, makeDoc } from '../test/vscodeMock';
 import { TraceManager } from '../traceManager';
-import type { TracePoint } from '../types';
+import { HIGHLIGHT_TO_TAG, type TracePoint } from '../types';
 import { handle, syncAgentSkills } from './server';
 
 const CODE = 'const a = 1;\nfunction target() { return 42; }\nconst z = 2;\n';
@@ -287,6 +287,93 @@ describe('bridge handle()', () => {
         expect(await titles('login -legacy')).toEqual(['bcrypt login', 'argon2 login']);
         expect(await titles('login NOT (bcrypt OR argon2)')).toEqual(['legacy md5 login']);
         await expect(run('find', { text: '-login' })).rejects.toThrow(/nothing to look for/);
+    });
+
+    it('tag sets and clears the colour tag of several traces, and rejects an unknown tag or id', async () => {
+        const a = card('a'), b = card('b');
+        m.add(a); m.add(b);
+        await run('tag', { tag: 'todo', id: `${a.id} ${b.id}` });
+        expect([a.highlight, b.highlight].map(h => h && HIGHLIGHT_TO_TAG[h])).toEqual(['Todo', 'Todo']);
+        await run('tag', { tag: 'none', id: a.id });
+        expect(a.highlight).toBeNull();
+        await expect(run('tag', { tag: 'Nope', id: a.id })).rejects.toThrow(/Unknown tag/);
+        await expect(run('tag', { tag: 'Tip', id: `${b.id} missing` })).rejects.toThrow(/No trace with id missing/);
+        expect(HIGHLIGHT_TO_TAG[b.highlight!]).toBe('Todo');
+        expect(a.note).toBe('a');
+    });
+
+    it('undo puts back what rm removed, children included, newest first', async () => {
+        const a = card('a', { children: [card('kid')] }), b = card('b');
+        m.add(a); m.add(b);
+        await run('rm', { id: `${a.id} ${b.id}` });
+        expect((await run('undo')).restored.id).toBe(b.id);
+        expect((await run('undo')).restored.children[0].title).toBe('kid');
+        expect(m.getTreesReadonly()[0].traces.map(t => t.id)).toEqual([a.id, b.id]);
+        await expect(run('undo')).rejects.toThrow(/Nothing to undo/);
+    });
+
+    it('refresh --all re-reads only traces that differ, and still lists the orphaned', async () => {
+        const same = codeCard('same', path.join(root, 'same.ts'));
+        const drifted = codeCard('drifted', path.join(root, 'drift.ts'), CODE.replace('42', '43'));
+        const gone = codeCard('gone', path.join(root, 'gone.ts'), 'nothing alike here\n');
+        [same, drifted, gone].forEach(t => m.add(t));
+        const r = await run('refresh', { all: 'true' });
+        expect(r.refreshed.map((t: any) => t.id)).toEqual([drifted.id]);
+        expect(m.findTraceById(drifted.id)!.content).toContain('43');
+        expect(r.warnings).toHaveLength(1);
+        expect(r.warnings[0]).toContain(gone.id);
+        await expect(run('refresh', { all: 'true', id: same.id })).rejects.toThrow(/--all takes no/);
+    });
+
+    it('move takes a trace and its children to another tree, keeping ids', async () => {
+        const a = card('a', { children: [card('kid')] }), keep = card('keep');
+        m.add(a); m.add(keep);
+        m.createTree('Other');
+        const x = card('x'), y = card('y');
+        m.add(x); m.add(y);
+        const other = m.getActiveTreeData()!.id;
+
+        expect(await run('move', { id: a.id, before: y.id })).toMatchObject({ moved: a.id, tree: 'Other', parent: null });
+        const trees = m.getTreesReadonly();
+        expect(trees.find(t => t.id === other)!.traces.map(t => t.id)).toEqual([x.id, a.id, y.id]);
+        expect(trees.find(t => t.id !== other)!.traces.map(t => t.id)).toEqual([keep.id]);
+        expect(m.findTraceById(a.id)!.children![0].note).toBe('kid');
+
+        await run('move', { id: a.id, tree: 'Default Trace' });
+        expect(m.getTreesReadonly().find(t => t.id !== other)!.traces.map(t => t.id)).toEqual([keep.id, a.id]);
+        await run('move', { id: x.id, parent: a.id });
+        expect(m.findTraceById(a.id)!.children!.map(t => t.note)).toEqual(['kid', 'x']);
+        await expect(run('move', { id: y.id, tree: 'Nope' })).rejects.toThrow(/No trace tree/);
+        await expect(run('move', { id: y.id, tree: 'Other', root: 'true' })).rejects.toThrow(/exactly one/);
+    });
+
+    it('move to another tree refuses to exceed the depth limit and changes nothing', async () => {
+        let deep = card('leaf');
+        for (let i = 0; i < 4; i++) { deep = card(`d${i}`, { children: [deep] }); }
+        m.add(deep);
+        m.createTree('Other');
+        let chain = card('bottom');
+        const bottom = chain;
+        for (let i = 0; i < 6; i++) { chain = card(`c${i}`, { children: [chain] }); }
+        m.add(chain);
+        await expect(run('move', { id: deep.id, parent: bottom.id })).rejects.toThrow(/maximum nesting depth/);
+        expect(m.getTreesReadonly().map(t => t.traces.length)).toEqual([1, 1]);
+        expect(activeName()).toBe('Other'); // a rejected move doesn't switch trees either
+    });
+
+    it('export writes Markdown that create takes back', async () => {
+        const a = codeCard('entry', path.join(root, 'a.ts'));
+        a.highlight = 'red';
+        a.children = [card('why')];
+        m.add(a);
+        const { markdown } = await run('export');
+        await run('create', { name: 'Copy', markdown });
+        const copy = m.getTreesReadonly().find(t => t.name === 'Copy')!.traces;
+        expect(copy.map(t => [t.note, t.highlight, t.content, t.children?.[0].note])).toEqual([['entry', 'red', SNIPPET, 'why']]);
+        expect((await run('export', { id: a.children[0].id })).markdown).toContain('## 1. why');
+        expect(activeName()).toBe('Copy');
+        await expect(run('export', { id: a.id, tree: 'Copy' })).rejects.toThrow(/not in tree "Copy"/);
+        expect((await run('export', { id: a.id, tree: 'Default Trace' })).markdown).toContain('entry');
     });
 
     it('create, rename and delete-tree address trees by name', async () => {
