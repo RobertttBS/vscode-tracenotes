@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { WindowEntry, entryFile, pickEntry, readEntries, sweepStale } from './registry';
+import { WindowEntry, entryFile, pickEntry, readEntries, sweepStale, projectMatches } from './registry';
 
 const entry = (pid: number, ...folders: string[]): WindowEntry => ({ pid, socket: `/s/${pid}`, token: 't', folders });
 
@@ -32,6 +32,15 @@ describe('pickEntry', () => {
 
     it('returns undefined when no window has cwd open', () => {
         expect(pickEntry([a, b], '/elsewhere')).toBeUndefined();
+    });
+});
+
+describe('projectMatches', () => {
+    it('accepts the whole id or its last segments, not a partial segment', () => {
+        expect(projectMatches('github.com/Acme/api', 'github.com/acme/api')).toBe(true);
+        expect(projectMatches('github.com/acme/api', 'API')).toBe(true);
+        expect(projectMatches('github.com/acme/api', 'acme/api')).toBe(true);
+        expect(projectMatches('github.com/acme/my-api', 'api')).toBe(false);
     });
 });
 

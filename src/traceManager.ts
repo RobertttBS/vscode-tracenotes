@@ -288,6 +288,11 @@ export class TraceManager implements vscode.Disposable {
         return this.fileStorage.listProjects();
     }
 
+    /** Another project's stored trees, for reading only; nothing here is indexed or saved. */
+    public readProjectTrees(id: string) {
+        return this.fileStorage.readProjectTrees(id);
+    }
+
     /**
      * Re-resolves the project after `tracenotes.projectId` changed and loads its
      * traces, optionally merging this window's current traces into it.

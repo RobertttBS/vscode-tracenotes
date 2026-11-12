@@ -10,7 +10,7 @@ import { HIGHLIGHT_TO_TAG, HighlightColor, MAX_DEPTH, TracePoint, TraceTree } fr
 import { SearchNode, collectHighlightTargets, matchTrace as matchQuery, parseQuery } from '../webview/utils/search';
 import { colorCommand } from './colors';
 import { GUIDE } from './guide';
-import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, removeEntry, shimPath, sweepStale, writeAtomic } from './registry';
+import { BIN_DIR, RUN_DIR, SHIM_PATH, WindowEntry, entryFile, projectMatches, readEntries, removeEntry, shimPath, isAlive, sweepStale, writeAtomic } from './registry';
 
 /**
  * Lets external AI agents (Claude Code, Codex, Cursor, …) edit trace trees through the
@@ -42,17 +42,27 @@ export function startBridge(context: vscode.ExtensionContext, traceManager: Trac
         token,
         folders: (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath),
         host,
+        project,
     });
-    const register = () => writeAtomic(entryFile(process.pid), JSON.stringify(entry()), 0o600);
+    // A project lookup still in flight at dispose must not write the entry back.
+    let disposed = false;
+    const register = () => { if (!disposed) { writeAtomic(entryFile(process.pid), JSON.stringify(entry()), 0o600); } };
+    // The project ID resolves asynchronously and changes with "Set Project ID".
+    let project: string | undefined;
+    const syncProject = async () => {
+        const id = (await traceManager.getProject().catch(() => undefined))?.id;
+        if (id !== project) { project = id; register(); }
+    };
 
     if (process.platform !== 'win32') { fs.rmSync(socket, { force: true }); }
     const server = net.createServer(conn => serve(conn, token, traceManager));
     server.on('error', err => console.error('TraceNotes: AI bridge server error', err));
-    server.listen(socket, register);
+    server.listen(socket, () => { register(); void syncProject(); });
 
     context.subscriptions.push(
-        vscode.workspace.onDidChangeWorkspaceFolders(register),
-        { dispose: () => { server.close(); removeEntry(entry()); } },
+        vscode.workspace.onDidChangeWorkspaceFolders(() => { register(); void syncProject(); }),
+        traceManager.onDidChangeTraces(() => void syncProject()),
+        { dispose: () => { disposed = true; server.close(); removeEntry(entry()); } },
     );
     syncAgentSkills(context.extensionPath);
 }
@@ -85,9 +95,65 @@ function serve(conn: net.Socket, token: string, tm: TraceManager): void {
     });
 }
 
-/** Exported for tests. */
-export async function handle(tm: TraceManager, op: string, a: Record<string, string | undefined>): Promise<unknown> {
+/** Exported for tests. `storedRoots`: `tm` is a stored project's trees (root-relative paths) with these folders. */
+export async function handle(tm: TraceManager, op: string, a: Record<string, string | undefined>, storedRoots?: string[]): Promise<unknown> {
     await tm.ensureReady();
+    if (op === 'projects') {
+        const own = (await tm.getProject())?.id;
+        const open = new Set(readEntries().filter(e => isAlive(e.pid)).map(e => e.project)) // a crashed window leaves its entry behind;
+        return Promise.all((await tm.listProjects()).map(async p => ({
+            id: p.id,
+            folders: p.folders,
+            trees: p.id === own ? tm.getTreesReadonly().length : (await tm.readProjectTrees(p.id))?.length ?? 0,
+            open: p.id === own || open.has(p.id),
+            current: p.id === own || undefined,
+        })));
+    }
+    if (op === 'find' && a.allProjects) {
+        if (a.tree || a.project) { throw new Error('--all-projects takes no --tree and no --project.'); }
+        const own = (await tm.getProject())?.id;
+        let count = 0;
+        const matches: object[] = [];
+        for (const p of await tm.listProjects()) {
+            const r = await handle(tm, 'find', { ...a, allProjects: undefined, project: p.id }) as { count: number; matches: object[]; result?: { count: number; matches: object[] } };
+            const found = r.result ?? r;
+            count += found.count;
+            matches.push(...found.matches.map(m => ({ project: p.id, ...m })));
+        }
+        const LIMIT = 50;
+        return {
+            count,
+            note: own ? `Locations in projects other than "${own}" are as last saved and may be stale.` : undefined,
+            matches: matches.slice(0, LIMIT),
+            truncated: matches.length > LIMIT ? `Showing the first ${LIMIT}; narrow the search with --project, --file, --tag or more words.` : undefined,
+        };
+    }
+    if (a.project) {
+        const all = await tm.listProjects();
+        const hits = all.some(p => p.id === a.project) ? all.filter(p => p.id === a.project) : all.filter(p => projectMatches(p.id, a.project!));
+        if (hits.length !== 1) {
+            throw new Error(`${hits.length ? `"${a.project}" matches several projects` : `No project "${a.project}"`}. Projects: ${(hits.length ? hits : all).map(p => p.id).join(', ') || '(none)'}.`);
+        }
+        const project = hits[0];
+        a = { ...a, project: undefined };
+        if (project.id !== (await tm.getProject())?.id) {
+            // Not this window's project: its stored trees, read-only. Nothing is loaded into TraceManager.
+            if (!['list', 'show', 'find', 'export'].includes(op)) {
+                throw new Error(`Project "${project.id}" is not open in this window, so only list, show, find and export work on it. Open ${project.folders[0] ?? 'it'} in the editor to run \`${op}\`.`);
+            }
+            const trees = await tm.readProjectTrees(project.id) ?? [];
+            const stored = {
+                ensureReady: async () => {},
+                getTreesReadonly: () => trees,
+                getTreeList: () => trees.map(t => ({ id: t.id, name: t.name, active: false })),
+                // ponytail: no cursor is stored per project; a lone tree counts as the active one.
+                getActiveTreeData: () => trees.length === 1 ? trees[0] : undefined,
+            } as unknown as TraceManager;
+            const result = await handle(stored, op, a, project.folders);
+            if (result && typeof result === 'object' && 'workspace' in result) { (result as { workspace: string[] }).workspace = project.folders; }
+            return { storedProject: project.id, result };
+        }
+    }
     switch (op) {
         case 'list':
             return tm.getTreeList();
@@ -100,7 +166,7 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
                 return describeTrace(hit.trace);
             }
             const tree = treeOrActive(tm, a.tree);
-            if (!tree) { throw new Error('No active trace tree.'); }
+            if (!tree) { throw new Error('No active trace tree; pass --tree <id|name>.'); }
             return { workspace: workspaceRoots(), ...describeTree(tree) };
         }
         case 'export': {
@@ -112,7 +178,7 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
                 return { markdown: generateMarkdown([hit.trace]) };
             }
             const tree = treeOrActive(tm, a.tree);
-            if (!tree) { throw new Error('No active trace tree.'); }
+            if (!tree) { throw new Error('No active trace tree; pass --tree <id|name>.'); }
             return { markdown: generateMarkdown(tree.traces) };
         }
         case 'find': {
@@ -120,7 +186,7 @@ export async function handle(tm: TraceManager, op: string, a: Record<string, str
             // The panel's search syntax and fields (note + code), so both find the same cards.
             const query = a.text?.trim() ? parseQuery(a.text) : null;
             if (a.text?.trim() && !query) { throw new Error(`"${a.text}" has nothing to look for: give at least one word that isn't negated.`); }
-            const file = a.file ? parseFileRef(a.file) : undefined;
+            const file = a.file ? parseFileRef(a.file, storedRoots) : undefined;
             const tag = a.tag ? parseTag(a.tag) : undefined;
             if (!query && !file && !tag) { throw new Error('Give search text, --file <path>[:<line>[-<line>]], --tag <tag>, or a mix.'); }
             const trees = a.tree ? [findTree(tm, a.tree)] : tm.getTreesReadonly();
@@ -350,8 +416,11 @@ function locate(tm: TraceManager, id: string): { tree: TraceTree; trace: TracePo
 /** `paths` are files, or folder prefixes (ending in a separator) when `dir`. */
 interface FileRef { paths: string[]; dir: boolean; lines?: [number, number] }
 
-/** `path`, `path:40` or `path:40-52` (1-based), or a folder; relative to a workspace root or absolute. */
-function parseFileRef(ref: string): FileRef {
+/**
+ * `path`, `path:40` or `path:40-52` (1-based), or a folder; relative to a workspace root or absolute.
+ * With `storedRoots` (a project read from disk) the result is root-relative, as its traces are.
+ */
+function parseFileRef(ref: string, storedRoots?: string[]): FileRef {
     const m = /^(.*?):(\d+)(?:-(\d+))?$/.exec(ref);
     const p = m ? m[1] : ref;
     let lines: [number, number] | undefined;
@@ -360,9 +429,19 @@ function parseFileRef(ref: string): FileRef {
         if (s < 1 || e < s) { throw new Error(`Bad line range in "${ref}": use <line> or <start>-<end>, 1-based.`); }
         lines = [s - 1, e - 1];
     }
-    const paths = path.isAbsolute(p) ? [p] : workspaceRoots().map(r => path.join(r, p));
+    const roots = storedRoots ?? workspaceRoots();
+    let paths = path.isAbsolute(p) ? [p] : roots.map(r => path.join(r, p));
     const isDir = (q: string) => { try { return fs.statSync(q).isDirectory(); } catch { return false; } };
-    const dir = /[\\/]$/.test(p) || p === '.' || paths.some(isDir);
+    let dir = /[\\/]$/.test(p) || p === '.' || paths.some(isDir);
+    if (storedRoots) {
+        paths = (path.isAbsolute(p)
+            ? roots.map(r => path.relative(r, p)).filter(rel => !rel.startsWith('..') && !path.isAbsolute(rel))
+            : [p]).map(q => /^\.?$/.test(path.normalize(q)) ? '' : q);
+        // '' is the root itself: a folder (on this disk or not) whose prefix matches every trace.
+        dir ||= paths.includes('');
+        if (dir && lines) { throw new Error(`"${p}" is a folder; line numbers only work with a file.`); }
+        return { paths: paths.map(q => !q ? '' : dir ? path.join(samePath(q), path.sep) : samePath(q)), dir, lines };
+    }
     if (dir && lines) { throw new Error(`"${p}" is a folder; line numbers only work with a file.`); }
     return { paths: paths.map(q => dir ? path.join(samePath(q), path.sep) : samePath(q)), dir, lines };
 }

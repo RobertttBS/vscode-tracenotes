@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import { parseArgs } from 'util';
 import { GUIDE } from './bridge/guide';
-import { WindowEntry, pickEntry, readEntries, removeEntry } from './bridge/registry';
+import { WindowEntry, pickEntry, projectMatches, readEntries, removeEntry } from './bridge/registry';
 import { asciiSafe, decodeText } from './bridge/text';
 
 const HELP = `tracenotes — create and edit TraceNotes trace trees in the VS Code window
@@ -43,15 +43,22 @@ function request(entry: WindowEntry, op: string, args: Record<string, string | u
     });
 }
 
-/** Send to the window that has cwd open, discarding entries of windows that are gone. */
-async function send(op: string, args: Record<string, string | undefined>): Promise<unknown> {
+/**
+ * Send to the window that has cwd open, discarding entries of windows that are gone.
+ * `anyWindow` (cross-project commands): the window of args.project if one is open,
+ * else the cwd's, else any — every window can read every stored project.
+ */
+async function send(op: string, args: Record<string, string | undefined>, anyWindow = false): Promise<unknown> {
     // Set by the per-editor launcher (tracenotes-cursor, tracenotes-code, …).
     const host = process.env.TRACENOTES_HOST || undefined;
     // The generic launcher belongs to whichever editor started last, so it names none.
     const editor = host ? ({ code: 'VS Code', cursor: 'Cursor', antigravity: 'Antigravity' } as Record<string, string>)[host] ?? host : 'editor';
     let entries = readEntries();
     for (;;) {
-        const entry = pickEntry(entries, process.cwd(), host);
+        const mine = entries.filter(e => !host || e.host === host);
+        const named = (exact: boolean) => mine.find(e => e.project && args.project && (exact ? e.project === args.project : projectMatches(e.project, args.project)));
+        const entry = (anyWindow ? named(true) ?? named(false) : undefined) ?? pickEntry(entries, process.cwd(), host) ?? (anyWindow ? mine[0] : undefined);
+        if (!entry && anyWindow) { throw new Error(`No ${editor} window with TraceNotes is open. Open any project in ${host ? editor : 'VS Code, Cursor or Antigravity'} and retry.`); }
         if (!entry) {
             throw new Error(`No ${editor} window with TraceNotes has ${process.cwd()} open. Open the project in ${host ? editor : 'VS Code, Cursor or Antigravity'} and retry.`);
         }
@@ -82,14 +89,15 @@ function outline(tree: Outlined): string {
     return lines.join('\n') + '\n';
 }
 
-interface Found { count: number; truncated?: string; matches: { id: string; tree: string; title: string; tag?: string; at?: string; match?: string }[] }
+interface Found { count: number; truncated?: string; note?: string; matches: { id: string; project?: string; tree: string; title: string; tag?: string; at?: string; match?: string }[] }
 
 /** `find --outline`: one line per match — id, [tag], title, location, (tree), matching line. */
 function findOutline(r: Found): string {
-    const lines = r.matches.map(m => [`${m.id}  ${m.tag ? `[${m.tag}] ` : ''}${m.title}`, m.at, `(${m.tree})`, m.match && `— ${m.match}`]
+    const lines = r.matches.map(m => [`${m.id}  ${m.tag ? `[${m.tag}] ` : ''}${m.title}`, m.at, `(${m.project ? `${m.project} / ` : ''}${m.tree})`, m.match && `— ${m.match}`]
         .filter(Boolean).join('  '));
     if (!r.count) { lines.push('No matches.'); }
     if (r.truncated) { lines.push(r.truncated); }
+    if (r.note) { lines.push(r.note); }
     return lines.join('\n') + '\n';
 }
 
@@ -100,14 +108,14 @@ async function main(argv: string[]): Promise<void> {
         options: {
             name: { type: 'string' }, tree: { type: 'string' }, parent: { type: 'string' },
             after: { type: 'string' }, before: { type: 'string' }, lines: { type: 'string' }, outline: { type: 'boolean' },
-            id: { type: 'string' }, file: { type: 'string' }, input: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, all: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
+            id: { type: 'string' }, file: { type: 'string' }, input: { type: 'string' }, tag: { type: 'string' }, root: { type: 'boolean' }, all: { type: 'boolean' }, project: { type: 'string' }, 'all-projects': { type: 'boolean' }, 'dry-run': { type: 'boolean' }, scope: { type: 'string' }, theme: { type: 'string' }, quiet: { type: 'boolean', short: 'q' }, help: { type: 'boolean', short: 'h' },
         },
     });
     const [cmd, id, ...rest] = positionals;
     if (!cmd || cmd === 'help' || values.help) { process.stdout.write(HELP); return; }
 
     const args: Record<string, string | undefined> = { name: values.name, tree: values.tree, parent: values.parent, after: values.after, before: values.before, lines: values.lines, id,
-        root: values.root ? 'true' : undefined, all: values.all ? 'true' : undefined, dryRun: values['dry-run'] ? 'true' : undefined };
+        root: values.root ? 'true' : undefined, all: values.all ? 'true' : undefined, project: values.project, allProjects: values['all-projects'] ? 'true' : undefined, dryRun: values['dry-run'] ? 'true' : undefined };
     if (cmd === 'show') { args.id = values.id; }
     if (cmd === 'find') { args.text = [id, ...rest].join(' ') || undefined; args.id = undefined; args.file = values.file; args.tag = values.tag; }
     if (cmd === 'title') { args.text = rest.join(' '); }
@@ -120,7 +128,12 @@ async function main(argv: string[]): Promise<void> {
     if (cmd === 'create' || cmd === 'add') { args.markdown = readInput(values.input); }
     if (cmd === 'note') { args.text = rest.length ? rest.join(' ') : readInput(values.input).replace(/\n$/, ''); }
 
-    let result = await send(cmd, args);
+    let result = await send(cmd, args, !!(values.project || values['all-projects'] || cmd === 'projects'));
+    const stored = result as { storedProject?: string; result?: unknown } | null;
+    if (stored && typeof stored === 'object' && stored.storedProject) {
+        emit(process.stderr, `tracenotes: project "${stored.storedProject}" is not open in a window; locations are as last saved and may be stale.\n`);
+        result = stored.result;
+    }
     if (values.quiet && (cmd === 'create' || cmd === 'add') && !values['dry-run']) {
         // `--quiet`: drop the per-trace list; ids are one `show --outline` away.
         const { traces, added, ...rest } = result as Outlined & { added?: Outlined[] };

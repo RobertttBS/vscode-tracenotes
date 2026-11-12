@@ -63,6 +63,14 @@ export const GUIDE = `Commands (run from inside the project folder; output is JS
   color reset [<key> …] [--scope user|workspace] [--theme <name>]
                                         Remove overrides (all TraceNotes ones if no key).
                                         Only change colours when the user asks.
+  projects                              Every project with saved trees: id, folders, tree
+                                        count, and whether a window has it open.
+Other projects: add --project <id> (the id, or its last part, e.g. the repo name) to
+any command, from any folder. A project open in a window works in full. One that is
+not open is read from disk: only list, show, find and export work, and its line
+numbers are as last saved (maybe stale). \`find --all-projects\` searches every
+project at once; each match names its project. Without these flags, commands only
+see the project of the current folder. Only look into other projects when the user asks.
 create/add reply with only ids, titles, tags, locations and "code" (the first line
 read at those lines: compare it with what you meant, to catch off-by-one line
 numbers); use \`show\` for the notes. "workspace" is the root that relative paths

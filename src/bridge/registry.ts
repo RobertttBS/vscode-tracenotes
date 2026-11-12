@@ -20,6 +20,14 @@ export interface WindowEntry {
     folders: string[];
     /** Editor that owns the window: `code`, `cursor`, … (from `vscode.env.uriScheme`). */
     host?: string;
+    /** Project ID of the window's first folder (see docs/specs/shared-project-traces.md). */
+    project?: string;
+}
+
+/** `ref` names project `id`: the whole ID, or its last path segment(s), case-insensitive. */
+export function projectMatches(id: string, ref: string): boolean {
+    const [a, b] = [id.toLowerCase(), ref.toLowerCase()];
+    return a === b || a.endsWith('/' + b);
 }
 
 export function entryFile(pid: number, dir = RUN_DIR): string {

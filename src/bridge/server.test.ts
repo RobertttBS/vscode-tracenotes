@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('vscode', () => import('../test/vscodeMock'));
 
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -374,6 +375,73 @@ describe('bridge handle()', () => {
         expect(activeName()).toBe('Copy');
         await expect(run('export', { id: a.id, tree: 'Copy' })).rejects.toThrow(/not in tree "Copy"/);
         expect((await run('export', { id: a.id, tree: 'Default Trace' })).markdown).toContain('entry');
+    });
+
+    /** Another project's shared directory on disk, as its own window would have saved it. */
+    function storeProject(id: string, folder: string, trees: object[]): void {
+        const dir = path.join(tmp, 'global', 'projects', createHash('sha1').update(id).digest('hex').slice(0, 16));
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify({ id, folders: [folder] }));
+        fs.writeFileSync(path.join(dir, 'tracenotes.data.json'), JSON.stringify(trees));
+    }
+    const otherTree = () => ({ id: 'tree-o', name: 'Auth flow', createdAt: 0, updatedAt: 0, traces: [
+        card('login entry', { filePath: 'src/auth.ts', lineRange: [4, 9], content: 'verifyPassword(user)', highlight: 'red', children: [card('hash check')] }),
+    ] });
+
+    it('projects lists every stored project; --project reads one that is not open, read-only', async () => {
+        m.add(card('mine'));
+        await m.flush();
+        storeProject('github.com/acme/other', '/work/other', [otherTree()]);
+
+        expect(await run('projects')).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: 'test-project', trees: 1, open: true, current: true }),
+            { id: 'github.com/acme/other', folders: ['/work/other'], trees: 1, open: false, current: undefined },
+        ]));
+
+        const shown = await run('show', { project: 'other' }); // last part of the id; the lone tree is the default
+        expect(shown.storedProject).toBe('github.com/acme/other');
+        expect(shown.result).toMatchObject({ name: 'Auth flow', workspace: ['/work/other'] });
+        expect(shown.result.traces[0]).toMatchObject({ note: 'login entry', file: 'src/auth.ts', lines: '5-10', tag: 'Important' });
+        expect((await run('list', { project: 'github.com/acme/other' })).result).toEqual([{ id: 'tree-o', name: 'Auth flow', active: false }]);
+        expect((await run('find', { project: 'other', file: 'src/auth.ts:6' })).result.count).toBe(1);
+        // --file against a stored project: the root, a folder that is not on this disk, an absolute path.
+        for (const file of ['.', 'src/', '/work/other/src/auth.ts', '/work/other']) {
+            expect((await run('find', { project: 'other', file })).result.count, file).toBe(1);
+        }
+        expect((await run('find', { project: 'other', file: '/work/elsewhere/src/auth.ts' })).result.count).toBe(0);
+        expect((await run('export', { project: 'other' })).result.markdown).toContain('%%Important%% login entry');
+
+        const id = shown.result.traces[0].id;
+        await expect(run('note', { project: 'other', id, text: 'x' })).rejects.toThrow(/not open in this window.*\/work\/other/);
+        await expect(run('show', { project: 'nope' })).rejects.toThrow(/No project "nope"\. Projects: .*github\.com\/acme\/other/);
+        // Nothing of the other project leaked into this window's trees.
+        expect(m.getTreesReadonly().map(t => t.name)).toEqual(['Default Trace']);
+        expect(activeName()).toBe('Default Trace');
+    });
+
+    it('a stored project falls back to its backup file', async () => {
+        storeProject('github.com/acme/other', '/work/other', [otherTree()]);
+        const dir = path.join(tmp, 'global', 'projects', createHash('sha1').update('github.com/acme/other').digest('hex').slice(0, 16));
+        fs.renameSync(path.join(dir, 'tracenotes.data.json'), path.join(dir, 'tracenotes.backup.json'));
+        fs.writeFileSync(path.join(dir, 'tracenotes.data.json'), '{ truncated');
+        expect((await run('show', { project: 'other' })).result.name).toBe('Auth flow');
+    });
+
+    it('--project naming this window\'s own project works in full', async () => {
+        const a = card('a');
+        m.add(a);
+        expect(await run('note', { project: 'test-project', id: a.id, text: 'edited' })).toMatchObject({ title: 'edited' });
+        expect((await run('show', { project: 'test-project' })).storedProject).toBeUndefined();
+    });
+
+    it('find --all-projects searches this project and the stored ones, naming each', async () => {
+        m.add(card('login button'));
+        await m.flush();
+        storeProject('github.com/acme/other', '/work/other', [otherTree()]);
+        const r = await run('find', { text: 'login', allProjects: 'true' });
+        expect(r.count).toBe(2);
+        expect(r.matches.map((x: any) => [x.project, x.title]).sort()).toEqual([['github.com/acme/other', 'login entry'], ['test-project', 'login button']]);
+        await expect(run('find', { text: 'login', allProjects: 'true', tree: 'x' })).rejects.toThrow(/--all-projects takes no/);
     });
 
     it('create, rename and delete-tree address trees by name', async () => {

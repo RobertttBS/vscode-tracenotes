@@ -97,6 +97,18 @@ export class FileStorageManager {
         return entries;
     }
 
+    /** A project's trees as stored (root-relative paths, the last writer's positions); read-only. */
+    public async readProjectTrees(id: string): Promise<TraceTree[] | null> {
+        const key = createHash('sha1').update(id).digest('hex').slice(0, 16);
+        // Same fallback as load(): the backup when the main file is missing or corrupt.
+        for (const name of [this.fileName, this.backupName]) {
+            const uri = vscode.Uri.joinPath(this.projectsDir, key, name);
+            const trees = this.parse<TraceTree[]>(await this.readText(uri), uri);
+            if (trees) { return trees; }
+        }
+        return null;
+    }
+
     /**
      * Drops this folder from its current project and forgets the cached ID, so the
      * next load resolves `tracenotes.projectId` afresh. Callers must re-`watch()`.
